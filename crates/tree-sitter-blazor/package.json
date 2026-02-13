@@ -1,0 +1,18 @@
+{
+  "name": "tree-sitter-blazor",
+  "version": "0.1.0",
+  "description": "Blazor/Razor grammar for tree-sitter",
+  "keywords": [
+    "tree-sitter",
+    "blazor",
+    "razor"
+  ],
+  "license": "MIT",
+  "main": "bindings/node",
+  "scripts": {
+    "generate": "tree-sitter generate"
+  },
+  "devDependencies": {
+    "tree-sitter-cli": "^0.25.0"
+  }
+}

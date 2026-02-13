@@ -1,0 +1,21 @@
+[package]
+name = "tree-sitter-blazor"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Tree-sitter grammar for Blazor/Razor syntax"
+repository = "https://github.com/greysquirr3l/coraline"
+homepage = "https://github.com/greysquirr3l/coraline"
+readme = "README.md"
+keywords = ["tree-sitter", "blazor", "razor", "parser", "grammar"]
+categories = ["parsing", "development-tools"]
+build = "build.rs"
+
+[lib]
+path = "bindings/rust/lib.rs"
+
+[dependencies]
+tree-sitter-language = "0.1"
+
+[build-dependencies]
+cc = "1"

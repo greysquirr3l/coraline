@@ -1,0 +1,1006 @@
+#![forbid(unsafe_code)]
+#![allow(
+    clippy::cast_precision_loss,
+    clippy::collapsible_if,
+    clippy::manual_ok_err,
+    clippy::map_unwrap_or,
+    clippy::missing_const_for_fn,
+    clippy::needless_pass_by_ref_mut,
+    clippy::needless_pass_by_value,
+    clippy::option_if_let_else,
+    clippy::redundant_clone,
+    clippy::significant_drop_tightening,
+    clippy::uninlined_format_args,
+    clippy::unused_self
+)]
+
+use std::collections::HashMap;
+use std::io::{self, BufRead, Write};
+use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+use crate::tools::{create_default_registry, ToolRegistry};
+
+const PROTOCOL_VERSION: &str = "2024-11-05";
+
+#[derive(Debug, Default)]
+pub struct McpServer {
+    project_ro)]
+pub struct McpServer {
+    project_root: Option<PathBuf>,
+    init_error: Option<String>,
+    tool_registry: Option<ToolRegistry>,
+}
+
+impl Default for McpServer {
+    fn default() -> Self {
+        Self {
+            project_root: None,
+            init_error: None,
+            tool_registry: None,
+        }
+    }
+#[derive(Debug, Serialize)]
+struct ServerInfo {
+    name: &'static str,
+    version: &'static str,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct InitializeParams {
+    root_uri: Option<String>,
+    workspace_folders: Option<Vec<WorkspaceFolder>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct WorkspaceFolder {
+    uri: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ToolCallParams {
+    name: String,
+    #[serde(default)]
+    arguments: HashMap<String, Value>,
+}
+
+#[derive(Debug, Serialize)]
+struct ToolResult {
+    content: Vec<ToolContent>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    is_error: Option<bool>,
+}
+
+#[derive(Debug, Serialize)]
+struct ToolContent {
+    r#type: &'static str,
+    text: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(untagged)]
+enum JsonRpcId {
+    String(String),
+    Number(i64),
+}
+
+fn json_rpc_id_from_value(value: &Value) -> Option<JsonRpcId> {
+    matclet mut server = Self {
+            project_root,
+            init_error: None,
+            tool_registry: None,
+        };
+        if let Some(ref root) = server.project_root {
+            server.initialize_tools(root.clone());
+        }
+        server => None,
+    }
+}
+
+impl McpServer {
+    pub fn new(project_root: Option<PathBuf>) -> Self {
+        Self {
+            project_root,
+            init_error: None,
+        }
+    }
+
+    pub fn start(&mut self) -> io::Result<()> {
+        let stdin = io::stdin();
+        let mut handle = stdin.lock();
+        let mut line = String::new();
+
+        loop {
+            line.clear();
+            let bytes = handle.read_line(&mut line)?;
+            if bytes == 0 {
+                break;
+            }
+
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+
+            match serde_json::from_str::<Value>(trimmed) {
+                Ok(message) => {
+                    if let Err(err) = self.handle_message(message) {
+                        self.send_error(None, -32603, &format!("Internal error: {err}"), None)?;
+                    }
+                }
+                Err(_) => {
+                    self.send_error(None, -32700, "Parse error: invalid JSON", None)?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn handle_message(&mut self, message: Value) -> io::Result<()> {
+        let method = message.get("method").and_then(|m| m.as_str()).unwrap_or("");
+        let id = message.get("id").and_then(json_rpc_id_from_value);
+
+        match method {
+            "initialize" => {
+                if let Some(id) = id {
+                    self.handle_initialize(id, message.get("params"))?;
+                }
+            }
+            "tools/list" => {
+                if let Some(id) = id {
+                    self.handle_tools_list(id)?;
+                }
+            }
+            "tools/call" => {
+                if let Some(id) = id {
+                    self.handle_tools_call(id, message.get("params"))?;
+                }
+            }
+            "ping" => {
+                if let Some(id) = id {
+                    self.send_result(id, serde_json::json!({}))?;
+                }
+            }
+            _ => {
+                if let Some(id) = id {
+                    self.send_error(
+                        Some(id),
+                        -32601,
+                        &format!("Method not found: {method}"),
+                        None,
+                    )?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn handle_initialize(&mut self, id: JsonRpcId, params: Option<&Value>) -> io::Result<()> {
+        let mut project_root = self.project_root.clone();
+
+        if let Some(params) = params {.clone();
+        self.initialize_codegraph();
+        
+        if let Some(root) = project_root {
+            self.initialize_tools(root);
+        }e_json::from_value::<InitializeParams>(params.clone()) {
+                if let Some(root_uri) = parsed.root_uri {
+                    project_root = Some(PathBuf::from(strip_file_uri(&root_uri)));
+                } else if let Some(folders) = parsed.workspace_folders {
+                    if let Some(folder) = folders.first() {
+                        project_root = Some(PathBuf::from(strip_file_uri(&folder.uri)));
+                    }
+                }
+            }
+        }
+
+        if project_rmatch &self.tool_registry {
+            Some(registry) => registry.get_tool_metadata(),
+            None => Vec::new(),
+        }
+            project_root = std::env::current_dir().ok();
+        }
+
+        self.project_root = project_root;
+        self.initialize_codegraph();
+
+        let response = serde_json::json!({
+            "protocolVersion": PROTOCOL_VERSION,
+            "capabilities": { "tools": {} },
+            "serverInfo": ServerInfo {
+                name: "coraline",
+                version: env!("CARGO_PKG_VERSION"),
+            }
+        });
+
+        self.send_result(id, response)
+    }
+
+    fn handle_tools_list(&mut self, id: JsonRpcId) -> io::Result<()> {
+        let tools = tools_definition();
+        self.send_result(id, serde_json::json!({ "tools": tools }))
+    }
+
+    fn handle_tools_call(&mut self, id: JsonRpcId, params: Option<&Value>) -> io::Result<()> {
+        let Some(registry) = &self.tool_registry else {
+            return self.send_error(Some(id), -32603, "Tool registry not initialized", None);
+        };
+
+        // Convert HashMap to JSON Value
+        let args_json = serde_json::to_value(&parsed.arguments).unwrap_or(Value::Object(serde_json::Map::new()));
+        
+        match registry.execute(&parsed.name, args_json) {
+            Ok(result) => {
+                let tool_result = ToolResult {
+                    content: vec![ToolContent {
+                        r#type: "text",
+                        text: result.to_string(),
+                    }],
+                    is_error: None,
+                };
+                self.send_result(id, serde_json::to_value(tool_result).unwrap_or_default())
+            }
+            Err(err) => {
+                let tool_result = ToolResult {
+                    content: vec![ToolContent {
+                        r#type: "text",
+                        text: format!("Error: {}", err.message),
+                    }],
+     
+
+    fn initialize_tools(&mut self, project_root: PathBuf) {
+        self.tool_registry = Some(create_default_registry(project_root));
+    }               is_error: Some(true),
+                };
+                self.send_result(id, serde_json::to_value(tool_result).unwrap_or_default())
+            }
+        }
+
+        if let Some(error) = &self.init_error {
+            return self.send_error(Some(id), -32603, error, None);
+        }
+
+        let Some(project_root) = self.project_root.clone() else {
+            return self.send_error(Some(id), -32603, "No project path provided", None);
+        };
+
+        let handler = ToolHandler::new(project_root);
+        let result = handler.execute(&parsed.name, &parsed.arguments);
+        self.send_result(id, serde_json::to_value(result).unwrap_or_default())
+    }
+
+    fn initialize_codegraph(&mut self) {
+        let Some(project_root) = &self.project_root else {
+            self.init_error = Some("No project path provided".to_string());
+            return;
+        };
+
+        if !is_initialized(project_root) {
+            self.init_error = Some(format!(
+                "Coraline not initialized in {}. Run 'coraline init' first.",
+                project_root.display()
+            ));
+            return;
+        }
+
+        self.init_error = None;
+    }
+
+    fn send_result(&self, id: JsonRpcId, result: Value) -> io::Result<()> {
+        let response = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": result,
+        });
+        send_response(response)
+    }
+
+    fn send_error(
+        &self,
+        id: Option<JsonRpcId>,
+        code: i64,
+        message: &str,
+        data: Option<Value>,
+    ) -> io::Result<()> {
+        let error = match data {
+            Some(data) => serde_json::json!({ "code": code, "message": message, "data": data }),
+            None => serde_json::json!({ "code": code, "message": message }),
+        };
+
+        let response = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "error": error,
+        });
+        send_response(response)
+    }
+}
+
+struct ToolHandler {
+    project_root: PathBuf,
+}
+
+impl ToolHandler {
+    fn new(project_root: PathBuf) -> Self {
+        Self { project_root }
+    }
+
+    fn execute(&self, name: &str, args: &HashMap<String, Value>) -> ToolResult {
+        match name {
+            "coraline_search" => self.handle_search(args),
+            "coraline_context" => self.handle_context(args),
+            "coraline_callers" => self.handle_callers(args),
+            "coraline_callees" => self.handle_callees(args),
+            "coraline_impact" => self.handle_impact(args),
+            "coraline_node" => self.handle_node(args),
+            "coraline_unresolved" => self.handle_unresolved(args),
+            "coraline_status" => self.handle_status(),
+            _ => Self::error_result(&format!("Unknown tool: {name}")),
+        }
+    }
+
+    fn handle_search(&self, args: &HashMap<String, Value>) -> ToolResult {
+        let Some(query) = args.get("query").and_then(Value::as_str) else {
+            return Self::error_result("Missing query");
+        };
+        let limit = args
+            .get("limit")
+            .and_then(Value::as_u64)
+            .and_then(|value| usize::try_from(value).ok())
+            .unwrap_or(10);
+        let kind = args
+            .get("kind")
+            .and_then(|v| v.as_str())
+            .and_then(parse_node_kind);
+
+        let conn = match db::open_database(&self.project_root) {
+            Ok(conn) => conn,
+            Err(err) => return Self::error_result(&format!("Failed to open database: {err}")),
+        };
+
+        let results = match db::search_nodes(&conn, query, kind, limit) {
+            Ok(results) => results,
+            Err(err) => return Self::error_result(&format!("Search failed: {err}")),
+        };
+
+        if results.is_empty() {
+            return Self::text_result(&format!("No results found for \"{query}\""));
+        }
+
+        let mut lines = Vec::new();
+        lines.push(format!("## Search Results ({} found)", results.len()));
+        lines.push(String::new());
+
+        for result in results {
+            let node = result.node;
+            let location = if node.start_line > 0 {
+                format!(":{}", node.start_line)
+            } else {
+                String::new()
+            };
+            lines.push(format!("### {} ({:?})", node.name, node.kind));
+            lines.push(format!("{}{}", node.file_path, location));
+            if let Some(signature) = node.signature {
+                lines.push(format!("`{signature}`"));
+            }
+            lines.push(String::new());
+        }
+
+        Self::text_result(&lines.join("\n"))
+    }
+
+    fn handle_context(&self, args: &HashMap<String, Value>) -> ToolResult {
+        let Some(task) = args.get("task").and_then(Value::as_str) else {
+            return Self::error_result("Missing task");
+        };
+
+        let max_nodes = args
+            .get("maxNodes")
+            .and_then(Value::as_u64)
+            .and_then(|value| usize::try_from(value).ok())
+            .unwrap_or(20);
+        let include_code = args
+            .get("includeCode")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
+
+        let options = BuildContextOptions {
+            max_nodes: Some(max_nodes),
+            max_code_blocks: Some(5),
+            max_code_block_size: None,
+            include_code: Some(include_code),
+            format: Some(ContextFormat::Markdown),
+            search_limit: None,
+            traversal_depth: None,
+            min_score: None,
+        };
+
+        let output = match context::build_context(&self.project_root, task, &options) {
+            Ok(output) => output,
+            Err(err) => return Self::error_result(&format!("Failed to build context: {err}")),
+        };
+
+        let reminder = if looks_like_feature_request(task) {
+            "\n\n⚠️ **Ask user:** UX preferences, edge cases, acceptance criteria"
+        } else {
+            ""
+        };
+
+        Self::text_result(&format!("{output}{reminder}"))
+    }
+
+    fn handle_node(&self, args: &HashMap<String, Value>) -> ToolResult {
+        let Some(symbol) = args.get("symbol").and_then(Value::as_str) else {
+            return Self::error_result("Missing symbol");
+        };
+        let include_code = args
+            .get("includeCode")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+
+        let conn = match db::open_database(&self.project_root) {
+            Ok(conn) => conn,
+            Err(err) => return Self::error_result(&format!("Failed to open database: {err}")),
+        };
+
+        let results = match db::search_nodes(&conn, symbol, None, 1) {
+            Ok(results) => results,
+            Err(err) => return Self::error_result(&format!("Search failed: {err}")),
+        };
+
+        let node = match results.first() {
+            Some(result) => result.node.clone(),
+            None => return Self::text_result(&format!("Symbol \"{symbol}\" not found")),
+        };
+
+        let code = if include_code {
+            match extract_code(&self.project_root, &node) {
+                Ok(code) => Some(code),
+                Err(_) => None,
+            }
+        } else {
+            None
+        };
+
+        let location = if node.start_line > 0 {
+            format!(":{}", node.start_line)
+        } else {
+            String::new()
+        };
+        let mut lines = vec![
+            format!("## {} ({:?})", node.name, node.kind),
+            String::new(),
+            format!("**Location:** {}{}", node.file_path, location),
+        ];
+
+        if let Some(signature) = node.signature {
+            lines.push(format!("**Signature:** `{signature}`"));
+        }
+
+        if let Some(docstring) = node.docstring {
+            if docstring.len() < 200 {
+                lines.push(String::new());
+                lines.push(docstring);
+            }
+        }
+
+        if let Some(code) = code {
+            lines.push(String::new());
+            lines.push(format!("```{:?}", node.language));
+            lines.push(code);
+            lines.push("```".to_string());
+        }
+
+        Self::text_result(&lines.join("\n"))
+    }
+
+    fn handle_callers(&self, args: &HashMap<String, Value>) -> ToolResult {
+        let Some(symbol) = args.get("symbol").and_then(Value::as_str) else {
+            return Self::error_result("Missing symbol");
+        };
+        let limit = args
+            .get("limit")
+            .and_then(Value::as_u64)
+            .and_then(|value| usize::try_from(value).ok())
+            .unwrap_or(20);
+
+        let conn = match db::open_database(&self.project_root) {
+            Ok(conn) => conn,
+            Err(err) => return Self::error_result(&format!("Failed to open database: {err}")),
+        };
+
+        let node = match resolve_symbol(&conn, symbol) {
+            Ok(node) => node,
+            Err(msg) => return Self::text_result(&msg),
+        };
+
+        let edges = match db::get_edges_by_target(&conn, &node.id, Some(EdgeKind::Calls), limit) {
+            Ok(edges) => edges,
+            Err(err) => return Self::error_result(&format!("Failed to fetch callers: {err}")),
+        };
+
+        let mut callers = Vec::new();
+        for edge in edges {
+            if let Ok(Some(caller)) = db::get_node_by_id(&conn, &edge.source) {
+                callers.push(caller);
+            }
+        }
+
+        if callers.is_empty() {
+            return Self::text_result(&format!("No callers found for \"{symbol}\""));
+        }
+
+        Self::text_result(&format_node_list(&callers, &format!("Callers of {symbol}")))
+    }
+
+    fn handle_callees(&self, args: &HashMap<String, Value>) -> ToolResult {
+        let Some(symbol) = args.get("symbol").and_then(Value::as_str) else {
+            return Self::error_result("Missing symbol");
+        };
+        let limit = args
+            .get("limit")
+            .and_then(Value::as_u64)
+            .and_then(|value| usize::try_from(value).ok())
+            .unwrap_or(20);
+
+        let conn = match db::open_database(&self.project_root) {
+            Ok(conn) => conn,
+            Err(err) => return Self::error_result(&format!("Failed to open database: {err}")),
+        };
+
+        let node = match resolve_symbol(&conn, symbol) {
+            Ok(node) => node,
+            Err(msg) => return Self::text_result(&msg),
+        };
+
+        let edges = match db::get_edges_by_source(&conn, &node.id, Some(EdgeKind::Calls), limit) {
+            Ok(edges) => edges,
+            Err(err) => return Self::error_result(&format!("Failed to fetch callees: {err}")),
+        };
+
+        let mut callees = Vec::new();
+        for edge in edges {
+            if let Ok(Some(callee)) = db::get_node_by_id(&conn, &edge.target) {
+                callees.push(callee);
+            }
+        }
+
+        if callees.is_empty() {
+            return Self::text_result(&format!("No callees found for \"{symbol}\""));
+        }
+
+        Self::text_result(&format_node_list(&callees, &format!("Callees of {symbol}")))
+    }
+
+    fn handle_impact(&self, args: &HashMap<String, Value>) -> ToolResult {
+        let Some(symbol) = args.get("symbol").and_then(Value::as_str) else {
+            return Self::error_result("Missing symbol");
+        };
+        let depth = args
+            .get("depth")
+            .and_then(Value::as_u64)
+            .and_then(|value| usize::try_from(value).ok())
+            .unwrap_or(2);
+
+        let conn = match db::open_database(&self.project_root) {
+            Ok(conn) => conn,
+            Err(err) => return Self::error_result(&format!("Failed to open database: {err}")),
+        };
+
+        let node = match resolve_symbol(&conn, symbol) {
+            Ok(node) => node,
+            Err(msg) => return Self::text_result(&msg),
+        };
+
+        let mut visited = std::collections::HashSet::new();
+        let mut frontier = vec![node.id.clone()];
+        let mut impacted = Vec::new();
+        visited.insert(node.id.clone());
+
+        for _ in 0..depth {
+            if frontier.is_empty() {
+                break;
+            }
+
+            let mut next = Vec::new();
+            for id in frontier {
+                let outgoing = db::get_edges_by_source(&conn, &id, None, 200).unwrap_or_default();
+                let incoming = db::get_edges_by_target(&conn, &id, None, 200).unwrap_or_default();
+
+                for edge in outgoing.iter().chain(incoming.iter()) {
+                    let other_id = if edge.source == id {
+                        edge.target.clone()
+                    } else {
+                        edge.source.clone()
+                    };
+                    if visited.insert(other_id.clone()) {
+                        if let Ok(Some(node)) = db::get_node_by_id(&conn, &other_id) {
+                            impacted.push(node);
+                        }
+                        next.push(other_id);
+                    }
+                }
+            }
+            frontier = next;
+        }
+
+        if impacted.is_empty() {
+            return Self::text_result(&format!("No impacted symbols found for \"{symbol}\""));
+        }
+
+        Self::text_result(&format_node_list(
+            &impacted,
+            &format!("Impact: \"{symbol}\" affects {} symbols", impacted.len()),
+        ))
+    }
+
+    fn handle_unresolved(&self, args: &HashMap<String, Value>) -> ToolResult {
+        let limit = args
+            .get("limit")
+            .and_then(Value::as_u64)
+            .and_then(|value| usize::try_from(value).ok())
+            .unwrap_or(50);
+
+        let conn = match db::open_database(&self.project_root) {
+            Ok(conn) => conn,
+            Err(err) => return Self::error_result(&format!("Failed to open database: {err}")),
+        };
+
+        let rows = match db::list_unresolved_refs(&conn, limit) {
+            Ok(rows) => rows,
+            Err(err) => {
+                return Self::error_result(&format!("Failed to load unresolved refs: {err}"));
+            }
+        };
+
+        if rows.is_empty() {
+            return Self::text_result("No unresolved references found.");
+        }
+
+        let mut lines = Vec::new();
+        lines.push(format!("## Unresolved References ({})", rows.len()));
+        lines.push(String::new());
+
+        for row in rows {
+            let from_node = db::get_node_by_id(&conn, &row.reference.from_node_id)
+                .ok()
+                .and_then(|n| n);
+            let from_label = from_node.as_ref().map_or_else(
+                || row.reference.from_node_id.clone(),
+                |n| format!("{} ({:?})", n.name, n.kind),
+            );
+            let from_location = from_node.as_ref().map_or_else(
+                || "<unknown>".to_string(),
+                |n| format!("{}:{}", n.file_path, n.start_line),
+            );
+
+            lines.push(format!(
+                "- {} -> {} ({}:{})",
+                from_label, row.reference.reference_name, from_location, row.reference.line
+            ));
+            if let Some(candidates) = row.reference.candidates {
+                if !candidates.is_empty() {
+                    lines.push(format!("  Candidates: {}", candidates.len()));
+                }
+            }
+        }
+
+        Self::text_result(&lines.join("\n"))
+    }
+
+    fn handle_status(&self) -> ToolResult {
+        let conn = match db::open_database(&self.project_root) {
+            Ok(conn) => conn,
+            Err(err) => return Self::error_result(&format!("Failed to open database: {err}")),
+        };
+
+        let file_count = count_query(&conn, "SELECT COUNT(*) FROM files").unwrap_or(0);
+        let node_count = count_query(&conn, "SELECT COUNT(*) FROM nodes").unwrap_or(0);
+        let edge_count = count_query(&conn, "SELECT COUNT(*) FROM edges").unwrap_or(0);
+
+        let nodes_by_kind =
+            group_count_query(&conn, "SELECT kind, COUNT(*) FROM nodes GROUP BY kind")
+                .unwrap_or_default();
+        let files_by_language = group_count_query(
+            &conn,
+            "SELECT language, COUNT(*) FROM files GROUP BY language",
+        )
+        .unwrap_or_default();
+
+        let db_size = db::database_path(&self.project_root)
+            .metadata()
+            .map(|m| m.len())
+            .unwrap_or(0);
+
+        let mut lines = Vec::new();
+        lines.push("## Coraline Status".to_string());
+        lines.push(String::new());
+        lines.push(format!("**Files indexed:** {file_count}"));
+        lines.push(format!("**Total nodes:** {node_count}"));
+        lines.push(format!("**Total edges:** {edge_count}"));
+        lines.push(format!(
+            "**Database size:** {:.2} MB",
+            (db_size as f64) / 1024.0 / 1024.0
+        ));
+        lines.push(String::new());
+        lines.push("### Nodes by Kind:".to_string());
+        for (kind, count) in nodes_by_kind {
+            if count > 0 {
+                lines.push(format!("- {kind}: {count}"));
+            }
+        }
+        lines.push(String::new());
+        lines.push("### Languages:".to_string());
+        for (lang, count) in files_by_language {
+            if count > 0 {
+                lines.push(format!("- {lang}: {count}"));
+            }
+        }
+
+        Self::text_result(&lines.join("\n"))
+    }
+
+    fn text_result(text: &str) -> ToolResult {
+        ToolResult {
+            content: vec![ToolContent {
+                r#type: "text",
+                text: text.to_string(),
+            }],
+            is_error: None,
+        }
+    }
+
+    fn error_result(message: &str) -> ToolResult {
+        ToolResult {
+            content: vec![ToolContent {
+                r#type: "text",
+                text: format!("Error: {message}"),
+            }],
+            is_error: Some(true),
+        }
+    }
+}
+
+fn tools_definition() -> Vec<ToolDefinition> {
+    vec![
+        ToolDefinition {
+            name: "coraline_search",
+            description: "Quick symbol search by name. Returns locations only (no code). Use coraline_context instead for comprehensive task context.",
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string", "description": "Symbol name or partial name" },
+                    "kind": {
+                        "type": "string",
+                        "description": "Filter by node kind",
+                        "enum": ["function", "method", "class", "interface", "type", "variable", "route", "component"]
+                    },
+                    "limit": { "type": "number", "description": "Maximum results", "default": 10 }
+                },
+                "required": ["query"]
+            }),
+        },
+        ToolDefinition {
+            name: "coraline_context",
+            description: "PRIMARY TOOL: Build comprehensive context for a task. Returns entry points, related symbols, and key code.",
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "task": { "type": "string", "description": "Task or question" },
+                    "maxNodes": { "type": "number", "description": "Maximum symbols", "default": 20 },
+                    "includeCode": { "type": "boolean", "description": "Include code snippets", "default": true }
+                },
+                "required": ["task"]
+            }),
+        },
+        ToolDefinition {
+            name: "coraline_callers",
+            description: "Find all functions/methods that call a specific symbol.",
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "symbol": { "type": "string", "description": "Symbol name" },
+                    "limit": { "type": "number", "description": "Maximum callers", "default": 20 }
+                },
+                "required": ["symbol"]
+            }),
+        },
+        ToolDefinition {
+            name: "coraline_callees",
+            description: "Find all functions/methods that a specific symbol calls.",
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "symbol": { "type": "string", "description": "Symbol name" },
+                    "limit": { "type": "number", "description": "Maximum callees", "default": 20 }
+                },
+                "required": ["symbol"]
+            }),
+        },
+        ToolDefinition {
+            name: "coraline_impact",
+            description: "Analyze the impact radius of changing a symbol.",
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "symbol": { "type": "string", "description": "Symbol name" },
+                    "depth": { "type": "number", "description": "Dependency depth", "default": 2 }
+                },
+                "required": ["symbol"]
+            }),
+        },
+        ToolDefinition {
+            name: "coraline_node",
+            description: "Get detailed information about a specific code symbol.",
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "symbol": { "type": "string", "description": "Symbol name" },
+                    "includeCode": { "type": "boolean", "description": "Include source code", "default": false }
+                },
+                "required": ["symbol"]
+            }),
+        },
+        ToolDefinition {
+            name: "coraline_unresolved",
+            description: "List unresolved references captured during indexing.",
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "limit": { "type": "number", "description": "Maximum rows", "default": 50 }
+                }
+            }),
+        },
+        ToolDefinition {
+            name: "coraline_status",
+            description: "Get the status of the Coraline index.",
+            input_schema: serde_json::json!({ "type": "object", "properties": {} }),
+        },
+    ]
+}
+
+fn strip_file_uri(uri: &str) -> String {
+    uri.strip_prefix("file://").unwrap_or(uri).to_string()
+}
+
+fn is_initialized(project_root: &Path) -> bool {
+    project_root.join(".codegraph").is_dir()
+}
+
+fn send_response(response: Value) -> io::Result<()> {
+    let mut stdout = io::stdout();
+    writeln!(stdout, "{}", response)?;
+    stdout.flush()
+}
+
+fn count_query(conn: &rusqlite::Connection, sql: &str) -> rusqlite::Result<i64> {
+    conn.query_row(sql, [], |row| row.get(0))
+}
+
+fn group_count_query(
+    conn: &rusqlite::Connection,
+    sql: &str,
+) -> rusqlite::Result<Vec<(String, i64)>> {
+    let mut stmt = conn.prepare(sql)?;
+    let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+    let mut results = Vec::new();
+    for row in rows {
+        results.push(row?);
+    }
+    Ok(results)
+}
+
+fn parse_node_kind(value: &str) -> Option<NodeKind> {
+    match value.to_ascii_lowercase().as_str() {
+        "function" => Some(NodeKind::Function),
+        "method" => Some(NodeKind::Method),
+        "class" => Some(NodeKind::Class),
+        "interface" => Some(NodeKind::Interface),
+        "type" => Some(NodeKind::TypeAlias),
+        "variable" => Some(NodeKind::Variable),
+        "route" => Some(NodeKind::Route),
+        "component" => Some(NodeKind::Component),
+        _ => None,
+    }
+}
+
+fn resolve_symbol(conn: &rusqlite::Connection, symbol: &str) -> Result<Node, String> {
+    let results =
+        db::search_nodes(conn, symbol, None, 1).map_err(|err| format!("Search failed: {err}"))?;
+    results
+        .first()
+        .map(|r| r.node.clone())
+        .ok_or_else(|| format!("Symbol \"{symbol}\" not found"))
+}
+
+fn format_node_list(nodes: &[Node], title: &str) -> String {
+    let mut lines = Vec::new();
+    lines.push(format!("## {title}"));
+    lines.push(String::new());
+    for node in nodes {
+        let location = if node.start_line > 0 {
+            format!(":{}", node.start_line)
+        } else {
+            String::new()
+        };
+        lines.push(format!(
+            "- {} ({:?}) - {}{}",
+            node.name, node.kind, node.file_path, location
+        ));
+    }
+    lines.join("\n")
+}
+
+fn extract_code(project_root: &Path, node: &Node) -> io::Result<String> {
+    let file_path = project_root.join(&node.file_path);
+    let content = std::fs::read_to_string(file_path)?;
+    let lines: Vec<&str> = content.lines().collect();
+    let start_idx = usize::try_from(node.start_line.saturating_sub(1)).unwrap_or(0);
+    let max_end = i64::try_from(lines.len()).unwrap_or(i64::MAX);
+    let end_idx = usize::try_from(node.end_line.min(max_end)).unwrap_or(lines.len());
+    if start_idx >= end_idx {
+        return Ok(String::new());
+    }
+    Ok(lines
+        .get(start_idx..end_idx)
+        .map(|slice| slice.join("\n"))
+        .unwrap_or_else(String::new))
+}
+
+fn looks_like_feature_request(task: &str) -> bool {
+    let lower = task.to_ascii_lowercase();
+    let feature_keywords = [
+        "add",
+        "create",
+        "implement",
+        "build",
+        "enable",
+        "allow",
+        "new feature",
+        "support for",
+        "ability to",
+        "want to",
+        "should be able",
+        "need to add",
+        "swap",
+        "edit",
+        "modify",
+    ];
+    let bug_keywords = [
+        "fix",
+        "bug",
+        "error",
+        "broken",
+        "crash",
+        "issue",
+        "problem",
+        "not working",
+        "fails",
+        "undefined",
+        "null",
+    ];
+    let exploration_keywords = [
+        "how does",
+        "where is",
+        "what is",
+        "find",
+        "show me",
+        "explain",
+        "understand",
+        "explore",
+    ];
+
+    if bug_keywords.iter().any(|k| lower.contains(k)) {
+        return false;
+    }
+    if exploration_keywords.iter().any(|k| lower.contains(k)) {
+        return false;
+    }
+
+    feature_keywords.iter().any(|k| lower.contains(k))
+}
