@@ -17,7 +17,7 @@ pub struct BuildContextTool {
 }
 
 impl BuildContextTool {
-    pub fn new(project_root: PathBuf) -> Self {
+    pub const fn new(project_root: PathBuf) -> Self {
         Self { project_root }
     }
 }
@@ -75,18 +75,32 @@ impl Tool for BuildContextTool {
         })
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
-        let task = params["task"]
-            .as_str()
+        let task = params
+            .get("task")
+            .and_then(Value::as_str)
             .ok_or_else(|| ToolError::invalid_params("task must be a string"))?;
 
-        let max_nodes = params["max_nodes"].as_u64().map(|n| n as usize);
-        let max_code_blocks = params["max_code_blocks"].as_u64().map(|n| n as usize);
-        let max_code_block_size = params["max_code_block_size"].as_u64().map(|n| n as usize);
-        let include_code = params["include_code"].as_bool();
-        let traversal_depth = params["traversal_depth"].as_u64().map(|n| n as usize);
+        let max_nodes = params
+            .get("max_nodes")
+            .and_then(Value::as_u64)
+            .map(|n| n as usize);
+        let max_code_blocks = params
+            .get("max_code_blocks")
+            .and_then(Value::as_u64)
+            .map(|n| n as usize);
+        let max_code_block_size = params
+            .get("max_code_block_size")
+            .and_then(Value::as_u64)
+            .map(|n| n as usize);
+        let include_code = params.get("include_code").and_then(Value::as_bool);
+        let traversal_depth = params
+            .get("traversal_depth")
+            .and_then(Value::as_u64)
+            .map(|n| n as usize);
 
-        let format = match params["format"].as_str() {
+        let format = match params.get("format").and_then(Value::as_str) {
             Some("json") => Some(ContextFormat::Json),
             Some("markdown") | None => Some(ContextFormat::Markdown),
             _ => None,
@@ -99,19 +113,25 @@ impl Tool for BuildContextTool {
             include_code,
             traversal_depth,
             format,
-            search_limit: params["search_limit"].as_u64().map(|n| n as usize),
-            min_score: params["min_score"].as_f64().map(|f| f as f32),
+            search_limit: params
+                .get("search_limit")
+                .and_then(Value::as_u64)
+                .map(|n| n as usize),
+            min_score: params
+                .get("min_score")
+                .and_then(Value::as_f64)
+                .map(|f| f as f32),
         };
 
         let context = context::build_context(&self.project_root, task, &options)
-            .map_err(|e| ToolError::internal_error(format!("Failed to build context: {}", e)))?;
+            .map_err(|e| ToolError::internal_error(format!("Failed to build context: {e}")))?;
 
         // If format is JSON, return structured data; otherwise return as text
         match format {
             Some(ContextFormat::Json) => {
                 // Parse the JSON string back to Value
                 serde_json::from_str(&context).map_err(|e| {
-                    ToolError::internal_error(format!("Failed to parse context JSON: {}", e))
+                    ToolError::internal_error(format!("Failed to parse context JSON: {e}"))
                 })
             }
             _ => {

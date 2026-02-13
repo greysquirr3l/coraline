@@ -86,12 +86,12 @@ impl ToolRegistry {
 
     /// Get a tool by name
     pub fn get(&self, name: &str) -> Option<&dyn Tool> {
-        self.tools.get(name).map(|t| t.as_ref())
+        self.tools.get(name).map(AsRef::as_ref)
     }
 
     /// List all registered tool names
     pub fn list_tools(&self) -> Vec<&str> {
-        self.tools.keys().map(|s| s.as_str()).collect()
+        self.tools.keys().map(String::as_str).collect()
     }
 
     /// Get tool metadata for MCP tools/list
@@ -110,46 +110,50 @@ impl ToolRegistry {
 
     /// Execute a tool by name
     pub fn execute(&self, name: &str, params: Value) -> ToolResult {
-        match self.get(name) {
-            Some(tool) => tool.execute(params),
-            None => Err(ToolError::not_found(format!("Tool not found: {}", name))),
-        }
+        self.get(name).map_or_else(
+            || Err(ToolError::not_found(format!("Tool not found: {name}"))),
+            |tool| tool.execute(params),
+        )
     }
 }
 
 /// Create a default tool registry with all built-in tools
-pub fn create_default_registry(project_root: std::path::PathBuf) -> ToolRegistry {
+pub fn create_default_registry(project_root: &std::path::Path) -> ToolRegistry {
     let mut registry = ToolRegistry::new();
 
     // Register graph tools
-    registry.register(Box::new(graph_tools::SearchTool::new(project_root.clone())));
+    registry.register(Box::new(graph_tools::SearchTool::new(
+        project_root.to_path_buf(),
+    )));
     registry.register(Box::new(graph_tools::CallersTool::new(
-        project_root.clone(),
+        project_root.to_path_buf(),
     )));
     registry.register(Box::new(graph_tools::CalleesTool::new(
-        project_root.clone(),
+        project_root.to_path_buf(),
     )));
-    registry.register(Box::new(graph_tools::ImpactTool::new(project_root.clone())));
+    registry.register(Box::new(graph_tools::ImpactTool::new(
+        project_root.to_path_buf(),
+    )));
 
     // Register context tools
     registry.register(Box::new(context_tools::BuildContextTool::new(
-        project_root.clone(),
+        project_root.to_path_buf(),
     )));
 
     // Register memory tools (ignore errors if memory system fails to initialize)
-    if let Ok(tool) = memory_tools::WriteMemoryTool::new(project_root.clone()) {
+    if let Ok(tool) = memory_tools::WriteMemoryTool::new(project_root) {
         registry.register(Box::new(tool));
     }
-    if let Ok(tool) = memory_tools::ReadMemoryTool::new(project_root.clone()) {
+    if let Ok(tool) = memory_tools::ReadMemoryTool::new(project_root) {
         registry.register(Box::new(tool));
     }
-    if let Ok(tool) = memory_tools::ListMemoriesTool::new(project_root.clone()) {
+    if let Ok(tool) = memory_tools::ListMemoriesTool::new(project_root) {
         registry.register(Box::new(tool));
     }
-    if let Ok(tool) = memory_tools::DeleteMemoryTool::new(project_root.clone()) {
+    if let Ok(tool) = memory_tools::DeleteMemoryTool::new(project_root) {
         registry.register(Box::new(tool));
     }
-    if let Ok(tool) = memory_tools::EditMemoryTool::new(project_root.clone()) {
+    if let Ok(tool) = memory_tools::EditMemoryTool::new(project_root) {
         registry.register(Box::new(tool));
     }
 

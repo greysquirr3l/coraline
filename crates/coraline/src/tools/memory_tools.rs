@@ -5,7 +5,7 @@
 //! These tools provide access to the project-specific memory system,
 //! allowing persistent knowledge storage across sessions.
 
-use std::path::PathBuf;
+use std::path::Path;
 
 use serde_json::{Value, json};
 
@@ -18,9 +18,9 @@ pub struct WriteMemoryTool {
 }
 
 impl WriteMemoryTool {
-    pub fn new(project_root: PathBuf) -> std::io::Result<Self> {
+    pub fn new(project_root: &Path) -> std::io::Result<Self> {
         Ok(Self {
-            manager: MemoryManager::new(&project_root)?,
+            manager: MemoryManager::new(project_root)?,
         })
     }
 }
@@ -52,18 +52,20 @@ impl Tool for WriteMemoryTool {
     }
 
     fn execute(&self, params: Value) -> ToolResult {
-        let name = params["name"]
-            .as_str()
+        let name = params
+            .get("name")
+            .and_then(Value::as_str)
             .ok_or_else(|| ToolError::invalid_params("Missing or invalid 'name' parameter"))?;
 
-        let content = params["content"]
-            .as_str()
+        let content = params
+            .get("content")
+            .and_then(Value::as_str)
             .ok_or_else(|| ToolError::invalid_params("Missing or invalid 'content' parameter"))?;
 
         let result = self
             .manager
             .write_memory(name, content)
-            .map_err(|e| ToolError::internal_error(format!("Failed to write memory: {}", e)))?;
+            .map_err(|e| ToolError::internal_error(format!("Failed to write memory: {e}")))?;
 
         Ok(json!({ "message": result }))
     }
@@ -75,9 +77,9 @@ pub struct ReadMemoryTool {
 }
 
 impl ReadMemoryTool {
-    pub fn new(project_root: PathBuf) -> std::io::Result<Self> {
+    pub fn new(project_root: &Path) -> std::io::Result<Self> {
         Ok(Self {
-            manager: MemoryManager::new(&project_root)?,
+            manager: MemoryManager::new(project_root)?,
         })
     }
 }
@@ -105,14 +107,15 @@ impl Tool for ReadMemoryTool {
     }
 
     fn execute(&self, params: Value) -> ToolResult {
-        let name = params["name"]
-            .as_str()
+        let name = params
+            .get("name")
+            .and_then(Value::as_str)
             .ok_or_else(|| ToolError::invalid_params("Missing or invalid 'name' parameter"))?;
 
         let content = self
             .manager
             .read_memory(name)
-            .map_err(|e| ToolError::internal_error(format!("Failed to read memory: {}", e)))?;
+            .map_err(|e| ToolError::internal_error(format!("Failed to read memory: {e}")))?;
 
         Ok(json!({ "content": content }))
     }
@@ -124,9 +127,9 @@ pub struct ListMemoriesTool {
 }
 
 impl ListMemoriesTool {
-    pub fn new(project_root: PathBuf) -> std::io::Result<Self> {
+    pub fn new(project_root: &Path) -> std::io::Result<Self> {
         Ok(Self {
-            manager: MemoryManager::new(&project_root)?,
+            manager: MemoryManager::new(project_root)?,
         })
     }
 }
@@ -151,7 +154,7 @@ impl Tool for ListMemoriesTool {
         let memories = self
             .manager
             .list_memories()
-            .map_err(|e| ToolError::internal_error(format!("Failed to list memories: {}", e)))?;
+            .map_err(|e| ToolError::internal_error(format!("Failed to list memories: {e}")))?;
 
         Ok(json!({ "memories": memories }))
     }
@@ -163,9 +166,9 @@ pub struct DeleteMemoryTool {
 }
 
 impl DeleteMemoryTool {
-    pub fn new(project_root: PathBuf) -> std::io::Result<Self> {
+    pub fn new(project_root: &Path) -> std::io::Result<Self> {
         Ok(Self {
-            manager: MemoryManager::new(&project_root)?,
+            manager: MemoryManager::new(project_root)?,
         })
     }
 }
@@ -193,14 +196,15 @@ impl Tool for DeleteMemoryTool {
     }
 
     fn execute(&self, params: Value) -> ToolResult {
-        let name = params["name"]
-            .as_str()
+        let name = params
+            .get("name")
+            .and_then(Value::as_str)
             .ok_or_else(|| ToolError::invalid_params("Missing or invalid 'name' parameter"))?;
 
         let result = self
             .manager
             .delete_memory(name)
-            .map_err(|e| ToolError::internal_error(format!("Failed to delete memory: {}", e)))?;
+            .map_err(|e| ToolError::internal_error(format!("Failed to delete memory: {e}")))?;
 
         Ok(json!({ "message": result }))
     }
@@ -212,9 +216,9 @@ pub struct EditMemoryTool {
 }
 
 impl EditMemoryTool {
-    pub fn new(project_root: PathBuf) -> std::io::Result<Self> {
+    pub fn new(project_root: &Path) -> std::io::Result<Self> {
         Ok(Self {
-            manager: MemoryManager::new(&project_root)?,
+            manager: MemoryManager::new(project_root)?,
         })
     }
 }
@@ -256,36 +260,44 @@ impl Tool for EditMemoryTool {
     }
 
     fn execute(&self, params: Value) -> ToolResult {
-        let name = params["name"]
-            .as_str()
+        let name = params
+            .get("name")
+            .and_then(Value::as_str)
             .ok_or_else(|| ToolError::invalid_params("Missing or invalid 'name' parameter"))?;
 
-        let pattern = params["pattern"]
-            .as_str()
+        let pattern = params
+            .get("pattern")
+            .and_then(Value::as_str)
             .ok_or_else(|| ToolError::invalid_params("Missing or invalid 'pattern' parameter"))?;
 
-        let replacement = params["replacement"].as_str().ok_or_else(|| {
-            ToolError::invalid_params("Missing or invalid 'replacement' parameter")
-        })?;
+        let replacement = params
+            .get("replacement")
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                ToolError::invalid_params("Missing or invalid 'replacement' parameter")
+            })?;
 
-        let mode = params["mode"].as_str().unwrap_or("literal");
+        let mode = params
+            .get("mode")
+            .and_then(Value::as_str)
+            .unwrap_or("literal");
 
         // Read current content
         let content = self
             .manager
             .read_memory(name)
-            .map_err(|e| ToolError::internal_error(format!("Failed to read memory: {}", e)))?;
+            .map_err(|e| ToolError::internal_error(format!("Failed to read memory: {e}")))?;
 
         // Handle "not found" message
         if content.contains("not found") {
-            return Err(ToolError::not_found(format!("Memory '{}' not found", name)));
+            return Err(ToolError::not_found(format!("Memory '{name}' not found")));
         }
 
         // Perform replacement
         let new_content = match mode {
             "regex" => {
                 let re = regex::Regex::new(pattern).map_err(|e| {
-                    ToolError::invalid_params(format!("Invalid regex pattern: {}", e))
+                    ToolError::invalid_params(format!("Invalid regex pattern: {e}"))
                 })?;
                 re.replace_all(&content, replacement).to_string()
             }
@@ -301,7 +313,7 @@ impl Tool for EditMemoryTool {
         let result = self
             .manager
             .write_memory(name, &new_content)
-            .map_err(|e| ToolError::internal_error(format!("Failed to write memory: {}", e)))?;
+            .map_err(|e| ToolError::internal_error(format!("Failed to write memory: {e}")))?;
 
         Ok(json!({ "message": result }))
     }
@@ -315,8 +327,9 @@ mod tests {
     #[test]
     fn test_write_and_read_memory_tool() {
         let temp_dir = TempDir::new().unwrap();
-        let write_tool = WriteMemoryTool::new(temp_dir.path().to_path_buf()).unwrap();
-        let read_tool = ReadMemoryTool::new(temp_dir.path().to_path_buf()).unwrap();
+        let path_buf = temp_dir.path().to_path_buf();
+        let write_tool = WriteMemoryTool::new(&path_buf).unwrap();
+        let read_tool = ReadMemoryTool::new(&path_buf).unwrap();
 
         let params = json!({
             "name": "test_memory",
@@ -334,8 +347,9 @@ mod tests {
     #[test]
     fn test_list_memories_tool() {
         let temp_dir = TempDir::new().unwrap();
-        let write_tool = WriteMemoryTool::new(temp_dir.path().to_path_buf()).unwrap();
-        let list_tool = ListMemoriesTool::new(temp_dir.path().to_path_buf()).unwrap();
+        let path_buf = temp_dir.path().to_path_buf();
+        let write_tool = WriteMemoryTool::new(&path_buf).unwrap();
+        let list_tool = ListMemoriesTool::new(&path_buf).unwrap();
 
         write_tool
             .execute(json!({"name": "mem1", "content": "content1"}))
@@ -352,8 +366,9 @@ mod tests {
     #[test]
     fn test_delete_memory_tool() {
         let temp_dir = TempDir::new().unwrap();
-        let write_tool = WriteMemoryTool::new(temp_dir.path().to_path_buf()).unwrap();
-        let delete_tool = DeleteMemoryTool::new(temp_dir.path().to_path_buf()).unwrap();
+        let path_buf = temp_dir.path().to_path_buf();
+        let write_tool = WriteMemoryTool::new(&path_buf).unwrap();
+        let delete_tool = DeleteMemoryTool::new(&path_buf).unwrap();
 
         write_tool
             .execute(json!({"name": "to_delete", "content": "content"}))
@@ -366,9 +381,10 @@ mod tests {
     #[test]
     fn test_edit_memory_tool_literal() {
         let temp_dir = TempDir::new().unwrap();
-        let write_tool = WriteMemoryTool::new(temp_dir.path().to_path_buf()).unwrap();
-        let edit_tool = EditMemoryTool::new(temp_dir.path().to_path_buf()).unwrap();
-        let read_tool = ReadMemoryTool::new(temp_dir.path().to_path_buf()).unwrap();
+        let path_buf = temp_dir.path().to_path_buf();
+        let write_tool = WriteMemoryTool::new(&path_buf).unwrap();
+        let edit_tool = EditMemoryTool::new(&path_buf).unwrap();
+        let read_tool = ReadMemoryTool::new(&path_buf).unwrap();
 
         write_tool
             .execute(json!({"name": "edit_test", "content": "Hello World"}))
@@ -390,9 +406,10 @@ mod tests {
     #[test]
     fn test_edit_memory_tool_regex() {
         let temp_dir = TempDir::new().unwrap();
-        let write_tool = WriteMemoryTool::new(temp_dir.path().to_path_buf()).unwrap();
-        let edit_tool = EditMemoryTool::new(temp_dir.path().to_path_buf()).unwrap();
-        let read_tool = ReadMemoryTool::new(temp_dir.path().to_path_buf()).unwrap();
+        let path_buf = temp_dir.path().to_path_buf();
+        let write_tool = WriteMemoryTool::new(&path_buf).unwrap();
+        let edit_tool = EditMemoryTool::new(&path_buf).unwrap();
+        let read_tool = ReadMemoryTool::new(&path_buf).unwrap();
 
         write_tool
             .execute(json!({"name": "regex_test", "content": "version: 1.0.0"}))

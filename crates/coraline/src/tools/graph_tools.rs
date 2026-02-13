@@ -18,7 +18,7 @@ pub struct SearchTool {
 }
 
 impl SearchTool {
-    pub fn new(project_root: PathBuf) -> Self {
+    pub const fn new(project_root: PathBuf) -> Self {
         Self { project_root }
     }
 }
@@ -55,12 +55,13 @@ impl Tool for SearchTool {
         })
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
-        let query = params["query"]
-            .as_str()
+        let query = params.get("query")
+            .and_then(Value::as_str)
             .ok_or_else(|| ToolError::invalid_params("query must be a string"))?;
 
-        let kind = params["kind"].as_str().and_then(|s| match s {
+        let kind = params.get("kind").and_then(Value::as_str).and_then(|s| match s {
             "function" => Some(NodeKind::Function),
             "method" => Some(NodeKind::Method),
             "class" => Some(NodeKind::Class),
@@ -71,13 +72,13 @@ impl Tool for SearchTool {
             _ => None,
         });
 
-        let limit = params["limit"].as_u64().unwrap_or(10) as usize;
+        let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(10) as usize;
 
         let conn = db::open_database(&self.project_root)
-            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {}", e)))?;
+            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
 
         let results = db::search_nodes(&conn, query, kind, limit)
-            .map_err(|e| ToolError::internal_error(format!("Search failed: {}", e)))?;
+            .map_err(|e| ToolError::internal_error(format!("Search failed: {e}")))?;
 
         let results_json: Vec<Value> = results
             .into_iter()
@@ -112,7 +113,7 @@ pub struct CallersTool {
 }
 
 impl CallersTool {
-    pub fn new(project_root: PathBuf) -> Self {
+    pub const fn new(project_root: PathBuf) -> Self {
         Self { project_root }
     }
 }
@@ -144,24 +145,25 @@ impl Tool for CallersTool {
         })
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
-        let node_id = params["node_id"]
-            .as_str()
+        let node_id = params.get("node_id")
+            .and_then(Value::as_str)
             .ok_or_else(|| ToolError::invalid_params("node_id must be a string"))?;
 
-        let limit = params["limit"].as_u64().unwrap_or(20) as usize;
+        let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
 
         let conn = db::open_database(&self.project_root)
-            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {}", e)))?;
+            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
 
         // Get edges where this node is the target and edge kind is "calls"
         let edges = db::get_edges_by_target(&conn, node_id, Some(EdgeKind::Calls), limit)
-            .map_err(|e| ToolError::internal_error(format!("Failed to get edges: {}", e)))?;
+            .map_err(|e| ToolError::internal_error(format!("Failed to get edges: {e}")))?;
 
         let mut callers = Vec::new();
         for edge in edges {
             if let Some(caller) = db::get_node_by_id(&conn, &edge.source)
-                .map_err(|e| ToolError::internal_error(format!("Failed to get node: {}", e)))?
+                .map_err(|e| ToolError::internal_error(format!("Failed to get node: {e}")))?
             {
                 callers.push(json!({
                     "id": caller.id,
@@ -188,7 +190,7 @@ pub struct CalleesTool {
 }
 
 impl CalleesTool {
-    pub fn new(project_root: PathBuf) -> Self {
+    pub const fn new(project_root: PathBuf) -> Self {
         Self { project_root }
     }
 }
@@ -220,24 +222,25 @@ impl Tool for CalleesTool {
         })
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
-        let node_id = params["node_id"]
-            .as_str()
+        let node_id = params.get("node_id")
+            .and_then(Value::as_str)
             .ok_or_else(|| ToolError::invalid_params("node_id must be a string"))?;
 
-        let limit = params["limit"].as_u64().unwrap_or(20) as usize;
+        let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
 
         let conn = db::open_database(&self.project_root)
-            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {}", e)))?;
+            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
 
         // Get edges where this node is the source and edge kind is "calls"
         let edges = db::get_edges_by_source(&conn, node_id, Some(EdgeKind::Calls), limit)
-            .map_err(|e| ToolError::internal_error(format!("Failed to get edges: {}", e)))?;
+            .map_err(|e| ToolError::internal_error(format!("Failed to get edges: {e}")))?;
 
         let mut callees = Vec::new();
         for edge in edges {
             if let Some(callee) = db::get_node_by_id(&conn, &edge.target)
-                .map_err(|e| ToolError::internal_error(format!("Failed to get node: {}", e)))?
+                .map_err(|e| ToolError::internal_error(format!("Failed to get node: {e}")))?
             {
                 callees.push(json!({
                     "id": callee.id,
@@ -264,7 +267,7 @@ pub struct ImpactTool {
 }
 
 impl ImpactTool {
-    pub fn new(project_root: PathBuf) -> Self {
+    pub const fn new(project_root: PathBuf) -> Self {
         Self { project_root }
     }
 }
@@ -301,16 +304,17 @@ impl Tool for ImpactTool {
         })
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
-        let node_id = params["node_id"]
-            .as_str()
+        let node_id = params.get("node_id")
+            .and_then(Value::as_str)
             .ok_or_else(|| ToolError::invalid_params("node_id must be a string"))?;
 
-        let max_depth = params["max_depth"].as_u64().map(|n| n as usize);
-        let max_nodes = params["max_nodes"].as_u64().map(|n| n as usize);
+        let max_depth = params.get("max_depth").and_then(Value::as_u64).map(|n| n as usize);
+        let max_nodes = params.get("max_nodes").and_then(Value::as_u64).map(|n| n as usize);
 
         let conn = db::open_database(&self.project_root)
-            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {}", e)))?;
+            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
 
         let traversal_options = TraversalOptions {
             max_depth,
@@ -322,7 +326,7 @@ impl Tool for ImpactTool {
         };
 
         let subgraph = graph::build_subgraph(&conn, &[node_id.to_string()], &traversal_options)
-            .map_err(|e| ToolError::internal_error(format!("Failed to build subgraph: {}", e)))?;
+            .map_err(|e| ToolError::internal_error(format!("Failed to build subgraph: {e}")))?;
 
         let nodes: Vec<Value> = subgraph
             .nodes

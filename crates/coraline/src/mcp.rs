@@ -282,7 +282,7 @@ impl McpServer {
     }
 
     fn initialize_tools(&mut self, project_root: PathBuf) {
-        self.tool_registry = Some(create_default_registry(project_root));
+        self.tool_registry = Some(create_default_registry(&project_root));
     }
 
     fn send_result(&self, id: JsonRpcId, result: Value) -> io::Result<()> {
