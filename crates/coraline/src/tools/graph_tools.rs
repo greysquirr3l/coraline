@@ -57,20 +57,24 @@ impl Tool for SearchTool {
 
     #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
-        let query = params.get("query")
+        let query = params
+            .get("query")
             .and_then(Value::as_str)
             .ok_or_else(|| ToolError::invalid_params("query must be a string"))?;
 
-        let kind = params.get("kind").and_then(Value::as_str).and_then(|s| match s {
-            "function" => Some(NodeKind::Function),
-            "method" => Some(NodeKind::Method),
-            "class" => Some(NodeKind::Class),
-            "struct" => Some(NodeKind::Struct),
-            "interface" => Some(NodeKind::Interface),
-            "trait" => Some(NodeKind::Trait),
-            "module" => Some(NodeKind::Module),
-            _ => None,
-        });
+        let kind = params
+            .get("kind")
+            .and_then(Value::as_str)
+            .and_then(|s| match s {
+                "function" => Some(NodeKind::Function),
+                "method" => Some(NodeKind::Method),
+                "class" => Some(NodeKind::Class),
+                "struct" => Some(NodeKind::Struct),
+                "interface" => Some(NodeKind::Interface),
+                "trait" => Some(NodeKind::Trait),
+                "module" => Some(NodeKind::Module),
+                _ => None,
+            });
 
         let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(10) as usize;
 
@@ -147,7 +151,8 @@ impl Tool for CallersTool {
 
     #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
-        let node_id = params.get("node_id")
+        let node_id = params
+            .get("node_id")
             .and_then(Value::as_str)
             .ok_or_else(|| ToolError::invalid_params("node_id must be a string"))?;
 
@@ -224,7 +229,8 @@ impl Tool for CalleesTool {
 
     #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
-        let node_id = params.get("node_id")
+        let node_id = params
+            .get("node_id")
             .and_then(Value::as_str)
             .ok_or_else(|| ToolError::invalid_params("node_id must be a string"))?;
 
@@ -306,12 +312,19 @@ impl Tool for ImpactTool {
 
     #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
-        let node_id = params.get("node_id")
+        let node_id = params
+            .get("node_id")
             .and_then(Value::as_str)
             .ok_or_else(|| ToolError::invalid_params("node_id must be a string"))?;
 
-        let max_depth = params.get("max_depth").and_then(Value::as_u64).map(|n| n as usize);
-        let max_nodes = params.get("max_nodes").and_then(Value::as_u64).map(|n| n as usize);
+        let max_depth = params
+            .get("max_depth")
+            .and_then(Value::as_u64)
+            .map(|n| n as usize);
+        let max_nodes = params
+            .get("max_nodes")
+            .and_then(Value::as_u64)
+            .map(|n| n as usize);
 
         let conn = db::open_database(&self.project_root)
             .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
