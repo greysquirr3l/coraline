@@ -136,12 +136,6 @@ jobs:
             exit 1
           fi
 
-      - name: Publish tree-sitter-blazor to crates.io (dry-run)
-        run: cargo publish --package tree-sitter-blazor --dry-run
-
-      - name: Publish coraline to crates.io (dry-run)
-        run: cargo publish --package coraline --dry-run
-
       - name: Publish tree-sitter-blazor to crates.io
         run: cargo publish --package tree-sitter-blazor
         env:
