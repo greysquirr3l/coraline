@@ -263,34 +263,6 @@ The `.coraline/config.json` file controls behavior:
 }
 ```
 
-## 🧪 Development Status
-
-Coraline is under active development. Current status:
-
-### ✅ Phase 1: Foundation (Complete)
-
-- [x] Tool abstraction layer
-- [x] Memory system
-- [x] Testing infrastructure (97% coverage)
-- [x] CI/CD pipeline
-- [x] Full-text search (FTS5)
-
-### 🔄 Phase 2: Core Features (In Progress)
-
-- [x] Vector embedding infrastructure
-- [ ] ONNX model integration (awaiting ort 2.0 stable)
-- [ ] Enhanced MCP tools
-- [ ] Advanced configuration system
-
-### 📋 Future Phases
-
-- Language server integration (LSP)
-- Additional language parsers
-- Graph visualization tools
-- VS Code extension
-
-See [IMPROVEMENT_PLAN.md](docs/IMPROVEMENT_PLAN.md) for details.
-
 ## 📊 Testing
 
 ```bash

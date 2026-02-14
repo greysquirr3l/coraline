@@ -1,6 +1,6 @@
 [package]
 name = "coraline"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 license = "MIT"
 description = "CodeGraph indexing and analysis library."
@@ -38,7 +38,7 @@ tree-sitter-c = "0.23"
 tree-sitter-cpp = "0.23"
 tree-sitter-c-sharp = "0.23"
 tree-sitter-ruby = "0.23"
-tree-sitter-blazor = { version = "0.1", path = "../tree-sitter-blazor" }
+tree-sitter-blazor = { version = "0.1.1", path = "../tree-sitter-blazor" }
 
 # Additional language parsers
 tree-sitter-bash = "0.25.1"
