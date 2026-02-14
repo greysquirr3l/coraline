@@ -337,11 +337,11 @@ mod tests {
         });
 
         let result = write_tool.execute(params).unwrap();
-        assert!(result["message"].as_str().unwrap().contains("written"));
+        assert!(result.get("message").and_then(Value::as_str).unwrap().contains("written"));
 
         let params = json!({ "name": "test_memory" });
         let result = read_tool.execute(params).unwrap();
-        assert_eq!(result["content"].as_str().unwrap(), "This is a test memory");
+        assert_eq!(result.get("content").and_then(Value::as_str).unwrap(), "This is a test memory");
     }
 
     #[test]
@@ -359,7 +359,7 @@ mod tests {
             .unwrap();
 
         let result = list_tool.execute(json!({})).unwrap();
-        let memories = result["memories"].as_array().unwrap();
+        let memories = result.get("memories").and_then(Value::as_array).unwrap();
         assert_eq!(memories.len(), 2);
     }
 
@@ -375,7 +375,7 @@ mod tests {
             .unwrap();
 
         let result = delete_tool.execute(json!({"name": "to_delete"})).unwrap();
-        assert!(result["message"].as_str().unwrap().contains("deleted"));
+        assert!(result.get("message").and_then(Value::as_str).unwrap().contains("deleted"));
     }
 
     #[test]
@@ -400,7 +400,7 @@ mod tests {
             .unwrap();
 
         let result = read_tool.execute(json!({"name": "edit_test"})).unwrap();
-        assert_eq!(result["content"].as_str().unwrap(), "Hello Rust");
+        assert_eq!(result.get("content").and_then(Value::as_str).unwrap(), "Hello Rust");
     }
 
     #[test]
@@ -425,6 +425,6 @@ mod tests {
             .unwrap();
 
         let result = read_tool.execute(json!({"name": "regex_test"})).unwrap();
-        assert_eq!(result["content"].as_str().unwrap(), "version: 2.0.0");
+        assert_eq!(result.get("content").and_then(Value::as_str).unwrap(), "version: 2.0.0");
     }
 }
