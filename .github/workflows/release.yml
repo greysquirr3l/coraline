@@ -79,7 +79,7 @@ jobs:
         run: cross build --release --bin coraline --target ${{ matrix.target }}
 
       - name: Strip binary (Linux and macOS)
-        if: runner.os != 'Windows'
+        if: runner.os != 'Windows' && matrix.use_cross == false
         run: strip target/${{ matrix.target }}/release/coraline
 
       - name: Create archive (Unix)
