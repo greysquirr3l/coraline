@@ -54,20 +54,16 @@ implementation.
 - ✅ Tools reusable in CLI, library API, and MCP contexts
 - ✅ Clear separation of concerns per Serena's lessons learned
 - ✅ Tool registry provides automatic metadata generation for MCP
-4 hours** ✅
 
 ---
 
 ### 1.2 Memory System ✅
 
 **Current State:** ~~No persistent project knowledge storage~~ **COMPLETE**
-**Current State:** No persistent project knowledge storage
-~~Memory system storing project-specific knowledge in `.coraline/memories/`~~ **COMPLETE**
 
-**Files Created:****
+**Files Created:**
 - [x] `src/memory.rs` - Memory CRUD operations ✅
 - [x] `src/tools/memory_tools.rs` - MCP tool wrappers ✅
-- [ ] `src/tools/memory_tools.rs` - MCP tool wrappers
 
 **Schema:**
 
@@ -83,19 +79,14 @@ pub struct MemoryManager {
 - [x] `suggested_commands` - Common development commands ✅
 - [x] `completion_checklist` - Feature completion criteria ✅
 
-**Storage:** JSON files in `.coraline/memories/`
+**Storage:** ~~JSON files in `.coraline/memories/`~~ Markdown files in `.coraline/memories/` ✅
 
-**MCP Tools to Add:****
-- [ ] `coraline_write_memory(name, content, tags?)`
-- [ ] `codegr~~JSON files in`.coraline/memories/`~~ Markdown files in`.coraline/memories/` ✅
-
-**MCP Tools Added:****
+**MCP Tools Added:**
 - [x] `coraline_write_memory(name, content)` ✅
 - [x] `coraline_read_memory(name)` ✅
 - [x] `coraline_list_memories()` ✅
 - [x] `coraline_delete_memory(name)` ✅
-- [x] `coraline_edit_memory(name, pattern, replacement, mode)` ✅cific patterns
-- Reduces need to re-explain architecture
+- [x] `coraline_edit_memory(name, pattern, replacement, mode)` - Edit memory with literal or regex-specific patterns ✅
 
 **✅ Persistent knowledge across sessions
 - ✅ Claude can learn and reference project-specific patterns
@@ -165,9 +156,10 @@ pub struct MemoryManager {
 
 **Status:** ✅ 100% Complete - All critical paths tested, 1 feature flagged for Phase 2 (ignored)
 
+- [x] `fixtures/mixed-language/` - Multi-language project (Rust + TypeScript + TOML) ✅
+- [x] `fixtures/blazor-app/` - Blazor components (Counter.razor, UserList.razor, UserService.cs) ✅
+
 **Estimated Effort:** 4-5 hours → **Actual: ~5 hours** ✅
-- [ ] `fixtures/mixed-language/` - Multi-language project
-- [ ] `fixtures/blazor-app/` - Blazor components (test new parser)
 
 **Note:** Test count increased from 32→36 as of v0.1.2 with additional parser and memory tool tests.
 
@@ -334,7 +326,7 @@ pub fn search_similar(conn: &Connection, query_embedding: &[f32], limit: usize, 
 
 **Target State:** User-customizable configuration with sensible defaults
 
-**Configuration File:** `.codegraph/config.toml`
+**Configuration File:** `.coraline/config.toml`
 
 ```toml
 [project]
@@ -382,7 +374,7 @@ debounce_ms = 500
 **Files to Create:**
 - [ ] `src/config/mod.rs` - Configuration loading and validation
 - [ ] `src/config/defaults.rs` - Default configuration values
-- [ ] Template `.codegraph/config.toml` created on init
+- [ ] Template `.coraline/config.toml` created on init
 
 **Files to Update:**
 - [ ] `src/lib.rs` - Use config throughout
