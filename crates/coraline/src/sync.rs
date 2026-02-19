@@ -13,7 +13,7 @@ fn post_commit_script() -> String {
 # To remove: coraline hooks remove
 
 (
-  if [ ! -d ".codegraph" ]; then
+  if [ ! -d ".coraline" ]; then
 	exit 0
   fi
 

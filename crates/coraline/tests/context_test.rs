@@ -1,4 +1,5 @@
 //! Integration tests for context building
+#![allow(clippy::expect_used)]
 
 use std::path::Path;
 
@@ -7,27 +8,31 @@ use coraline::{config, context, db, extraction};
 use tempfile::TempDir;
 
 fn setup_indexed_project() -> (TempDir, String) {
-    let temp_dir = TempDir::new().unwrap();
-    let project_root = temp_dir.path().to_str().unwrap().to_string();
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let project_root = temp_dir
+        .path()
+        .to_str()
+        .expect("Failed to convert path to string")
+        .to_string();
     let project_path = Path::new(&project_root);
 
     // Initialize database
-    db::initialize_database(project_path).unwrap();
+    db::initialize_database(project_path).expect("Failed to initialize database");
 
     // Copy TypeScript fixture
     let fixture_src = Path::new("tests/fixtures/typescript-simple");
     let fixture_dst = project_path.join("src");
-    std::fs::create_dir_all(&fixture_dst).unwrap();
+    std::fs::create_dir_all(&fixture_dst).expect("Failed to create fixture directory");
 
-    for entry in std::fs::read_dir(fixture_src).unwrap() {
-        let entry = entry.unwrap();
+    for entry in std::fs::read_dir(fixture_src).expect("Failed to read fixture directory") {
+        let entry = entry.expect("Failed to read directory entry");
         let dest = fixture_dst.join(entry.file_name());
-        std::fs::copy(entry.path(), dest).unwrap();
+        std::fs::copy(entry.path(), dest).expect("Failed to copy fixture file");
     }
 
     // Index the project
     let cfg = config::create_default_config(project_path);
-    extraction::index_all(project_path, &cfg, false, None).unwrap();
+    extraction::index_all(project_path, &cfg, false, None).expect("Failed to index project");
 
     (temp_dir, project_root)
 }
@@ -48,8 +53,8 @@ fn test_build_context_markdown() {
         min_score: None,
     };
 
-    let context_str =
-        context::build_context(project_path, "calculator functionality", &options).unwrap();
+    let context_str = context::build_context(project_path, "calculator functionality", &options)
+        .expect("Failed to build context");
 
     assert!(!context_str.is_empty(), "Context should not be empty");
     assert!(
@@ -76,7 +81,8 @@ fn test_build_context_json() {
         min_score: None,
     };
 
-    let context_str = context::build_context(project_path, "user management", &options).unwrap();
+    let context_str = context::build_context(project_path, "user management", &options)
+        .expect("Failed to build context");
 
     assert!(!context_str.is_empty(), "Context should not be empty");
 
@@ -101,7 +107,8 @@ fn test_context_includes_code() {
         min_score: None,
     };
 
-    let context_with_code = context::build_context(project_path, "add function", &options).unwrap();
+    let context_with_code = context::build_context(project_path, "add function", &options)
+        .expect("Failed to build context with code");
 
     // With code enabled, should include code blocks
     assert!(
@@ -126,7 +133,8 @@ fn test_context_without_code() {
         min_score: None,
     };
 
-    let context_no_code = context::build_context(project_path, "calculator", &options).unwrap();
+    let context_no_code = context::build_context(project_path, "calculator", &options)
+        .expect("Failed to build context without code");
 
     assert!(
         !context_no_code.is_empty(),
@@ -161,11 +169,11 @@ fn test_context_max_nodes_limit() {
         min_score: None,
     };
 
-    let context_small =
-        context::build_context(project_path, "typescript code", &options_small).unwrap();
+    let context_small = context::build_context(project_path, "typescript code", &options_small)
+        .expect("Failed to build small context");
 
-    let context_large =
-        context::build_context(project_path, "typescript code", &options_large).unwrap();
+    let context_large = context::build_context(project_path, "typescript code", &options_large)
+        .expect("Failed to build large context");
 
     // Larger limits should generally produce more context
     // (though not guaranteed depending on query)

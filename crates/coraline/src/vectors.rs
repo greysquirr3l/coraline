@@ -105,7 +105,7 @@ pub fn store_embedding(
 
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .map_err(|e| io::Error::other(format!("Failed to get system time: {}", e)))?
         .as_millis() as i64;
 
     conn.execute(
@@ -254,7 +254,7 @@ pub fn search_similar(
                     .and_then(|s| serde_json::from_str(&s).ok()),
                 updated_at: std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
+                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?
                     .as_millis() as i64,
             };
 

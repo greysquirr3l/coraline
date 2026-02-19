@@ -238,46 +238,60 @@ When implementing a new feature, ensure:
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::expect_used)]
+
     use super::*;
     use tempfile::TempDir;
 
     #[test]
     fn test_memory_manager_write_and_read() {
-        let temp_dir = TempDir::new().unwrap();
-        let manager = MemoryManager::new(temp_dir.path()).unwrap();
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        let manager = MemoryManager::new(temp_dir.path()).expect("Failed to create MemoryManager");
 
         let result = manager
             .write_memory("test_memory", "This is test content")
-            .unwrap();
+            .expect("Failed to write memory");
         assert!(result.contains("written successfully"));
 
-        let content = manager.read_memory("test_memory").unwrap();
+        let content = manager
+            .read_memory("test_memory")
+            .expect("Failed to read memory");
         assert_eq!(content, "This is test content");
     }
 
     #[test]
     fn test_memory_manager_handles_md_extension() {
-        let temp_dir = TempDir::new().unwrap();
-        let manager = MemoryManager::new(temp_dir.path()).unwrap();
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        let manager = MemoryManager::new(temp_dir.path()).expect("Failed to create MemoryManager");
 
-        manager.write_memory("test.md", "content").unwrap();
-        let content = manager.read_memory("test").unwrap();
+        manager
+            .write_memory("test.md", "content")
+            .expect("Failed to write memory");
+        let content = manager.read_memory("test").expect("Failed to read memory");
         assert_eq!(content, "content");
 
-        let content = manager.read_memory("test.md").unwrap();
+        let content = manager
+            .read_memory("test.md")
+            .expect("Failed to read memory with .md extension");
         assert_eq!(content, "content");
     }
 
     #[test]
     fn test_memory_manager_list() {
-        let temp_dir = TempDir::new().unwrap();
-        let manager = MemoryManager::new(temp_dir.path()).unwrap();
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        let manager = MemoryManager::new(temp_dir.path()).expect("Failed to create MemoryManager");
 
-        manager.write_memory("memory1", "content1").unwrap();
-        manager.write_memory("memory2", "content2").unwrap();
-        manager.write_memory("memory3", "content3").unwrap();
+        manager
+            .write_memory("memory1", "content1")
+            .expect("Failed to write memory1");
+        manager
+            .write_memory("memory2", "content2")
+            .expect("Failed to write memory2");
+        manager
+            .write_memory("memory3", "content3")
+            .expect("Failed to write memory3");
 
-        let memories = manager.list_memories().unwrap();
+        let memories = manager.list_memories().expect("Failed to list memories");
         assert_eq!(memories.len(), 3);
         assert!(memories.contains(&"memory1".to_string()));
         assert!(memories.contains(&"memory2".to_string()));
@@ -286,32 +300,39 @@ mod tests {
 
     #[test]
     fn test_memory_manager_delete() {
-        let temp_dir = TempDir::new().unwrap();
-        let manager = MemoryManager::new(temp_dir.path()).unwrap();
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        let manager = MemoryManager::new(temp_dir.path()).expect("Failed to create MemoryManager");
 
-        manager.write_memory("to_delete", "content").unwrap();
+        manager
+            .write_memory("to_delete", "content")
+            .expect("Failed to write memory");
         assert!(manager.memory_exists("to_delete"));
 
-        manager.delete_memory("to_delete").unwrap();
+        manager
+            .delete_memory("to_delete")
+            .expect("Failed to delete memory");
         assert!(!manager.memory_exists("to_delete"));
     }
 
     #[test]
     fn test_memory_not_found() {
-        let temp_dir = TempDir::new().unwrap();
-        let manager = MemoryManager::new(temp_dir.path()).unwrap();
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        let manager = MemoryManager::new(temp_dir.path()).expect("Failed to create MemoryManager");
 
-        let result = manager.read_memory("nonexistent").unwrap();
+        let result = manager
+            .read_memory("nonexistent")
+            .expect("Failed to read memory");
         assert!(result.contains("not found"));
     }
 
     #[test]
     fn test_create_initial_memories() {
-        let temp_dir = TempDir::new().unwrap();
-        create_initial_memories(temp_dir.path(), "test_project").unwrap();
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        create_initial_memories(temp_dir.path(), "test_project")
+            .expect("Failed to create initial memories");
 
-        let manager = MemoryManager::new(temp_dir.path()).unwrap();
-        let memories = manager.list_memories().unwrap();
+        let manager = MemoryManager::new(temp_dir.path()).expect("Failed to create MemoryManager");
+        let memories = manager.list_memories().expect("Failed to list memories");
 
         assert_eq!(memories.len(), 4);
         assert!(memories.contains(&"project_overview".to_string()));
@@ -319,7 +340,9 @@ mod tests {
         assert!(memories.contains(&"suggested_commands".to_string()));
         assert!(memories.contains(&"completion_checklist".to_string()));
 
-        let overview = manager.read_memory("project_overview").unwrap();
+        let overview = manager
+            .read_memory("project_overview")
+            .expect("Failed to read project_overview");
         assert!(overview.contains("test_project"));
     }
 }

@@ -321,89 +321,107 @@ impl Tool for EditMemoryTool {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::expect_used)]
+
     use super::*;
     use tempfile::TempDir;
 
     #[test]
     fn test_write_and_read_memory_tool() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
         let path_buf = temp_dir.path().to_path_buf();
-        let write_tool = WriteMemoryTool::new(&path_buf).unwrap();
-        let read_tool = ReadMemoryTool::new(&path_buf).unwrap();
+        let write_tool = WriteMemoryTool::new(&path_buf).expect("Failed to create WriteMemoryTool");
+        let read_tool = ReadMemoryTool::new(&path_buf).expect("Failed to create ReadMemoryTool");
 
         let params = json!({
             "name": "test_memory",
             "content": "This is a test memory"
         });
 
-        let result = write_tool.execute(params).unwrap();
+        let result = write_tool
+            .execute(params)
+            .expect("Failed to execute write_tool");
         assert!(
             result
                 .get("message")
                 .and_then(Value::as_str)
-                .unwrap()
+                .expect("Result should contain message string")
                 .contains("written")
         );
 
         let params = json!({ "name": "test_memory" });
-        let result = read_tool.execute(params).unwrap();
+        let result = read_tool
+            .execute(params)
+            .expect("Failed to execute read_tool");
         assert_eq!(
-            result.get("content").and_then(Value::as_str).unwrap(),
+            result
+                .get("content")
+                .and_then(Value::as_str)
+                .expect("Result should contain content string"),
             "This is a test memory"
         );
     }
 
     #[test]
     fn test_list_memories_tool() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
         let path_buf = temp_dir.path().to_path_buf();
-        let write_tool = WriteMemoryTool::new(&path_buf).unwrap();
-        let list_tool = ListMemoriesTool::new(&path_buf).unwrap();
+        let write_tool = WriteMemoryTool::new(&path_buf).expect("Failed to create WriteMemoryTool");
+        let list_tool =
+            ListMemoriesTool::new(&path_buf).expect("Failed to create ListMemoriesTool");
 
         write_tool
             .execute(json!({"name": "mem1", "content": "content1"}))
-            .unwrap();
+            .expect("Failed to write memory mem1");
         write_tool
             .execute(json!({"name": "mem2", "content": "content2"}))
-            .unwrap();
+            .expect("Failed to write memory mem2");
 
-        let result = list_tool.execute(json!({})).unwrap();
-        let memories = result.get("memories").and_then(Value::as_array).unwrap();
+        let result = list_tool
+            .execute(json!({}))
+            .expect("Failed to execute list_tool");
+        let memories = result
+            .get("memories")
+            .and_then(Value::as_array)
+            .expect("Result should contain memories array");
         assert_eq!(memories.len(), 2);
     }
 
     #[test]
     fn test_delete_memory_tool() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
         let path_buf = temp_dir.path().to_path_buf();
-        let write_tool = WriteMemoryTool::new(&path_buf).unwrap();
-        let delete_tool = DeleteMemoryTool::new(&path_buf).unwrap();
+        let write_tool = WriteMemoryTool::new(&path_buf).expect("Failed to create WriteMemoryTool");
+        let delete_tool =
+            DeleteMemoryTool::new(&path_buf).expect("Failed to create DeleteMemoryTool");
 
         write_tool
             .execute(json!({"name": "to_delete", "content": "content"}))
-            .unwrap();
+            .expect("Failed to write memory to_delete");
 
-        let result = delete_tool.execute(json!({"name": "to_delete"})).unwrap();
+        let result = delete_tool
+            .execute(json!({"name": "to_delete"}))
+            .expect("Failed to execute delete_tool");
         assert!(
             result
                 .get("message")
                 .and_then(Value::as_str)
-                .unwrap()
+                .expect("Result should contain message string")
                 .contains("deleted")
         );
     }
 
     #[test]
     fn test_edit_memory_tool_literal() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
         let path_buf = temp_dir.path().to_path_buf();
-        let write_tool = WriteMemoryTool::new(&path_buf).unwrap();
-        let edit_tool = EditMemoryTool::new(&path_buf).unwrap();
-        let read_tool = ReadMemoryTool::new(&path_buf).unwrap();
+        let write_tool = WriteMemoryTool::new(&path_buf).expect("Failed to create WriteMemoryTool");
+        let edit_tool = EditMemoryTool::new(&path_buf).expect("Failed to create EditMemoryTool");
+        let read_tool = ReadMemoryTool::new(&path_buf).expect("Failed to create ReadMemoryTool");
 
         write_tool
             .execute(json!({"name": "edit_test", "content": "Hello World"}))
-            .unwrap();
+            .expect("Failed to write memory edit_test");
 
         edit_tool
             .execute(json!({
@@ -412,26 +430,31 @@ mod tests {
                 "replacement": "Rust",
                 "mode": "literal"
             }))
-            .unwrap();
+            .expect("Failed to execute edit_tool");
 
-        let result = read_tool.execute(json!({"name": "edit_test"})).unwrap();
+        let result = read_tool
+            .execute(json!({"name": "edit_test"}))
+            .expect("Failed to execute read_tool");
         assert_eq!(
-            result.get("content").and_then(Value::as_str).unwrap(),
+            result
+                .get("content")
+                .and_then(Value::as_str)
+                .expect("Result should contain content string"),
             "Hello Rust"
         );
     }
 
     #[test]
     fn test_edit_memory_tool_regex() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
         let path_buf = temp_dir.path().to_path_buf();
-        let write_tool = WriteMemoryTool::new(&path_buf).unwrap();
-        let edit_tool = EditMemoryTool::new(&path_buf).unwrap();
-        let read_tool = ReadMemoryTool::new(&path_buf).unwrap();
+        let write_tool = WriteMemoryTool::new(&path_buf).expect("Failed to create WriteMemoryTool");
+        let edit_tool = EditMemoryTool::new(&path_buf).expect("Failed to create EditMemoryTool");
+        let read_tool = ReadMemoryTool::new(&path_buf).expect("Failed to create ReadMemoryTool");
 
         write_tool
             .execute(json!({"name": "regex_test", "content": "version: 1.0.0"}))
-            .unwrap();
+            .expect("Failed to write memory regex_test");
 
         edit_tool
             .execute(json!({
@@ -440,11 +463,16 @@ mod tests {
                 "replacement": "version: 2.0.0",
                 "mode": "regex"
             }))
-            .unwrap();
+            .expect("Failed to execute edit_tool with regex");
 
-        let result = read_tool.execute(json!({"name": "regex_test"})).unwrap();
+        let result = read_tool
+            .execute(json!({"name": "regex_test"}))
+            .expect("Failed to execute read_tool");
         assert_eq!(
-            result.get("content").and_then(Value::as_str).unwrap(),
+            result
+                .get("content")
+                .and_then(Value::as_str)
+                .expect("Result should contain content string"),
             "version: 2.0.0"
         );
     }

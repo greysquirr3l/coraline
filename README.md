@@ -32,7 +32,7 @@ Built from the ground up in Rust, Coraline provides:
 ### From CodeGraph
 
 - **Semantic Knowledge Graph** - Pre-indexed symbol relationships and call graphs
-- **Multi-language Support** - 28 languages including TypeScript, Rust, Python, Go, C#, Java, C/C++, Ruby, Bash, Dart, Elixir, Haskell, Scala
+- **Multi-language Support** - 33 languages including TypeScript, Rust, Python, Go, C#, Java, C/C++, Ruby, Bash, PHP, Swift, Kotlin, Markdown, TOML
 - **Vector Embeddings** - Semantic code search using local ONNX models
 - **Impact Analysis** - Understand what code changes will affect
 - **Git Integration** - Auto-sync on commits to keep index fresh
@@ -221,13 +221,18 @@ Coraline uses tree-sitter for fast, accurate code parsing. Current support:
 | Groovy | tree-sitter-groovy | ✅ Full | Classes, methods, closures |
 | Haskell | tree-sitter-haskell | ✅ Full | Functions, types, typeclasses |
 | Julia | tree-sitter-julia | ✅ Full | Functions, types, modules |
+| Kotlin | tree-sitter-kotlin-ng | ✅ Full | Classes, functions, objects |
 | Lua | tree-sitter-lua | ✅ Full | Functions, tables, modules |
+| Markdown | tree-sitter-markdown-fork | ✅ Full | Documents, headings, lists |
 | MATLAB | tree-sitter-matlab | ✅ Full | Functions, scripts |
 | Nix | tree-sitter-nix | ✅ Full | Derivations, functions |
 | Perl | tree-sitter-perl | ✅ Full | Packages, subroutines |
+| PHP | tree-sitter-php | ✅ Full | Classes, functions, methods |
 | PowerShell | tree-sitter-powershell | ✅ Full | Functions, cmdlets, scripts |
 | R | tree-sitter-r | ✅ Full | Functions, scripts |
 | Scala | tree-sitter-scala | ✅ Full | Classes, objects, traits |
+| Swift | tree-sitter-swift | ✅ Full | Classes, structs, functions |
+| TOML | tree-sitter-toml-ng | ✅ Full | Configuration, tables, keys |
 | YAML | tree-sitter-yaml | ✅ Full | Structure, mappings |
 | Zig | tree-sitter-zig | ✅ Full | Functions, structs |
 
@@ -235,11 +240,7 @@ Coraline uses tree-sitter for fast, accurate code parsing. Current support:
 
 | Language | Status | Notes |
 | ---------- | -------- | ------- |
-| PHP | ⏸️ Pending | Parser API compatibility issue |
-| Swift | ⏸️ Pending | Parser API compatibility issue |
-| Kotlin | ⏸️ Pending | Parser API compatibility issue |
-| Markdown | ⏸️ Pending | Requires tree-sitter 0.19 (incompatible with 0.26) |
-| TOML | ⏸️ Pending | Requires tree-sitter 0.20 (incompatible with 0.26) |
+| Liquid | ⏸️ Pending | Parser API compatibility issue |
 
 > **Note**: Language support requires tree-sitter grammar integration. Some parsers require older tree-sitter versions and will be added when updated parsers are available.
 

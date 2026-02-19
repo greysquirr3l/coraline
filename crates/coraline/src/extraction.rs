@@ -422,15 +422,14 @@ fn language_to_parser(language: Language) -> Option<tree_sitter::Language> {
         Language::Scala => Some(tree_sitter::Language::new(tree_sitter_scala::LANGUAGE)),
         Language::Yaml => Some(tree_sitter::Language::new(tree_sitter_yaml::LANGUAGE)),
         Language::Zig => Some(tree_sitter::Language::new(tree_sitter_zig::LANGUAGE)),
-        // TODO: PHP, Swift, Kotlin, Markdown, and TOML parsers have API compatibility issues
-        // Markdown and TOML require older tree-sitter versions (0.19 and 0.20)
-        Language::Php
-        | Language::Swift
-        | Language::Kotlin
-        | Language::Liquid
-        | Language::Markdown
-        | Language::Toml
-        | Language::Unknown => None,
+        // Recently compatible parsers (updated to work with tree-sitter 0.26)
+        Language::Php => Some(tree_sitter::Language::new(tree_sitter_php::LANGUAGE_PHP)),
+        Language::Swift => Some(tree_sitter::Language::new(tree_sitter_swift::LANGUAGE)),
+        Language::Kotlin => Some(tree_sitter::Language::new(tree_sitter_kotlin_ng::LANGUAGE)),
+        Language::Markdown => Some(tree_sitter_markdown_fork::language()),
+        Language::Toml => Some(tree_sitter::Language::new(tree_sitter_toml_ng::LANGUAGE)),
+        // Unsupported languages
+        Language::Liquid | Language::Unknown => None,
     }
 }
 

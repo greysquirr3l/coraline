@@ -9,7 +9,7 @@ use crate::types::{
     Visibility,
 };
 
-pub const DATABASE_FILENAME: &str = "codegraph.db";
+pub const DATABASE_FILENAME: &str = "coraline.db";
 pub const SCHEMA_SQL: &str = include_str!("db/schema.sql");
 
 #[derive(Debug, Default)]
