@@ -122,11 +122,12 @@ pub struct MemoryManager {
 
 **Test Coverage:**
 
-✅ **Unit Tests (19/19 passing):**
+✅ **Unit Tests (24/24 passing):**
 - [x] Memory CRUD operations (5 tests) ✅
 - [x] Tool registry operations (3 tests) ✅
 - [x] Memory MCP tools (5 tests) ✅
 - [x] Vector cosine similarity (5 tests) ✅
+- [x] Vector cosine similarity — property-based (5 proptest tests) ✅
 - [x] Database operations ✅
 
 ✅ **Integration Tests (13/13 passing, 1 ignored):**
@@ -152,7 +153,7 @@ pub struct MemoryManager {
 - ✅ Fixed FTS search to use OR logic for multi-word queries
 - ✅ Search now finds symbols when query contains multiple words (e.g., "calculator functionality")
 - ✅ All context building tests passing with rich output (entry points + code blocks)
-- ✅ 36/36 tests passing (100% pass rate, 1 test marked for future work and ignored)
+- ✅ 41/41 tests passing (100% pass rate, 1 test marked for future work and ignored)
 
 **Status:** ✅ 100% Complete - All critical paths tested, 1 feature flagged for Phase 2 (ignored)
 
@@ -161,22 +162,23 @@ pub struct MemoryManager {
 
 **Estimated Effort:** 4-5 hours → **Actual: ~5 hours** ✅
 
-**Note:** Test count increased from 32→36 as of v0.1.2 with additional parser and memory tool tests.
+**Note:** Test count increased from 32→36 as of v0.1.2, and to 41 with proptest addition.
 
 **Testing Tools:**
 - [x] `insta` for snapshot testing ✅
 - [x] `tempfile` for temporary test projects ✅
 - [x] `globset` for pattern matching (replaced broken regex implementation) ✅
-- [ ] `proptest` for property-based testing
+- [x] `proptest` for property-based testing ✅ (5 property tests for `cosine_similarity`: symmetry, range, self-similarity, length mismatch, scale invariance)
 
 **Test Results:**
-- ✅ 19/19 Unit tests passing (memory, tools, vectors)
+- ✅ 24/24 Unit tests passing (memory, tools, vectors, proptest)
 - ✅ 5/5 Vector tests passing
+- ✅ 5/5 Vector property-based tests passing
 - ✅ 3/4 Extraction tests passing (1 ignored: cross-file edges, future work)
 - ✅ 4/4 Context tests passing
 - ✅ 4/4 Graph traversal tests passing
 - ✅ 1/1 tree-sitter-blazor test passing
-- **Total: 36/36 passing, 1 ignored (100%)**
+- **Total: 41/41 passing, 1 ignored (100%)**
 
 **Critical Bug Fixed:**
 - ✅ Glob pattern matching completely rewritten using `globset` crate
@@ -641,7 +643,7 @@ pub trait FrameworkResolver {
 
 - ✅ Phase 1.1: Tool Abstraction Layer
 - ✅ Phase 1.2: Memory System  
-- ✅ Phase 1.3: Testing Infrastructure (100%) — 36/36 tests, 1 ignored
+- ✅ Phase 1.3: Testing Infrastructure (100%) — 41/41 tests, 1 ignored
 - ✅ Phase 1.5: CI/CD Infrastructure
 - ✅ Folder rename: .codegraph → .coraline (all source + docs + hooks)
 - ✅ Database renamed: `codegraph.db` → `coraline.db`
@@ -671,7 +673,7 @@ pub trait FrameworkResolver {
 - ✅ All tools extracted to `src/tools/` directory
 - ✅ MCP server uses tool registry
 - ✅ Memory system working with 4 initial templates
-- ✅ Test coverage >60% with fixtures (currently 100% - 36/36 tests passing, 1 ignored future work)
+- ✅ Test coverage >60% with fixtures (currently 100% - 41/41 tests passing, 1 ignored future work)
 - ✅ CI/CD infrastructure in place
 
 **Phase 1 Status: 100% Complete** ✅

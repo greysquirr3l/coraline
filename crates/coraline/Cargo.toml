@@ -75,4 +75,5 @@ tree-sitter-kotlin-ng = "1.1.0"  # Using -ng fork which is compatible with tree-
 tempfile = "3"
 insta = "1.40"
 regex = "1"
+proptest = "1"
 

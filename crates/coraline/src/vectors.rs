@@ -286,6 +286,93 @@ pub fn search_similar(
 mod tests {
     use super::*;
 
+    // ── Property-based tests ──────────────────────────────────────────────────
+
+    #[cfg(test)]
+    mod props {
+        use super::*;
+        use proptest::prelude::*;
+
+        // Generate non-empty vectors of bounded f32 values (avoids norm overflow).
+        fn finite_vec(max_len: usize) -> impl Strategy<Value = Vec<f32>> {
+            prop::collection::vec(-1000.0f32..=1000.0f32, 1..=max_len)
+        }
+
+        proptest! {
+            /// Cosine similarity is symmetric: sim(a, b) == sim(b, a)
+            #[test]
+            fn prop_cosine_symmetry(a in finite_vec(16), b in finite_vec(16)) {
+                if a.len() == b.len() {
+                    let ab = cosine_similarity(&a, &b);
+                    let ba = cosine_similarity(&b, &a);
+                    prop_assert!((ab - ba).abs() < 1e-5, "symmetry violated: {} vs {}", ab, ba);
+                }
+            }
+
+            /// Result is always in [-1, 1] for same-length vectors.
+            #[test]
+            fn prop_cosine_range(a in finite_vec(16), b in finite_vec(16)) {
+                if a.len() == b.len() {
+                    let sim = cosine_similarity(&a, &b);
+                    prop_assert!(
+                        sim >= -1.0 - 1e-5 && sim <= 1.0 + 1e-5,
+                        "cosine_similarity out of [-1, 1]: {}",
+                        sim
+                    );
+                }
+            }
+
+            /// A non-zero vector has self-similarity of 1.0.
+            #[test]
+            fn prop_cosine_self_similarity(a in finite_vec(16)) {
+                let all_zero = a.iter().all(|&x| x == 0.0);
+                if !all_zero {
+                    let sim = cosine_similarity(&a, &a);
+                    prop_assert!(
+                        (sim - 1.0).abs() < 1e-5,
+                        "self-similarity should be 1.0 but got {}",
+                        sim
+                    );
+                }
+            }
+
+            /// Mismatched lengths always return 0.0.
+            #[test]
+            fn prop_cosine_different_lengths(
+                a in finite_vec(8),
+                extra in finite_vec(8),
+            ) {
+                let mut b = a.clone();
+                b.extend_from_slice(&extra);
+                // b is strictly longer than a
+                let sim = cosine_similarity(&a, &b);
+                prop_assert_eq!(sim, 0.0, "different-length vectors should return 0.0");
+            }
+
+            /// Scaling a vector does not change its cosine similarity with another.
+            #[test]
+            fn prop_cosine_scale_invariant(
+                a in finite_vec(8),
+                b in finite_vec(8),
+                scale in 0.1f32..100.0f32,
+            ) {
+                if a.len() == b.len() {
+                    let sim_orig = cosine_similarity(&a, &b);
+                    let scaled: Vec<f32> = a.iter().map(|&x| x * scale).collect();
+                    let sim_scaled = cosine_similarity(&scaled, &b);
+                    prop_assert!(
+                        (sim_orig - sim_scaled).abs() < 1e-4,
+                        "scale invariance violated: {} vs {}",
+                        sim_orig,
+                        sim_scaled
+                    );
+                }
+            }
+        }
+    }
+
+    // ── Unit tests ────────────────────────────────────────────────────────────
+
     #[test]
     fn test_cosine_similarity_identical() {
         let a = vec![1.0, 2.0, 3.0];
