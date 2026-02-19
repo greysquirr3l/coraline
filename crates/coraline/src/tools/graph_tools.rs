@@ -384,3 +384,446 @@ impl Tool for ImpactTool {
         }))
     }
 }
+
+/// Tool for finding a symbol by name pattern (richer than search — returns hierarchy/depth info)
+pub struct FindSymbolTool {
+    project_root: PathBuf,
+}
+
+impl FindSymbolTool {
+    pub const fn new(project_root: PathBuf) -> Self {
+        Self { project_root }
+    }
+}
+
+impl Tool for FindSymbolTool {
+    fn name(&self) -> &'static str {
+        "coraline_find_symbol"
+    }
+
+    fn description(&self) -> &'static str {
+        "Find symbols by exact name or substring pattern. Returns node metadata and optionally the source code body."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "name_pattern": {
+                    "type": "string",
+                    "description": "Symbol name or substring to search for"
+                },
+                "kind": {
+                    "type": "string",
+                    "description": "Optional node kind filter",
+                    "enum": ["function", "method", "class", "struct", "interface", "trait", "module"]
+                },
+                "include_body": {
+                    "type": "boolean",
+                    "description": "Whether to include the source code body of the symbol",
+                    "default": false
+                },
+                "limit": {
+                    "type": "number",
+                    "description": "Maximum results to return",
+                    "default": 10
+                }
+            },
+            "required": ["name_pattern"]
+        })
+    }
+
+    #[allow(clippy::cast_possible_truncation)]
+    fn execute(&self, params: Value) -> ToolResult {
+        let pattern = params
+            .get("name_pattern")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ToolError::invalid_params("name_pattern must be a string"))?;
+
+        let kind = params
+            .get("kind")
+            .and_then(Value::as_str)
+            .and_then(str_to_node_kind);
+
+        let include_body = params
+            .get("include_body")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+
+        let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(10) as usize;
+
+        let conn = db::open_database(&self.project_root)
+            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
+
+        // Use FTS search for the pattern
+        let results = db::search_nodes(&conn, pattern, kind, limit)
+            .map_err(|e| ToolError::internal_error(format!("Search failed: {e}")))?;
+
+        let symbols: Vec<Value> = results
+            .into_iter()
+            .map(|r| {
+                let body = if include_body {
+                    read_node_source(&self.project_root, &r.node)
+                } else {
+                    None
+                };
+                json!({
+                    "id": r.node.id,
+                    "kind": r.node.kind,
+                    "name": r.node.name,
+                    "qualified_name": r.node.qualified_name,
+                    "file_path": r.node.file_path,
+                    "language": r.node.language,
+                    "start_line": r.node.start_line,
+                    "end_line": r.node.end_line,
+                    "signature": r.node.signature,
+                    "docstring": r.node.docstring,
+                    "is_exported": r.node.is_exported,
+                    "is_async": r.node.is_async,
+                    "is_static": r.node.is_static,
+                    "score": r.score,
+                    "body": body,
+                })
+            })
+            .collect();
+
+        Ok(json!({ "symbols": symbols, "count": symbols.len() }))
+    }
+}
+
+/// Tool for getting a symbol overview for a file
+pub struct GetSymbolsOverviewTool {
+    project_root: PathBuf,
+}
+
+impl GetSymbolsOverviewTool {
+    pub const fn new(project_root: PathBuf) -> Self {
+        Self { project_root }
+    }
+}
+
+impl Tool for GetSymbolsOverviewTool {
+    fn name(&self) -> &'static str {
+        "coraline_get_symbols_overview"
+    }
+
+    fn description(&self) -> &'static str {
+        "Get an overview of all symbols in a file, grouped by kind and ordered by line number."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Path to the file (relative to project root or absolute)"
+                }
+            },
+            "required": ["file_path"]
+        })
+    }
+
+    fn execute(&self, params: Value) -> ToolResult {
+        let file_path = params
+            .get("file_path")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ToolError::invalid_params("file_path must be a string"))?;
+
+        // Normalise: if relative, make absolute using project root
+        let abs_path = if std::path::Path::new(file_path).is_absolute() {
+            file_path.to_string()
+        } else {
+            self.project_root
+                .join(file_path)
+                .to_string_lossy()
+                .to_string()
+        };
+
+        let conn = db::open_database(&self.project_root)
+            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
+
+        let nodes = db::get_nodes_by_file(&conn, &abs_path, None)
+            .map_err(|e| ToolError::internal_error(format!("Failed to get nodes: {e}")))?;
+
+        if nodes.is_empty() {
+            // Try with the path as-is (might be stored relative)
+            let nodes_fallback = db::get_nodes_by_file(&conn, file_path, None)
+                .map_err(|e| ToolError::internal_error(format!("Failed to get nodes: {e}")))?;
+
+            return build_overview_response(nodes_fallback, file_path);
+        }
+
+        build_overview_response(nodes, &abs_path)
+    }
+}
+
+fn build_overview_response(nodes: Vec<crate::types::Node>, file_path: &str) -> ToolResult {
+    use std::collections::HashMap;
+
+    let mut by_kind: HashMap<String, Vec<Value>> = HashMap::new();
+
+    for node in &nodes {
+        let kind_str = format!("{:?}", node.kind).to_lowercase();
+        by_kind
+            .entry(kind_str)
+            .or_default()
+            .push(json!({
+                "id": node.id,
+                "name": node.name,
+                "qualified_name": node.qualified_name,
+                "start_line": node.start_line,
+                "end_line": node.end_line,
+                "signature": node.signature,
+                "is_exported": node.is_exported,
+            }));
+    }
+
+    let symbols: Vec<Value> = nodes
+        .iter()
+        .map(|n| {
+            json!({
+                "id": n.id,
+                "kind": n.kind,
+                "name": n.name,
+                "start_line": n.start_line,
+                "end_line": n.end_line,
+                "signature": n.signature,
+            })
+        })
+        .collect();
+
+    Ok(json!({
+        "file_path": file_path,
+        "symbol_count": nodes.len(),
+        "by_kind": by_kind,
+        "symbols": symbols,
+    }))
+}
+
+/// Tool for finding all references to a node
+pub struct FindReferencesTool {
+    project_root: PathBuf,
+}
+
+impl FindReferencesTool {
+    pub const fn new(project_root: PathBuf) -> Self {
+        Self { project_root }
+    }
+}
+
+impl Tool for FindReferencesTool {
+    fn name(&self) -> &'static str {
+        "coraline_find_references"
+    }
+
+    fn description(&self) -> &'static str {
+        "Find all nodes that reference (call, import, extend, implement, etc.) a given symbol."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "node_id": {
+                    "type": "string",
+                    "description": "ID of the node to find references to"
+                },
+                "edge_kind": {
+                    "type": "string",
+                    "description": "Filter by edge kind (calls, imports, extends, implements, references)",
+                    "enum": ["calls", "imports", "extends", "implements", "references"]
+                },
+                "limit": {
+                    "type": "number",
+                    "description": "Maximum number of references to return",
+                    "default": 50
+                }
+            },
+            "required": ["node_id"]
+        })
+    }
+
+    #[allow(clippy::cast_possible_truncation)]
+    fn execute(&self, params: Value) -> ToolResult {
+        let node_id = params
+            .get("node_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ToolError::invalid_params("node_id must be a string"))?;
+
+        let edge_kind = params
+            .get("edge_kind")
+            .and_then(Value::as_str)
+            .and_then(|s| match s {
+                "calls" => Some(EdgeKind::Calls),
+                "imports" => Some(EdgeKind::Imports),
+                "extends" => Some(EdgeKind::Extends),
+                "implements" => Some(EdgeKind::Implements),
+                "references" => Some(EdgeKind::References),
+                _ => None,
+            });
+
+        let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(50) as usize;
+
+        let conn = db::open_database(&self.project_root)
+            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
+
+        let edges = db::get_edges_by_target(&conn, node_id, edge_kind, limit)
+            .map_err(|e| ToolError::internal_error(format!("Failed to get edges: {e}")))?;
+
+        let mut references = Vec::new();
+        for edge in &edges {
+            if let Some(node) = db::get_node_by_id(&conn, &edge.source)
+                .map_err(|e| ToolError::internal_error(format!("Failed to get node: {e}")))?
+            {
+                references.push(json!({
+                    "id": node.id,
+                    "kind": node.kind,
+                    "name": node.name,
+                    "qualified_name": node.qualified_name,
+                    "file_path": node.file_path,
+                    "start_line": node.start_line,
+                    "edge_kind": edge.kind,
+                    "edge_line": edge.line,
+                }));
+            }
+        }
+
+        Ok(json!({
+            "node_id": node_id,
+            "references": references,
+            "count": references.len(),
+        }))
+    }
+}
+
+/// Tool for getting full node details including source code
+pub struct GetNodeTool {
+    project_root: PathBuf,
+}
+
+impl GetNodeTool {
+    pub const fn new(project_root: PathBuf) -> Self {
+        Self { project_root }
+    }
+}
+
+impl Tool for GetNodeTool {
+    fn name(&self) -> &'static str {
+        "coraline_node"
+    }
+
+    fn description(&self) -> &'static str {
+        "Get complete details for a specific node by ID, including its source code body."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "node_id": {
+                    "type": "string",
+                    "description": "The node ID to retrieve"
+                },
+                "include_edges": {
+                    "type": "boolean",
+                    "description": "Whether to include outgoing and incoming edge counts",
+                    "default": false
+                }
+            },
+            "required": ["node_id"]
+        })
+    }
+
+    fn execute(&self, params: Value) -> ToolResult {
+        let node_id = params
+            .get("node_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ToolError::invalid_params("node_id must be a string"))?;
+
+        let include_edges = params
+            .get("include_edges")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+
+        let conn = db::open_database(&self.project_root)
+            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
+
+        let node = db::get_node_by_id(&conn, node_id)
+            .map_err(|e| ToolError::internal_error(format!("Failed to get node: {e}")))?
+            .ok_or_else(|| ToolError::not_found(format!("Node not found: {node_id}")))?;
+
+        let body = read_node_source(&self.project_root, &node);
+
+        let mut result = json!({
+            "id": node.id,
+            "kind": node.kind,
+            "name": node.name,
+            "qualified_name": node.qualified_name,
+            "file_path": node.file_path,
+            "language": node.language,
+            "start_line": node.start_line,
+            "end_line": node.end_line,
+            "start_column": node.start_column,
+            "end_column": node.end_column,
+            "signature": node.signature,
+            "docstring": node.docstring,
+            "visibility": node.visibility,
+            "is_exported": node.is_exported,
+            "is_async": node.is_async,
+            "is_static": node.is_static,
+            "is_abstract": node.is_abstract,
+            "decorators": node.decorators,
+            "type_parameters": node.type_parameters,
+            "body": body,
+        });
+
+        if include_edges {
+            let out_edges = db::get_edges_by_source(&conn, node_id, None, 200)
+                .map_err(|e| ToolError::internal_error(format!("Failed to get edges: {e}")))?;
+            let in_edges = db::get_edges_by_target(&conn, node_id, None, 200)
+                .map_err(|e| ToolError::internal_error(format!("Failed to get edges: {e}")))?;
+            result["outgoing_edge_count"] = json!(out_edges.len());
+            result["incoming_edge_count"] = json!(in_edges.len());
+        }
+
+        Ok(result)
+    }
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+/// Read the source lines for a node from its file on disk.
+fn read_node_source(project_root: &std::path::Path, node: &crate::types::Node) -> Option<String> {
+    let path = if std::path::Path::new(&node.file_path).is_absolute() {
+        std::path::PathBuf::from(&node.file_path)
+    } else {
+        project_root.join(&node.file_path)
+    };
+
+    let text = std::fs::read_to_string(&path).ok()?;
+    let lines: Vec<&str> = text.lines().collect();
+
+    let start = (node.start_line as usize).saturating_sub(1);
+    let end = (node.end_line as usize).min(lines.len());
+
+    if start >= lines.len() {
+        return None;
+    }
+
+    Some(lines[start..end].join("\n"))
+}
+
+/// Convert a string to a NodeKind (shared helper).
+fn str_to_node_kind(s: &str) -> Option<NodeKind> {
+    match s {
+        "function" => Some(NodeKind::Function),
+        "method" => Some(NodeKind::Method),
+        "class" => Some(NodeKind::Class),
+        "struct" => Some(NodeKind::Struct),
+        "interface" => Some(NodeKind::Interface),
+        "trait" => Some(NodeKind::Trait),
+        "module" => Some(NodeKind::Module),
+        _ => None,
+    }
+}

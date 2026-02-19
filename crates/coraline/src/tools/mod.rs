@@ -10,6 +10,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 pub mod context_tools;
+pub mod file_tools;
 pub mod graph_tools;
 pub mod memory_tools;
 
@@ -132,6 +133,32 @@ pub fn create_default_registry(project_root: &std::path::Path) -> ToolRegistry {
         project_root.to_path_buf(),
     )));
     registry.register(Box::new(graph_tools::ImpactTool::new(
+        project_root.to_path_buf(),
+    )));
+    registry.register(Box::new(graph_tools::FindSymbolTool::new(
+        project_root.to_path_buf(),
+    )));
+    registry.register(Box::new(graph_tools::GetSymbolsOverviewTool::new(
+        project_root.to_path_buf(),
+    )));
+    registry.register(Box::new(graph_tools::FindReferencesTool::new(
+        project_root.to_path_buf(),
+    )));
+    registry.register(Box::new(graph_tools::GetNodeTool::new(
+        project_root.to_path_buf(),
+    )));
+
+    // Register file tools
+    registry.register(Box::new(file_tools::ReadFileTool::new(
+        project_root.to_path_buf(),
+    )));
+    registry.register(Box::new(file_tools::ListDirTool::new(
+        project_root.to_path_buf(),
+    )));
+    registry.register(Box::new(file_tools::GetFileNodesTool::new(
+        project_root.to_path_buf(),
+    )));
+    registry.register(Box::new(file_tools::StatusTool::new(
         project_root.to_path_buf(),
     )));
 

@@ -517,6 +517,72 @@ pub fn delete_file(conn: &mut Connection, path: &str) -> std::io::Result<()> {
     tx.commit().map_err(io_other)
 }
 
+/// Get all nodes belonging to a specific file, optionally filtered by kind.
+pub fn get_nodes_by_file(
+    conn: &Connection,
+    file_path: &str,
+    kind: Option<NodeKind>,
+) -> std::io::Result<Vec<Node>> {
+    let mut sql = String::from(
+        "SELECT id, kind, name, qualified_name, file_path, language,
+                start_line, end_line, start_column, end_column,
+                docstring, signature, visibility,
+                is_exported, is_async, is_static, is_abstract,
+                decorators, type_parameters, updated_at
+         FROM nodes WHERE file_path = ?",
+    );
+    let mut params_vec: Vec<String> = vec![file_path.to_string()];
+
+    if let Some(k) = kind {
+        sql.push_str(" AND kind = ?");
+        params_vec.push(kind_to_string(k));
+    }
+
+    sql.push_str(" ORDER BY start_line ASC");
+
+    let mut stmt = conn.prepare(&sql).map_err(io_other)?;
+    let rows = stmt
+        .query_map(rusqlite::params_from_iter(params_vec), row_to_node)
+        .map_err(io_other)?;
+
+    let mut results = Vec::new();
+    for row in rows {
+        results.push(row.map_err(io_other)?);
+    }
+    Ok(results)
+}
+
+/// Database statistics returned by `get_db_stats`.
+pub struct DbStats {
+    pub node_count: i64,
+    pub edge_count: i64,
+    pub file_count: i64,
+    pub unresolved_count: i64,
+}
+
+/// Return summary statistics for the indexed codebase.
+pub fn get_db_stats(conn: &Connection) -> std::io::Result<DbStats> {
+    let node_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM nodes", [], |r| r.get(0))
+        .map_err(io_other)?;
+    let edge_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM edges", [], |r| r.get(0))
+        .map_err(io_other)?;
+    let file_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM files", [], |r| r.get(0))
+        .map_err(io_other)?;
+    let unresolved_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM unresolved_refs", [], |r| r.get(0))
+        .map_err(io_other)?;
+
+    Ok(DbStats {
+        node_count,
+        edge_count,
+        file_count,
+        unresolved_count,
+    })
+}
+
 fn language_to_string(language: Language) -> String {
     serde_json::to_value(language)
         .ok()
