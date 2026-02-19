@@ -246,3 +246,198 @@ pub const fn is_language_supported(language: &Language) -> bool {
             | Language::Unknown
     )
 }
+
+// ── Extended TOML configuration ───────────────────────────────────────────────
+
+/// Filename for the user-editable TOML configuration.
+pub const TOML_CONFIG_FILENAME: &str = "config.toml";
+
+pub fn toml_config_path(project_root: &Path) -> PathBuf {
+    project_root.join(".coraline").join(TOML_CONFIG_FILENAME)
+}
+
+/// Context-builder settings.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ContextConfig {
+    /// Maximum graph nodes to include in context output.
+    pub max_nodes: usize,
+    /// Maximum code blocks to attach.
+    pub max_code_blocks: usize,
+    /// Maximum characters per code block.
+    pub max_code_block_size: usize,
+    /// Graph traversal depth from entry nodes.
+    pub traversal_depth: usize,
+}
+
+impl Default for ContextConfig {
+    fn default() -> Self {
+        Self {
+            max_nodes: 20,
+            max_code_blocks: 5,
+            max_code_block_size: 1500,
+            traversal_depth: 1,
+        }
+    }
+}
+
+/// Incremental-sync and git-hook settings.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SyncConfig {
+    /// Whether to install / honour git post-commit hooks.
+    pub git_hooks_enabled: bool,
+    /// Enable watch mode (re-index on file changes) — not yet implemented.
+    pub watch_mode: bool,
+    /// Debounce delay in milliseconds for watch mode.
+    pub debounce_ms: u64,
+}
+
+impl Default for SyncConfig {
+    fn default() -> Self {
+        Self {
+            git_hooks_enabled: true,
+            watch_mode: false,
+            debounce_ms: 500,
+        }
+    }
+}
+
+/// Vector-embedding settings.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct VectorsConfig {
+    /// Enable vector embeddings (requires ONNX model).
+    pub enabled: bool,
+    /// Model identifier.
+    pub model: String,
+    /// Embedding dimension (must match the model).
+    pub dimension: usize,
+    /// Batch size for embedding generation.
+    pub batch_size: usize,
+}
+
+impl Default for VectorsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            model: "nomic-embed-text-v1.5".to_string(),
+            dimension: 384,
+            batch_size: 32,
+        }
+    }
+}
+
+/// Indexing settings (superset of the legacy `CodeGraphConfig` fields).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct IndexingConfig {
+    /// Maximum file size to index in bytes.
+    pub max_file_size: u64,
+    /// Number of files processed per batch.
+    pub batch_size: usize,
+    /// Glob patterns to include.
+    pub include_patterns: Vec<String>,
+    /// Glob patterns to exclude.
+    pub exclude_patterns: Vec<String>,
+}
+
+impl Default for IndexingConfig {
+    fn default() -> Self {
+        Self {
+            max_file_size: 1024 * 1024,
+            batch_size: 100,
+            include_patterns: default_include_patterns(),
+            exclude_patterns: default_exclude_patterns(),
+        }
+    }
+}
+
+/// Top-level TOML configuration for a Coraline project.
+///
+/// Stored at `.coraline/config.toml`.  All sections are optional with
+/// sensible defaults so that an empty file is perfectly valid.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct CoralineConfig {
+    pub indexing: IndexingConfig,
+    pub context: ContextConfig,
+    pub sync: SyncConfig,
+    pub vectors: VectorsConfig,
+}
+
+impl CoralineConfig {
+    /// Return defaults identical to those used when no config file is present.
+    pub fn default_config() -> Self {
+        Self::default()
+    }
+}
+
+/// Load the TOML config from `.coraline/config.toml`, returning defaults if
+/// the file does not exist.  Returns an error only on parse failures.
+pub fn load_toml_config(project_root: &Path) -> std::io::Result<CoralineConfig> {
+    let path = toml_config_path(project_root);
+    if !path.exists() {
+        return Ok(CoralineConfig::default_config());
+    }
+    let raw = fs::read_to_string(&path)?;
+    toml::from_str(&raw).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+}
+
+/// Persist the TOML config to `.coraline/config.toml`.
+pub fn save_toml_config(project_root: &Path, cfg: &CoralineConfig) -> std::io::Result<()> {
+    let path = toml_config_path(project_root);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let raw =
+        toml::to_string_pretty(cfg).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    fs::write(path, raw)
+}
+
+/// Write a well-commented default `config.toml` template.
+pub fn write_toml_template(project_root: &Path) -> std::io::Result<()> {
+    let path = toml_config_path(project_root);
+    if path.exists() {
+        return Ok(()); // Never clobber an existing config.
+    }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(path, DEFAULT_TOML_TEMPLATE)
+}
+
+const DEFAULT_TOML_TEMPLATE: &str = r#"# Coraline project configuration
+# All settings are optional — defaults are shown below.
+
+[indexing]
+max_file_size = 1048576   # 1 MB
+batch_size    = 100
+include_patterns = [
+  "**/*.rs", "**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx",
+  "**/*.py", "**/*.go", "**/*.java", "**/*.cs", "**/*.cpp",
+  "**/*.c", "**/*.h", "**/*.rb", "**/*.php", "**/*.swift",
+  "**/*.kt", "**/*.razor",
+]
+exclude_patterns = [
+  "**/.git/**", "**/target/**", "**/node_modules/**",
+  "**/dist/**", "**/build/**", "**/.coraline/**",
+]
+
+[context]
+max_nodes          = 20
+max_code_blocks    = 5
+max_code_block_size = 1500
+traversal_depth    = 1
+
+[sync]
+git_hooks_enabled = true
+watch_mode        = false
+debounce_ms       = 500
+
+[vectors]
+# Full vector search requires an ONNX model (see docs).
+enabled    = false
+model      = "nomic-embed-text-v1.5"
+dimension  = 384
+batch_size = 32
+"#;

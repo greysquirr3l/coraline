@@ -202,6 +202,10 @@ fn run_init(args: InitArgs) {
         std::process::exit(1);
     }
 
+    if let Err(err) = config::write_toml_template(&project_root) {
+        eprintln!("Warning: Failed to write config.toml template: {err}");
+    }
+
     if let Err(err) = db::initialize_database(&project_root) {
         eprintln!("Failed to initialize database: {err}");
         std::process::exit(1);

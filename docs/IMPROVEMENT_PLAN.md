@@ -657,6 +657,7 @@ pub trait FrameworkResolver {
 - ✅ Critical bug fix: FTS search with multi-word queries
 - ✅ Phase 2.1: Vector Embeddings Infrastructure (50%)
 - ✅ Phase 2.2: Enhanced MCP Tools (15 tools total)
+- ✅ Phase 2.3: Configuration System (17 tools total, TOML config, coraline_get_config + coraline_update_config)
 - ✅ Released v0.1.2
 
 ### Currently In Progress
@@ -666,8 +667,8 @@ pub trait FrameworkResolver {
 ### Next Up
 
 1. Complete ONNX integration when ort 2.0 API is stable (awaiting stable release)
-2. Phase 2.3: Configuration System (4-5 hours)
-3. Phase 3.1: Structured Logging
+2. Phase 3.1: Structured Logging (use `tracing` crate, log to `.coraline/coraline.log`)
+3. Phase 3.3: CLI Enhancements
 
 ---
 
@@ -685,9 +686,9 @@ pub trait FrameworkResolver {
 **Phase 2 Complete When:**
 - ⏳ Vector search working with nomic-embed model (50% - infrastructure done, ONNX pending)
 - ✅ All enhanced MCP tools implemented (15 tools)
-- ⬜ Configuration system with TOML file
+- ✅ Configuration system with TOML file (`coraline_get_config`, `coraline_update_config`)
 
-**Phase 2 Status: 55% Complete**
+**Phase 2 Status: 75% Complete**
 
 **Phase 3 Complete When:**
 - ⬜ Structured logging to files
@@ -726,12 +727,12 @@ pub trait FrameworkResolver {
 - **Phase 2:** 18-23 hours → **~5 hours so far** (in progress)
   - Phase 2.1 (Vectors): 8-10 hours → ~2 hours (50% complete) ⏳
   - Phase 2.2 (Enhanced Tools): 6-8 hours → ~3 hours ✅
-  - Phase 2.3 (Configuration): 4-5 hours (pending)
+  - Phase 2.3 (Configuration): 4-5 hours → ~1 hour ✅
 - **Phase 3:** 24-39 hours (not started)
 - **Phase 4:** 10-16 hours (not started)
 
 **Total:** 65-96 hours (8-12 full working days)
 
-**Progress:** Phase 1 complete (100%), Phase 2 started (11%)
+**Progress:** Phase 1 complete (100%), Phase 2 started (75%)
 
 **Recommended Approach:** Complete phases sequentially, with regular testing and validation at each milestone.

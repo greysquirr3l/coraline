@@ -128,10 +128,7 @@ impl Tool for ListDirTool {
     }
 
     fn execute(&self, params: Value) -> ToolResult {
-        let raw_path = params
-            .get("path")
-            .and_then(Value::as_str)
-            .unwrap_or(".");
+        let raw_path = params.get("path").and_then(Value::as_str).unwrap_or(".");
 
         let dir = resolve_path(&self.project_root, raw_path);
 
@@ -235,8 +232,9 @@ impl Tool for GetFileNodesTool {
             let mut n = db::get_nodes_by_file(&conn, &abs_path, kind.clone())
                 .map_err(|e| ToolError::internal_error(format!("Failed to query nodes: {e}")))?;
             if n.is_empty() {
-                n = db::get_nodes_by_file(&conn, raw_path, kind)
-                    .map_err(|e| ToolError::internal_error(format!("Failed to query nodes: {e}")))?;
+                n = db::get_nodes_by_file(&conn, raw_path, kind).map_err(|e| {
+                    ToolError::internal_error(format!("Failed to query nodes: {e}"))
+                })?;
             }
             n
         };
@@ -300,9 +298,7 @@ impl Tool for StatusTool {
             .map_err(|e| ToolError::internal_error(format!("Failed to get stats: {e}")))?;
 
         let db_path = db::database_path(&self.project_root);
-        let db_size = std::fs::metadata(&db_path)
-            .map(|m| m.len())
-            .unwrap_or(0);
+        let db_size = std::fs::metadata(&db_path).map(|m| m.len()).unwrap_or(0);
 
         Ok(json!({
             "project_root": self.project_root,
@@ -340,5 +336,155 @@ fn str_to_node_kind(s: &str) -> Option<crate::types::NodeKind> {
         "trait" => Some(NodeKind::Trait),
         "module" => Some(NodeKind::Module),
         _ => None,
+    }
+}
+
+/// Tool for reading the current project configuration
+pub struct GetConfigTool {
+    project_root: PathBuf,
+}
+
+impl GetConfigTool {
+    pub const fn new(project_root: PathBuf) -> Self {
+        Self { project_root }
+    }
+}
+
+impl Tool for GetConfigTool {
+    fn name(&self) -> &'static str {
+        "coraline_get_config"
+    }
+
+    fn description(&self) -> &'static str {
+        "Read the current Coraline project configuration (config.toml). Returns all sections with their effective values."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "section": {
+                    "type": "string",
+                    "description": "Optional: return only this section (indexing, context, sync, vectors)",
+                    "enum": ["indexing", "context", "sync", "vectors"]
+                }
+            }
+        })
+    }
+
+    fn execute(&self, params: Value) -> ToolResult {
+        let cfg = crate::config::load_toml_config(&self.project_root)
+            .map_err(|e| ToolError::internal_error(format!("Failed to load config: {e}")))?;
+
+        let full = serde_json::to_value(&cfg)
+            .map_err(|e| ToolError::internal_error(format!("Serialization failed: {e}")))?;
+
+        let result = if let Some(section) = params.get("section").and_then(Value::as_str) {
+            full.get(section).cloned().unwrap_or(Value::Null)
+        } else {
+            full
+        };
+
+        let config_path = crate::config::toml_config_path(&self.project_root);
+        Ok(json!({
+            "config_path": config_path,
+            "config_exists": config_path.exists(),
+            "config": result,
+        }))
+    }
+}
+
+/// Tool for updating a single config value
+pub struct UpdateConfigTool {
+    project_root: PathBuf,
+}
+
+impl UpdateConfigTool {
+    pub const fn new(project_root: PathBuf) -> Self {
+        Self { project_root }
+    }
+}
+
+impl Tool for UpdateConfigTool {
+    fn name(&self) -> &'static str {
+        "coraline_update_config"
+    }
+
+    fn description(&self) -> &'static str {
+        "Update a single value in the Coraline config.toml. Specify the section and key to update."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "section": {
+                    "type": "string",
+                    "description": "Config section to update",
+                    "enum": ["indexing", "context", "sync", "vectors"]
+                },
+                "key": {
+                    "type": "string",
+                    "description": "The config key within the section"
+                },
+                "value": {
+                    "description": "New value (must match the expected type for that key)"
+                }
+            },
+            "required": ["section", "key", "value"]
+        })
+    }
+
+    fn execute(&self, params: Value) -> ToolResult {
+        let section = params
+            .get("section")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ToolError::invalid_params("section must be a string"))?;
+
+        let key = params
+            .get("key")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ToolError::invalid_params("key must be a string"))?;
+
+        let new_value = params
+            .get("value")
+            .ok_or_else(|| ToolError::invalid_params("value is required"))?
+            .clone();
+
+        // Load current config, mutate it as JSON, write back
+        let cfg = crate::config::load_toml_config(&self.project_root)
+            .map_err(|e| ToolError::internal_error(format!("Failed to load config: {e}")))?;
+
+        let mut cfg_json = serde_json::to_value(&cfg)
+            .map_err(|e| ToolError::internal_error(format!("Serialization failed: {e}")))?;
+
+        let section_obj = cfg_json
+            .get_mut(section)
+            .ok_or_else(|| ToolError::invalid_params(format!("Unknown section: {section}")))?;
+
+        let obj = section_obj
+            .as_object_mut()
+            .ok_or_else(|| ToolError::internal_error("Section is not an object"))?;
+
+        if !obj.contains_key(key) {
+            return Err(ToolError::invalid_params(format!(
+                "Unknown key '{key}' in section '{section}'"
+            )));
+        }
+
+        obj.insert(key.to_string(), new_value.clone());
+
+        let updated: crate::config::CoralineConfig = serde_json::from_value(cfg_json)
+            .map_err(|e| ToolError::invalid_params(format!("Invalid value for {section}.{key}: {e}")))?;
+
+        crate::config::save_toml_config(&self.project_root, &updated)
+            .map_err(|e| ToolError::internal_error(format!("Failed to save config: {e}")))?;
+
+        Ok(json!({
+            "updated": true,
+            "section": section,
+            "key": key,
+            "new_value": new_value,
+        }))
     }
 }
