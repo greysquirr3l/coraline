@@ -90,16 +90,16 @@ crates/coraline/src/
 
 | Tool | Description |
 |------|-------------|
-| `codegraph_search` | Find symbols by name/pattern |
-| `codegraph_context` | Build context for a task description |
-| `codegraph_callers` | Find what calls a symbol |
-| `codegraph_callees` | Find what a symbol calls |
-| `codegraph_impact` | Impact radius analysis |
-| `codegraph_write_memory` | Persist a project memory |
-| `codegraph_read_memory` | Read a project memory |
-| `codegraph_list_memories` | List all memories |
-| `codegraph_delete_memory` | Delete a memory |
-| `codegraph_edit_memory` | Edit memory via literal or regex replace |
+| `coraline_search` | Find symbols by name/pattern |
+| `coraline_context` | Build context for a task description |
+| `coraline_callers` | Find what calls a symbol |
+| `coraline_callees` | Find what a symbol calls |
+| `coraline_impact` | Impact radius analysis |
+| `coraline_write_memory` | Persist a project memory |
+| `coraline_read_memory` | Read a project memory |
+| `coraline_list_memories` | List all memories |
+| `coraline_delete_memory` | Delete a memory |
+| `coraline_edit_memory` | Edit memory via literal or regex replace |
 
 ## Test Structure
 

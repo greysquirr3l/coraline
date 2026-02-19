@@ -27,7 +27,7 @@ impl WriteMemoryTool {
 
 impl Tool for WriteMemoryTool {
     fn name(&self) -> &'static str {
-        "codegraph_write_memory"
+        "coraline_write_memory"
     }
 
     fn description(&self) -> &'static str {
@@ -86,7 +86,7 @@ impl ReadMemoryTool {
 
 impl Tool for ReadMemoryTool {
     fn name(&self) -> &'static str {
-        "codegraph_read_memory"
+        "coraline_read_memory"
     }
 
     fn description(&self) -> &'static str {
@@ -136,7 +136,7 @@ impl ListMemoriesTool {
 
 impl Tool for ListMemoriesTool {
     fn name(&self) -> &'static str {
-        "codegraph_list_memories"
+        "coraline_list_memories"
     }
 
     fn description(&self) -> &'static str {
@@ -175,7 +175,7 @@ impl DeleteMemoryTool {
 
 impl Tool for DeleteMemoryTool {
     fn name(&self) -> &'static str {
-        "codegraph_delete_memory"
+        "coraline_delete_memory"
     }
 
     fn description(&self) -> &'static str {
@@ -225,7 +225,7 @@ impl EditMemoryTool {
 
 impl Tool for EditMemoryTool {
     fn name(&self) -> &'static str {
-        "codegraph_edit_memory"
+        "coraline_edit_memory"
     }
 
     fn description(&self) -> &'static str {

@@ -134,12 +134,12 @@ When running as an MCP server, Coraline provides these tools:
 
 | Tool | Description |
 | ------ | ------------- |
-| `codegraph_search` | Find symbols by name |
-| `codegraph_context` | Build context for a task |
-| `codegraph_callers` | Find what calls a function |
-| `codegraph_callees` | Find what a function calls |
-| `codegraph_impact` | Analyze change impact |
-| `codegraph_node` | Get symbol details + code |
+| `coraline_search` | Find symbols by name |
+| `coraline_context` | Build context for a task |
+| `coraline_callers` | Find what calls a function |
+| `coraline_callees` | Find what a function calls |
+| `coraline_impact` | Analyze change impact |
+| `coraline_node` | Get symbol details + code |
 
 ### Symbol Tools (Serena-inspired)
 

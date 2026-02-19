@@ -24,7 +24,7 @@ impl BuildContextTool {
 
 impl Tool for BuildContextTool {
     fn name(&self) -> &'static str {
-        "codegraph_context"
+        "coraline_context"
     }
 
     fn description(&self) -> &'static str {

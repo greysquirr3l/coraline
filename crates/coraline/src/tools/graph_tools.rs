@@ -25,7 +25,7 @@ impl SearchTool {
 
 impl Tool for SearchTool {
     fn name(&self) -> &'static str {
-        "codegraph_search"
+        "coraline_search"
     }
 
     fn description(&self) -> &'static str {
@@ -124,7 +124,7 @@ impl CallersTool {
 
 impl Tool for CallersTool {
     fn name(&self) -> &'static str {
-        "codegraph_callers"
+        "coraline_callers"
     }
 
     fn description(&self) -> &'static str {
@@ -202,7 +202,7 @@ impl CalleesTool {
 
 impl Tool for CalleesTool {
     fn name(&self) -> &'static str {
-        "codegraph_callees"
+        "coraline_callees"
     }
 
     fn description(&self) -> &'static str {
@@ -280,7 +280,7 @@ impl ImpactTool {
 
 impl Tool for ImpactTool {
     fn name(&self) -> &'static str {
-        "codegraph_impact"
+        "coraline_impact"
     }
 
     fn description(&self) -> &'static str {

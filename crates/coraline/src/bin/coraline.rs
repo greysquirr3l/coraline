@@ -191,7 +191,7 @@ fn run_init(args: InitArgs) {
         return;
     }
 
-    if let Err(err) = create_codegraph_dir(&project_root) {
+    if let Err(err) = create_coraline_dir(&project_root) {
         eprintln!("Failed to create .coraline directory: {err}");
         std::process::exit(1);
     }
@@ -494,7 +494,7 @@ fn is_initialized(project_root: &Path) -> bool {
     dir.is_dir()
 }
 
-fn create_codegraph_dir(project_root: &Path) -> std::io::Result<()> {
+fn create_coraline_dir(project_root: &Path) -> std::io::Result<()> {
     let dir = project_root.join(".coraline");
     std::fs::create_dir_all(&dir)?;
     let gitignore_path = dir.join(".gitignore");
