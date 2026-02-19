@@ -281,10 +281,7 @@ Current test coverage: **32/33 tests passing (97%)**
 
 ## 🤝 Contributing
 
-Contributions welcome! Please see our development docs:
-- [Development Guidelines](docs/dev/project_guidelines.md)
-- [Rust Patterns](docs/dev/11_rust_patterns_you_will_use.md)
-- [Testing Guide](docs/dev/testing_rust.md)
+Contributions welcome!
 
 ## 📄 License
 
