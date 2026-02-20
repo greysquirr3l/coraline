@@ -76,10 +76,6 @@ tree-sitter-php = "0.24.2"
 tree-sitter-swift = "0.7.1"
 tree-sitter-kotlin-ng = "1.1.0"  # Using -ng fork which is compatible with tree-sitter 0.26
 
-# Vector embeddings (TODO: Enable when ONNX integration is complete)
-# ort = { version = "2.0.0-rc.11", default-features = false, features = ["download-binaries", "tls-native"] }
-# ndarray = "0.16"
-
 [dev-dependencies]
 tempfile = "3"
 insta = "1.40"
