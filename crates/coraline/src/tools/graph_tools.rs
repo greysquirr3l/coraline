@@ -551,19 +551,20 @@ impl Tool for GetSymbolsOverviewTool {
             let nodes_fallback = db::get_nodes_by_file(&conn, file_path, None)
                 .map_err(|e| ToolError::internal_error(format!("Failed to get nodes: {e}")))?;
 
-            return build_overview_response(nodes_fallback, file_path);
+            return build_overview_response(&nodes_fallback, file_path);
         }
 
-        build_overview_response(nodes, &abs_path)
+        build_overview_response(&nodes, &abs_path)
     }
 }
 
-fn build_overview_response(nodes: Vec<crate::types::Node>, file_path: &str) -> ToolResult {
+#[allow(clippy::unnecessary_wraps)]
+fn build_overview_response(nodes: &[crate::types::Node], file_path: &str) -> ToolResult {
     use std::collections::HashMap;
 
     let mut by_kind: HashMap<String, Vec<Value>> = HashMap::new();
 
-    for node in &nodes {
+    for node in nodes {
         let kind_str = format!("{:?}", node.kind).to_lowercase();
         by_kind.entry(kind_str).or_default().push(json!({
             "id": node.id,
@@ -780,8 +781,10 @@ impl Tool for GetNodeTool {
                 .map_err(|e| ToolError::internal_error(format!("Failed to get edges: {e}")))?;
             let in_edges = db::get_edges_by_target(&conn, node_id, None, 200)
                 .map_err(|e| ToolError::internal_error(format!("Failed to get edges: {e}")))?;
-            result["outgoing_edge_count"] = json!(out_edges.len());
-            result["incoming_edge_count"] = json!(in_edges.len());
+            if let Some(obj) = result.as_object_mut() {
+                obj.insert("outgoing_edge_count".to_string(), json!(out_edges.len()));
+                obj.insert("incoming_edge_count".to_string(), json!(in_edges.len()));
+            }
         }
 
         Ok(result)
@@ -1059,6 +1062,8 @@ impl Tool for PathTool {
 
     #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
+        use std::collections::{HashMap, VecDeque};
+
         let from_id = params
             .get("from_id")
             .and_then(Value::as_str)
@@ -1075,8 +1080,6 @@ impl Tool for PathTool {
             .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
 
         // BFS following outgoing edges, recording parents for path reconstruction.
-        use std::collections::HashMap;
-        use std::collections::VecDeque;
 
         // Maps node_id → parent_id (empty string for the root).
         let mut parent: HashMap<String, String> = HashMap::new();
@@ -1164,17 +1167,13 @@ fn read_node_source(project_root: &std::path::Path, node: &crate::types::Node) -
     let text = std::fs::read_to_string(&path).ok()?;
     let lines: Vec<&str> = text.lines().collect();
 
-    let start = (node.start_line as usize).saturating_sub(1);
-    let end = (node.end_line as usize).min(lines.len());
+    let start = usize::try_from(node.start_line).unwrap_or(0).saturating_sub(1);
+    let end = usize::try_from(node.end_line).unwrap_or(0).min(lines.len());
 
-    if start >= lines.len() {
-        return None;
-    }
-
-    Some(lines[start..end].join("\n"))
+    lines.get(start..end).map(|l| l.join("\n"))
 }
 
-/// Convert a string to a NodeKind (shared helper).
+/// Convert a string to a [`NodeKind`] (shared helper).
 fn str_to_node_kind(s: &str) -> Option<NodeKind> {
     match s {
         "function" => Some(NodeKind::Function),
