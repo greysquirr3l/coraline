@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OptionalExtension, params};
+use tracing::{debug, warn};
 
 use crate::types::{
     Edge, EdgeKind, FileRecord, Language, Node, NodeKind, SearchResult, UnresolvedReference,
@@ -48,6 +49,7 @@ pub fn database_path(project_root: &Path) -> PathBuf {
 
 pub fn initialize_database(project_root: &Path) -> std::io::Result<PathBuf> {
     let db_path = database_path(project_root);
+    debug!(path = %db_path.display(), "initializing database");
 
     if let Some(parent) = db_path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -424,7 +426,10 @@ pub fn store_file_batch(
     )
     .map_err(io_other)?;
 
-    tx.commit().map_err(io_other)
+    tx.commit().map_err(|err| {
+        warn!(file = %file_record.path, error = %err, "store_file_batch commit failed");
+        io_other(err)
+    })
 }
 
 pub fn search_nodes(

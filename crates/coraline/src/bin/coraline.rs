@@ -638,8 +638,8 @@ fn run_callers(args: CallersArgs) {
             std::process::exit(1);
         });
 
-    let edges = db::get_edges_by_target(&conn, &args.node_id, None, args.limit)
-        .unwrap_or_else(|err| {
+    let edges =
+        db::get_edges_by_target(&conn, &args.node_id, None, args.limit).unwrap_or_else(|err| {
             eprintln!("Failed to get callers: {err}");
             std::process::exit(1);
         });
@@ -650,7 +650,10 @@ fn run_callers(args: CallersArgs) {
             .filter_map(|e| db::get_node_by_id(&conn, &e.source).ok().flatten())
             .map(|n| serde_json::json!({ "id": n.id, "name": n.name, "kind": n.kind, "file": n.file_path, "line": n.start_line }))
             .collect();
-        println!("{}", serde_json::to_string_pretty(&results).unwrap_or_default());
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&results).unwrap_or_default()
+        );
         return;
     }
 
@@ -661,7 +664,10 @@ fn run_callers(args: CallersArgs) {
     }
     for edge in &edges {
         if let Ok(Some(caller)) = db::get_node_by_id(&conn, &edge.source) {
-            println!("  {:?} {} ({}:{})", caller.kind, caller.name, caller.file_path, caller.start_line);
+            println!(
+                "  {:?} {} ({}:{})",
+                caller.kind, caller.name, caller.file_path, caller.start_line
+            );
         }
     }
 }
@@ -689,8 +695,8 @@ fn run_callees(args: CalleesArgs) {
             std::process::exit(1);
         });
 
-    let edges = db::get_edges_by_source(&conn, &args.node_id, None, args.limit)
-        .unwrap_or_else(|err| {
+    let edges =
+        db::get_edges_by_source(&conn, &args.node_id, None, args.limit).unwrap_or_else(|err| {
             eprintln!("Failed to get callees: {err}");
             std::process::exit(1);
         });
@@ -701,7 +707,10 @@ fn run_callees(args: CalleesArgs) {
             .filter_map(|e| db::get_node_by_id(&conn, &e.target).ok().flatten())
             .map(|n| serde_json::json!({ "id": n.id, "name": n.name, "kind": n.kind, "file": n.file_path, "line": n.start_line }))
             .collect();
-        println!("{}", serde_json::to_string_pretty(&results).unwrap_or_default());
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&results).unwrap_or_default()
+        );
         return;
     }
 
@@ -712,7 +721,10 @@ fn run_callees(args: CalleesArgs) {
     }
     for edge in &edges {
         if let Ok(Some(callee)) = db::get_node_by_id(&conn, &edge.target) {
-            println!("  {:?} {} ({}:{})", callee.kind, callee.name, callee.file_path, callee.start_line);
+            println!(
+                "  {:?} {} ({}:{})",
+                callee.kind, callee.name, callee.file_path, callee.start_line
+            );
         }
     }
 }
@@ -769,11 +781,17 @@ fn run_impact(args: ImpactArgs) {
             .filter_map(|id| db::get_node_by_id(&conn, id).ok().flatten())
             .map(|n| serde_json::json!({ "id": n.id, "name": n.name, "kind": n.kind, "file": n.file_path }))
             .collect();
-        println!("{}", serde_json::to_string_pretty(&results).unwrap_or_default());
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&results).unwrap_or_default()
+        );
         return;
     }
 
-    println!("Impact of {} ({:?}) — depth {}:\n", node.name, node.kind, args.depth);
+    println!(
+        "Impact of {} ({:?}) — depth {}:\n",
+        node.name, node.kind, args.depth
+    );
     if visited.is_empty() {
         println!("  No dependents found.");
         return;
@@ -782,9 +800,16 @@ fn run_impact(args: ImpactArgs) {
         .iter()
         .filter_map(|id| db::get_node_by_id(&conn, id).ok().flatten())
         .collect();
-    affected.sort_by(|a, b| a.file_path.cmp(&b.file_path).then(a.start_line.cmp(&b.start_line)));
+    affected.sort_by(|a, b| {
+        a.file_path
+            .cmp(&b.file_path)
+            .then(a.start_line.cmp(&b.start_line))
+    });
     for n in &affected {
-        println!("  {:?} {} ({}:{})", n.kind, n.name, n.file_path, n.start_line);
+        println!(
+            "  {:?} {} ({}:{})",
+            n.kind, n.name, n.file_path, n.start_line
+        );
     }
     println!("\n{} affected symbol(s)", affected.len());
 }
@@ -807,7 +832,9 @@ fn run_config(args: ConfigArgs) {
         let (path_part, value_str) = (parts[0], parts[1]);
         let path_parts: Vec<&str> = path_part.splitn(2, '.').collect();
         if path_parts.len() != 2 {
-            eprintln!("Invalid --set path. Expected: section.key=value (e.g. indexing.batch_size=50)");
+            eprintln!(
+                "Invalid --set path. Expected: section.key=value (e.g. indexing.batch_size=50)"
+            );
             std::process::exit(1);
         }
         let (section, key) = (path_parts[0], path_parts[1]);
@@ -851,7 +878,10 @@ fn run_config(args: ConfigArgs) {
     if args.json {
         let mut v = serde_json::to_value(&cfg).unwrap_or_default();
         if let Some(section) = &args.section {
-            v = v.get(section.as_str()).cloned().unwrap_or(serde_json::Value::Null);
+            v = v
+                .get(section.as_str())
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
         }
         println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
         return;

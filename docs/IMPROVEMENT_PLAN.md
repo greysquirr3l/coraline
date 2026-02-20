@@ -354,47 +354,26 @@ pub fn search_similar(conn: &Connection, query_embedding: &[f32], limit: usize, 
 
 ## Phase 3: Polish & Advanced Features (Lower Priority)
 
-### 3.1 Dashboard / Logging ⬜
+### 3.1 Dashboard / Logging ✅ COMPLETE
 
-**Current State:** No visibility into indexing progress or operations
+**Added:** February 2026
 
-**Target State:** Observable operations with structured logging
+**Logging infrastructure:**
+- [x] `src/logging.rs` — `tracing` subscriber with daily-rotating file appender to `.coraline/logs/coraline.log`; falls back to stderr; log level via `CORALINE_LOG` env var ✅
+- [x] `tracing` call-sites added to hot paths ✅:
+  - `extraction.rs` — `index_all` / `sync` info spans + per-file debug events + warn on errors
+  - `mcp.rs` — debug on tool dispatch, info on success, warn on failure
+  - `db.rs` — debug on init, warn on `store_file_batch` commit failure
+  - `resolution/frameworks/mod.rs` — debug on resolver match
+- [x] `CORALINE_LOG` environment variable for runtime log level control ✅
 
-**Logging:**
-- [ ] Use `tracing` for structured logging
-- [ ] Log to `.codegraph/logs/operations.log`
-- [ ] Support log levels (DEBUG, INFO, WARN, ERROR)
-- [ ] Implement log rotation
+**Progress reporting (already existed):**
+- [x] `IndexProgress` struct with `phase`, `current`, `total`, `current_file` ✅
+- [x] `on_progress` callback in `index_all` and `sync` ✅
 
-**Progress Reporting:**
-- [ ] Add progress callback to indexing functions
-- [ ] Report: phase, current, total, current_file
-- [ ] Stream progress through MCP notifications
-
-**Optional TUI Dashboard:**
-- [ ] Use `ratatui` for terminal UI
-- [ ] Real-time indexing progress
-- [ ] Graph statistics visualization
-- [ ] Recent operations log
-- [ ] Active queries monitor
-
-**Optional Web Dashboard:**
-- [ ] Serve alongside MCP server
-- [ ] WebSocket for real-time updates
-- [ ] Graph visualization with D3.js
-- [ ] Query interface
-
-**Files to Create:**
-- [ ] `src/logging.rs` - Structured logging setup
-- [ ] `src/progress.rs` - Progress tracking and reporting
-- [ ] `src/dashboard/` (optional) - TUI or web dashboard
-
-**Benefits:**
-- Debugging and troubleshooting
-- User visibility into operations
-- Professional feel
-
-**Estimated Effort:** 8-12 hours (basic logging) or 20+ hours (with TUI/web)
+**Deferred (optional, not planned):**
+- TUI dashboard (`ratatui`) — out of scope
+- Web dashboard — out of scope
 
 ---
 
@@ -620,9 +599,11 @@ pub trait FrameworkResolver {
 **Phase 2 Status: 85% Complete**
 
 **Phase 3 Complete When:**
-- ✅ Structured logging to files
+- ✅ Structured logging to files (`tracing` + daily rotation + `CORALINE_LOG`)
 - ✅ Framework-specific resolvers for 4 frameworks (Rust, React, Blazor, Laravel)
 - ✅ CLI with all major commands
+
+**Phase 3 Status: 100% Complete** ✅
 
 **Phase 4 Complete When:**
 - ✅ Comprehensive documentation

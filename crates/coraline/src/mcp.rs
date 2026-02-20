@@ -24,6 +24,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use tracing::{debug, info, warn};
 
 use crate::tools::{ToolRegistry, create_default_registry};
 
@@ -240,8 +241,10 @@ impl McpServer {
         let args_json = serde_json::to_value(&parsed.arguments)
             .unwrap_or(Value::Object(serde_json::Map::new()));
 
+        debug!(tool = %parsed.name, "dispatching tool call");
         match registry.execute(&parsed.name, args_json) {
             Ok(result) => {
+                info!(tool = %parsed.name, "tool call ok");
                 let tool_result = ToolResult {
                     content: vec![ToolContent {
                         r#type: "text",
@@ -252,6 +255,7 @@ impl McpServer {
                 self.send_result(id, serde_json::to_value(tool_result).unwrap_or_default())
             }
             Err(err) => {
+                warn!(tool = %parsed.name, error = %err.message, "tool call failed");
                 let tool_result = ToolResult {
                     content: vec![ToolContent {
                         r#type: "text",

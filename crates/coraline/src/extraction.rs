@@ -29,6 +29,7 @@ use tree_sitter::{Node as TsNode, Parser};
 use crate::config::is_language_supported;
 use crate::db;
 use crate::resolution::ReferenceResolver;
+use tracing::{debug, info, warn};
 use crate::types::{
     CodeGraphConfig, Edge, EdgeKind, ExtractionError, ExtractionErrorSeverity, FileRecord,
     Language, Node, NodeKind, UnresolvedReference,
@@ -185,6 +186,8 @@ pub fn index_all(
     force: bool,
     on_progress: Option<&dyn Fn(IndexProgress)>,
 ) -> std::io::Result<IndexResult> {
+    let span = tracing::info_span!("index_all", ?force, root = %project_root.display());
+    let _enter = span.enter();
     let start = Instant::now();
     let mut errors = Vec::new();
     let mut files_indexed = 0;
@@ -226,6 +229,8 @@ pub fn index_all(
         });
     }
 
+    info!(total_files = files.len(), "starting parallel parse phase");
+
     // Phase 1: Parse all files in parallel (CPU-bound, no DB access).
     let parsed: Vec<ParsedFile> = files
         .par_iter()
@@ -233,6 +238,11 @@ pub fn index_all(
         .collect();
 
     let files_skipped = files.len().saturating_sub(parsed.len());
+    info!(
+        parsed = parsed.len(),
+        skipped = files_skipped,
+        "parse phase complete"
+    );
 
     if let Some(cb) = on_progress {
         cb(IndexProgress {
@@ -257,6 +267,8 @@ pub fn index_all(
             });
         }
 
+        let path = parsed_file.file_record.path.clone();
+        debug!(file = %path, nodes = parsed_file.node_count, edges = parsed_file.edge_count, "storing file");
         match db::store_file_batch(
             &mut conn,
             &parsed_file.file_record,
@@ -270,6 +282,7 @@ pub fn index_all(
                 edges_created += parsed_file.edge_count;
             }
             Err(err) => {
+                warn!(file = %path, error = %err, "failed to store file");
                 errors.push(ExtractionError {
                     message: err.to_string(),
                     line: None,
@@ -282,6 +295,7 @@ pub fn index_all(
     }
 
     if let Err(err) = ReferenceResolver::resolve_unresolved(&mut conn, project_root, 10_000) {
+        warn!(error = %err, "reference resolver failed");
         errors.push(ExtractionError {
             message: format!("Resolver failed: {err}"),
             line: None,
@@ -290,6 +304,15 @@ pub fn index_all(
             code: Some("resolver_failed".to_string()),
         });
     }
+
+    info!(
+        files_indexed,
+        files_skipped,
+        nodes_created,
+        edges_created,
+        duration_ms = start.elapsed().as_millis(),
+        "index_all complete"
+    );
 
     Ok(IndexResult {
         success: errors
@@ -309,6 +332,8 @@ pub fn sync(
     config: &CodeGraphConfig,
     on_progress: Option<&dyn Fn(IndexProgress)>,
 ) -> std::io::Result<SyncResult> {
+    let span = tracing::info_span!("sync", root = %project_root.display());
+    let _enter = span.enter();
     let start = Instant::now();
     let mut conn = db::open_database(project_root)?;
 
@@ -362,6 +387,15 @@ pub fn sync(
     }
 
     let _ = ReferenceResolver::resolve_unresolved(&mut conn, project_root, 10_000);
+
+    info!(
+        files_added,
+        files_modified,
+        files_removed,
+        nodes_updated,
+        duration_ms = start.elapsed().as_millis(),
+        "sync complete"
+    );
 
     Ok(SyncResult {
         files_checked: current_files.len(),

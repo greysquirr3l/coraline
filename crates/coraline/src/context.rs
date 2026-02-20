@@ -26,7 +26,9 @@ pub fn build_context(
 
     let max_nodes = options.max_nodes.unwrap_or(ctx_cfg.max_nodes);
     let max_code_blocks = options.max_code_blocks.unwrap_or(ctx_cfg.max_code_blocks);
-    let max_code_block_size = options.max_code_block_size.unwrap_or(ctx_cfg.max_code_block_size);
+    let max_code_block_size = options
+        .max_code_block_size
+        .unwrap_or(ctx_cfg.max_code_block_size);
     let include_code = options.include_code.unwrap_or(true);
     let format = options.format.unwrap_or(ContextFormat::Markdown);
 
