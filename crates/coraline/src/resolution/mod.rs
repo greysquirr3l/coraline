@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
 
+pub mod frameworks;
+
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -20,6 +22,7 @@ pub struct ResolveResult {
 impl ReferenceResolver {
     pub fn resolve_unresolved(
         conn: &mut rusqlite::Connection,
+        project_root: &Path,
         limit: usize,
     ) -> std::io::Result<ResolveResult> {
         let unresolved = db::list_unresolved_refs(conn, limit)?;
@@ -56,6 +59,18 @@ impl ReferenceResolver {
                 &reference.reference_name,
             )?;
 
+            // If generic resolution found nothing, try framework-specific hints.
+            let candidates = if candidates.is_empty() {
+                if let Some(ref from) = from_node {
+                    framework_fallback(conn, project_root, from, &reference.reference_name)
+                        .unwrap_or_default()
+                } else {
+                    candidates
+                }
+            } else {
+                candidates
+            };
+
             if let [target] = candidates.as_slice() {
                 resolved_edges.push(Edge {
                     source: reference.from_node_id.clone(),
@@ -83,6 +98,47 @@ impl ReferenceResolver {
             remaining,
         })
     }
+}
+
+/// Use framework-specific resolvers to find candidates when name search fails.
+fn framework_fallback(
+    conn: &rusqlite::Connection,
+    project_root: &Path,
+    from_node: &Node,
+    reference_name: &str,
+) -> std::io::Result<Vec<Node>> {
+    // from_node.file_path is relative to the project root
+    let from_abs = project_root.join(&from_node.file_path);
+    let from_abs_str = from_abs.to_string_lossy();
+
+    let hints =
+        frameworks::framework_path_hints(project_root, &from_abs_str, reference_name);
+    if hints.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // The last "::" segment is the symbol name we're looking for in those files
+    let sym_name = reference_name
+        .split("::")
+        .last()
+        .unwrap_or(reference_name);
+
+    let mut candidates = Vec::new();
+    for hint_path in &hints {
+        let rel = relative_to_root(hint_path, project_root);
+        if let Ok(mut nodes) = db::get_nodes_by_file(conn, &rel, None) {
+            nodes.retain(|n| n.name == sym_name || n.name == reference_name);
+            candidates.extend(nodes);
+        }
+    }
+    Ok(candidates)
+}
+
+fn relative_to_root(path: &Path, root: &Path) -> String {
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .into_owned()
 }
 
 fn filter_by_call_kind(nodes: Vec<Node>) -> Vec<Node> {

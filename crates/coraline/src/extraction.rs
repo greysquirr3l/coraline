@@ -135,7 +135,7 @@ pub fn index_all(
         }
     }
 
-    if let Err(err) = ReferenceResolver::resolve_unresolved(&mut conn, 10_000) {
+    if let Err(err) = ReferenceResolver::resolve_unresolved(&mut conn, project_root, 10_000) {
         errors.push(ExtractionError {
             message: format!("Resolver failed: {err}"),
             line: None,
@@ -215,7 +215,7 @@ pub fn sync(
         }
     }
 
-    let _ = ReferenceResolver::resolve_unresolved(&mut conn, 10_000);
+    let _ = ReferenceResolver::resolve_unresolved(&mut conn, project_root, 10_000);
 
     Ok(SyncResult {
         files_checked: current_files.len(),

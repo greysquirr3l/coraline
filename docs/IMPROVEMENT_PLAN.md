@@ -659,6 +659,7 @@ pub trait FrameworkResolver {
 - ✅ Phase 2.3: Configuration System (17 tools total, TOML config)
 - ✅ Phase 3.1: Structured Logging (`tracing`, daily rotating `.coraline/logs/coraline.log`)
 - ✅ Phase 3.3: CLI Enhancements (callers, callees, impact, config, stats commands)
+- ✅ Phase 3.2: Framework-Specific Resolution (RustResolver, ReactResolver, BlazorResolver, LaravelResolver)
 - ✅ Released v0.1.2
 
 ### Currently In Progress
@@ -673,8 +674,8 @@ pub trait FrameworkResolver {
 
 **Next Up:**
 
-1. Phase 3.2: Framework-Specific Resolution (optional, high-effort)
-2. Phase 4.1: Documentation updates (MCP_TOOLS.md, CLI_REFERENCE.md, CONFIGURATION.md)
+1. Phase 4.1: Documentation updates (MCP_TOOLS.md, CLI_REFERENCE.md, CONFIGURATION.md)
+2. Complete ONNX integration when ort 2.0 API is stable
 
 ---
 
@@ -698,7 +699,7 @@ pub trait FrameworkResolver {
 
 **Phase 3 Complete When:**
 - ✅ Structured logging to files
-- ✅ Framework-specific resolvers for 3+ frameworks
+- ✅ Framework-specific resolvers for 4 frameworks (Rust, React, Blazor, Laravel)
 - ✅ CLI with all major commands
 
 **Phase 4 Complete When:**
@@ -735,12 +736,12 @@ pub trait FrameworkResolver {
   - Phase 2.2 (Enhanced Tools): 6-8 hours → ~3 hours ✅
   - Phase 2.3 (Configuration): 4-5 hours → ~1 hour ✅
   - Phase 3.1 (Logging): 8-12 hours → ~1 hour ✅
-  - Phase 3.2 (Framework Resolution): 10-15 hours (not started)
+  - Phase 3.2 (Framework Resolution): 10-15 hours → ~2 hours ✅
   - Phase 3.3 (CLI Enhancements): 6-8 hours → ~1 hour ✅
 - **Phase 4:** 10-16 hours (not started)
 
 **Total:** 65-96 hours (8-12 full working days)
 
-**Progress:** Phase 1 complete (100%), Phase 2 started (75%)
+**Progress:** Phase 1 complete (100%), Phase 2 started (75%), Phase 3 complete (100%)
 
 **Recommended Approach:** Complete phases sequentially, with regular testing and validation at each milestone.

@@ -10,7 +10,7 @@
 use std::path::Path;
 
 use tracing_appender::non_blocking::WorkerGuard;
-use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 /// Opaque guard that must be kept alive for the duration of the program.
 /// When dropped, the file appender worker thread flushes and exits.
@@ -29,8 +29,8 @@ pub struct LogGuard {
 /// If `project_root` is provided and `.coraline/logs/` can be created, logs
 /// are written to a daily-rotating file there. Otherwise logs go to stderr.
 pub fn init(project_root: Option<&Path>) -> LogGuard {
-    let env_filter = EnvFilter::try_from_env("CORALINE_LOG")
-        .unwrap_or_else(|_| EnvFilter::new("coraline=info"));
+    let env_filter =
+        EnvFilter::try_from_env("CORALINE_LOG").unwrap_or_else(|_| EnvFilter::new("coraline=info"));
 
     // Attempt to set up file logging
     if let Some(root) = project_root {

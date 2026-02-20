@@ -389,8 +389,7 @@ pub fn save_toml_config(project_root: &Path, cfg: &CoralineConfig) -> std::io::R
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    let raw = toml::to_string_pretty(cfg)
-        .map_err(std::io::Error::other)?;
+    let raw = toml::to_string_pretty(cfg).map_err(std::io::Error::other)?;
     fs::write(path, raw)
 }
 
