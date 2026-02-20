@@ -315,6 +315,12 @@ pub struct VectorsConfig {
     pub dimension: usize,
     /// Batch size for embedding generation.
     pub batch_size: usize,
+    /// Path to the model directory (containing model.onnx + tokenizer.json).
+    /// Defaults to `.coraline/models/nomic-embed-text-v1.5/`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_dir: Option<String>,
+    /// Maximum sequence length in tokens (default 512).
+    pub max_seq_len: usize,
 }
 
 impl Default for VectorsConfig {
@@ -322,8 +328,10 @@ impl Default for VectorsConfig {
         Self {
             enabled: false,
             model: "nomic-embed-text-v1.5".to_string(),
-            dimension: 384,
+            dimension: 768,
             batch_size: 32,
+            model_dir: None,
+            max_seq_len: 512,
         }
     }
 }
@@ -454,8 +462,14 @@ debounce_ms       = 500
 
 [vectors]
 # Full vector search requires an ONNX model (see docs).
+# Download nomic-embed-text-v1.5 into .coraline/models/nomic-embed-text-v1.5/:
+#   model.onnx       — ONNX export from nomic-ai/nomic-embed-text-v1.5
+#   tokenizer.json   — tokenizer from the same HuggingFace repo
+# Then run: coraline embed
 enabled    = false
 model      = "nomic-embed-text-v1.5"
-dimension  = 384
+dimension  = 768
 batch_size = 32
+max_seq_len = 512
+# model_dir = ".coraline/models/nomic-embed-text-v1.5"  # override default path
 "#;

@@ -490,3 +490,96 @@ impl Tool for UpdateConfigTool {
         }))
     }
 }
+
+/// Tool for semantic (vector) search over indexed nodes.
+pub struct SemanticSearchTool {
+    project_root: PathBuf,
+}
+
+impl SemanticSearchTool {
+    pub const fn new(project_root: PathBuf) -> Self {
+        Self { project_root }
+    }
+}
+
+impl Tool for SemanticSearchTool {
+    fn name(&self) -> &'static str {
+        "coraline_semantic_search"
+    }
+
+    fn description(&self) -> &'static str {
+        "Search indexed code nodes using natural-language vector similarity. \
+         Requires embeddings to have been generated with `coraline embed`."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Natural-language description of what you are looking for"
+                },
+                "limit": {
+                    "type": "number",
+                    "description": "Maximum number of results (default 10)"
+                },
+                "min_similarity": {
+                    "type": "number",
+                    "description": "Minimum cosine similarity threshold 0–1 (default 0.3)"
+                }
+            },
+            "required": ["query"]
+        })
+    }
+
+    fn execute(&self, params: Value) -> ToolResult {
+        let query = params
+            .get("query")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ToolError::invalid_params("query must be a string"))?;
+
+        let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(10) as usize;
+        let min_similarity = params
+            .get("min_similarity")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.3) as f32;
+
+        let mut vm =
+            crate::vectors::VectorManager::from_project(&self.project_root).map_err(|e| {
+                ToolError::internal_error(format!(
+                    "Could not load embedding model: {e}. \
+                         Download the model and run 'coraline embed' first."
+                ))
+            })?;
+
+        let embedding = vm
+            .embed(query)
+            .map_err(|e| ToolError::internal_error(format!("Embedding failed: {e}")))?;
+
+        let conn = db::open_database(&self.project_root)
+            .map_err(|e| ToolError::internal_error(format!("DB error: {e}")))?;
+
+        let results = crate::vectors::search_similar(&conn, &embedding, limit, min_similarity)
+            .map_err(|e| ToolError::internal_error(format!("Search failed: {e}")))?;
+
+        let items: Vec<Value> = results
+            .into_iter()
+            .map(|r| {
+                json!({
+                    "id":           r.node.id,
+                    "name":         r.node.name,
+                    "qualified_name": r.node.qualified_name,
+                    "kind":         r.node.kind,
+                    "file_path":    r.node.file_path,
+                    "start_line":   r.node.start_line,
+                    "docstring":    r.node.docstring,
+                    "signature":    r.node.signature,
+                    "score":        r.score,
+                })
+            })
+            .collect();
+
+        Ok(json!({ "query": query, "results": items }))
+    }
+}

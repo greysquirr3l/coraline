@@ -12,78 +12,239 @@
 
 //! Vector embeddings for semantic code search.
 //!
-//! This module provides functionality to generate vector embeddings for code symbols
-//! and semantic search using cosine similarity.
+//! Generates 768-dimensional embeddings using a locally-stored ONNX model
+//! (nomic-embed-text-v1.5) via the `ort` ONNX Runtime bindings.
+//!
+//! ## Quick start
+//!
+//! 1. Download the model into `.coraline/models/nomic-embed-text-v1.5/`:
+//!    - `model.onnx`  — the ONNX export from `nomic-ai/nomic-embed-text-v1.5`
+//!    - `tokenizer.json` — the tokenizer from the same repo
+//! 2. Run `coraline embed` to generate embeddings for all indexed nodes.
+//! 3. Use `coraline_semantic_search` MCP tool to search by natural language.
 
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
+use ndarray::Array2;
+use ort::{
+    inputs,
+    session::{Session, builder::GraphOptimizationLevel},
+    value::TensorRef,
+};
 use rusqlite::{Connection, params};
+use tokenizers::Tokenizer;
 
 use crate::types::SearchResult;
 
 /// Model identifier for nomic-embed-text-v1.5
 pub const DEFAULT_MODEL: &str = "nomic-embed-text-v1.5";
 
-/// Expected embedding dimension for nomic-embed-text-v1.5
-pub const EMBEDDING_DIM: usize = 384;
+/// Output dimension for nomic-embed-text-v1.5.
+pub const EMBEDDING_DIM: usize = 768;
 
-/// Vector embedding manager (placeholder for future ONNX integration).
+/// Maximum sequence length fed to the model (tokens).
+/// nomic-embed-text-v1.5 supports up to 8192, but 512 covers most code snippets.
+pub const MAX_SEQ_LEN: usize = 512;
+
+type AnyError = Box<dyn std::error::Error + Send + Sync + 'static>;
+
+/// ONNX-based vector embedding manager.
 pub struct VectorManager {
+    session: Session,
+    tokenizer: Tokenizer,
     model_name: String,
+    /// Name of the output tensor — "sentence_embedding", "pooler_output",
+    /// or "last_hidden_state" (requires mean-pooling).
+    output_name: String,
+    /// Whether the model accepts a `token_type_ids` input.
+    has_token_type_ids: bool,
 }
 
 impl VectorManager {
-    /// Create a new VectorManager with the specified ONNX model.
+    /// Load the manager from an ONNX model file.
     ///
-    /// # Arguments
-    ///
-    /// * `_model_path` - Path to the ONNX model file (currently unused)
-    ///
-    /// # Returns
-    ///
-    /// A new VectorManager instance.
-    ///
-    /// # Note
-    ///
-    /// Full ONNX integration is TODO. This currently returns a placeholder.
-    pub fn new(_model_path: &Path) -> io::Result<Self> {
-        // TODO: Integrate ort crate properly when API is stable
-        // let session = Session::builder()
-        //     .with_optimization_level(GraphOptimizationLevel::Level3)?
-        //     .commit_from_file(model_path)?;
+    /// Expects `tokenizer.json` in the same directory as `model_path`.
+    pub fn new(model_path: &Path) -> io::Result<Self> {
+        let session = Session::builder()
+            .map_err(io::Error::other)?
+            .with_optimization_level(GraphOptimizationLevel::Level3)
+            .map_err(io::Error::other)?
+            .with_intra_threads(4)
+            .map_err(io::Error::other)?
+            .commit_from_file(model_path)
+            .map_err(io::Error::other)?;
+
+        let tokenizer_path = model_path
+            .parent()
+            .unwrap_or(model_path)
+            .join("tokenizer.json");
+        let tokenizer = Tokenizer::from_file(&tokenizer_path).map_err(io::Error::other)?;
+
+        // Detect which output tensor the model produces.
+        let output_name = session
+            .outputs()
+            .iter()
+            .find_map(|o| {
+                if o.name() == "sentence_embedding" || o.name() == "pooler_output" {
+                    Some(o.name().to_string())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_else(|| "last_hidden_state".to_string());
+
+        let has_token_type_ids = session
+            .inputs()
+            .iter()
+            .any(|i| i.name() == "token_type_ids");
 
         Ok(Self {
+            session,
+            tokenizer,
             model_name: DEFAULT_MODEL.to_string(),
+            output_name,
+            has_token_type_ids,
         })
     }
 
-    /// Generate an embedding vector for the given text.
-    ///
-    /// # Arguments
-    ///
-    /// * `text` - The text to embed
-    ///
-    /// # Returns
-    ///
-    /// A 384-dimensional embedding vector or an error.
-    ///
-    /// # Note
-    ///
-    /// This currently returns a zero vector. Full implementation requires:
-    /// 1. Tokenization using nomic-embed tokenizer
-    /// 2. Converting tokens to input IDs
-    /// 3. Running inference through ONNX model
-    /// 4. Extracting and normalizing the output embedding
-    pub fn embed(&self, _text: &str) -> io::Result<Vec<f32>> {
-        // TODO: Implement full ONNX inference pipeline
-        Ok(vec![0.0; EMBEDDING_DIM])
+    /// Load from a directory containing `model.onnx` and `tokenizer.json`.
+    pub fn from_dir(model_dir: &Path) -> io::Result<Self> {
+        Self::new(&model_dir.join("model.onnx"))
+    }
+
+    /// Load using the project's config (falls back to default model dir).
+    pub fn from_project(project_root: &Path) -> io::Result<Self> {
+        let cfg = crate::config::load_toml_config(project_root).unwrap_or_default();
+        let model_dir = cfg
+            .vectors
+            .model_dir
+            .map(PathBuf::from)
+            .unwrap_or_else(|| default_model_dir(project_root));
+        Self::from_dir(&model_dir)
+    }
+
+    /// Generate a normalised embedding vector for `text`.
+    pub fn embed(&mut self, text: &str) -> io::Result<Vec<f32>> {
+        self.embed_impl(text).map_err(io::Error::other)
     }
 
     /// Get the model name.
     pub fn model_name(&self) -> &str {
         &self.model_name
     }
+
+    fn embed_impl(&mut self, text: &str) -> Result<Vec<f32>, AnyError> {
+        let encoding = self.tokenizer.encode(text, true)?;
+        let seq_len = encoding.get_ids().len().min(MAX_SEQ_LEN);
+
+        let input_ids: Vec<i64> = encoding.get_ids()[..seq_len]
+            .iter()
+            .map(|&x| x as i64)
+            .collect();
+        let attention_mask: Vec<i64> = encoding.get_attention_mask()[..seq_len]
+            .iter()
+            .map(|&x| x as i64)
+            .collect();
+        let token_type_ids = vec![0i64; seq_len];
+
+        let input_ids_arr = Array2::from_shape_vec((1, seq_len), input_ids)?;
+        let attn_arr = Array2::from_shape_vec((1, seq_len), attention_mask.clone())?;
+        let tti_arr = Array2::from_shape_vec((1, seq_len), token_type_ids)?;
+
+        let outputs = if self.has_token_type_ids {
+            self.session.run(inputs![
+                "input_ids"      => TensorRef::from_array_view(&input_ids_arr)?,
+                "attention_mask" => TensorRef::from_array_view(&attn_arr)?,
+                "token_type_ids" => TensorRef::from_array_view(&tti_arr)?,
+            ])?
+        } else {
+            self.session.run(inputs![
+                "input_ids"      => TensorRef::from_array_view(&input_ids_arr)?,
+                "attention_mask" => TensorRef::from_array_view(&attn_arr)?,
+            ])?
+        };
+
+        let embedding: Vec<f32> = if self.output_name == "last_hidden_state" {
+            let arr = outputs["last_hidden_state"].try_extract_array::<f32>()?;
+            mean_pool(
+                arr.as_slice().ok_or("non-contiguous tensor")?,
+                arr.shape(),
+                &attention_mask,
+            )
+        } else {
+            let arr = outputs[self.output_name.as_str()].try_extract_array::<f32>()?;
+            arr.iter().copied().collect()
+        };
+
+        Ok(l2_normalize(embedding))
+    }
+}
+
+/// Default model directory: `.coraline/models/nomic-embed-text-v1.5/`.
+pub fn default_model_dir(project_root: &Path) -> PathBuf {
+    project_root
+        .join(".coraline")
+        .join("models")
+        .join(DEFAULT_MODEL)
+}
+
+/// Mean-pool the last hidden state over non-masked positions.
+///
+/// `slice` is the flat row-major data of a `[1, seq_len, hidden_dim]` tensor.
+fn mean_pool(slice: &[f32], shape: &[usize], attention_mask: &[i64]) -> Vec<f32> {
+    let (seq_len, hidden_dim) = (shape[1], shape[2]);
+    let mut pooled = vec![0.0f32; hidden_dim];
+    let mut count = 0.0f32;
+
+    for t in 0..seq_len {
+        if attention_mask.get(t).copied().unwrap_or(0) == 0 {
+            continue;
+        }
+        count += 1.0;
+        let offset = t * hidden_dim;
+        for (d, p) in pooled.iter_mut().enumerate() {
+            *p += slice[offset + d];
+        }
+    }
+
+    if count > 0.0 {
+        for v in &mut pooled {
+            *v /= count;
+        }
+    }
+    pooled
+}
+
+/// L2-normalise a vector in place and return it.
+fn l2_normalize(mut v: Vec<f32>) -> Vec<f32> {
+    let norm: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
+    if norm > 1e-9 {
+        for x in &mut v {
+            *x /= norm;
+        }
+    }
+    v
+}
+
+/// Build the text to embed for a node: name + qualified name + docstring + signature.
+pub fn node_embed_text(
+    name: &str,
+    qualified_name: &str,
+    docstring: Option<&str>,
+    signature: Option<&str>,
+) -> String {
+    let mut parts = vec![name.to_string()];
+    if qualified_name != name {
+        parts.push(qualified_name.to_string());
+    }
+    if let Some(doc) = docstring {
+        parts.push(doc.to_string());
+    }
+    if let Some(sig) = signature {
+        parts.push(sig.to_string());
+    }
+    parts.join(" | ")
 }
 
 /// Store an embedding vector for a node in the database.

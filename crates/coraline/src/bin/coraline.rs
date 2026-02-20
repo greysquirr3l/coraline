@@ -10,6 +10,7 @@ use coraline::memory;
 use coraline::sync::GitHooksManager;
 use coraline::types::NodeKind;
 use coraline::types::{BuildContextOptions, ContextFormat};
+use coraline::vectors;
 use tracing::{debug, info};
 
 use clap::{Args, Parser, Subcommand};
@@ -39,6 +40,7 @@ enum Command {
     Config(ConfigArgs),
     Hooks(HooksArgs),
     Serve(ServeArgs),
+    Embed(EmbedArgs),
 }
 
 #[derive(Debug, Args)]
@@ -177,6 +179,18 @@ struct ServeArgs {
     mcp: bool,
 }
 
+#[derive(Debug, Args)]
+struct EmbedArgs {
+    /// Project root (defaults to current directory).
+    path: Option<PathBuf>,
+    /// Number of nodes to embed per batch (for progress display).
+    #[arg(long = "batch-size", default_value_t = 50)]
+    batch_size: usize,
+    /// Suppress progress output.
+    #[arg(short = 'q', long = "quiet")]
+    quiet: bool,
+}
+
 fn main() {
     let cli = Cli::parse();
     if matches!(cli.command, None | Some(Command::Install)) {
@@ -203,6 +217,7 @@ fn main() {
         Command::Config(a) => a.path.clone(),
         Command::Hooks(a) => a.path.clone(),
         Command::Serve(a) => a.path.clone(),
+        Command::Embed(a) => a.path.clone(),
         Command::Install => None,
     };
     let project_root = resolve_project_root(project_root_hint);
@@ -239,6 +254,93 @@ fn main() {
                 println!("Use --mcp to start the MCP server.");
             }
         }
+        Command::Embed(args) => run_embed(args),
+    }
+}
+
+fn run_embed(args: EmbedArgs) {
+    let project_root = resolve_project_root(args.path);
+
+    if !is_initialized(&project_root) {
+        eprintln!("Coraline not initialized in {}", project_root.display());
+        std::process::exit(1);
+    }
+
+    if !args.quiet {
+        println!("Loading embedding model…");
+    }
+
+    let mut vm = vectors::VectorManager::from_project(&project_root).unwrap_or_else(|err| {
+        eprintln!("Failed to load model: {err}");
+        eprintln!(
+            "Download model.onnx + tokenizer.json into {}",
+            vectors::default_model_dir(&project_root).display()
+        );
+        std::process::exit(1);
+    });
+
+    let conn = db::open_database(&project_root).unwrap_or_else(|err| {
+        eprintln!("Failed to open database: {err}");
+        std::process::exit(1);
+    });
+
+    let nodes = db::get_all_nodes(&conn).unwrap_or_else(|err| {
+        eprintln!("Failed to read nodes: {err}");
+        std::process::exit(1);
+    });
+
+    let total = nodes.len();
+    if total == 0 {
+        println!("No nodes found. Run `coraline index` first.");
+        return;
+    }
+
+    if !args.quiet {
+        println!("Embedding {total} nodes…");
+    }
+
+    let mut ok = 0usize;
+    let mut skipped = 0usize;
+
+    for (i, node) in nodes.iter().enumerate() {
+        let text = vectors::node_embed_text(
+            &node.name,
+            &node.qualified_name,
+            node.docstring.as_deref(),
+            node.signature.as_deref(),
+        );
+
+        match vm.embed(&text) {
+            Ok(embedding) => {
+                if let Err(err) =
+                    vectors::store_embedding(&conn, &node.id, &embedding, vm.model_name())
+                {
+                    if !args.quiet {
+                        eprintln!(
+                            "  Warning: failed to store embedding for {}: {err}",
+                            node.id
+                        );
+                    }
+                    skipped += 1;
+                } else {
+                    ok += 1;
+                }
+            }
+            Err(err) => {
+                if !args.quiet {
+                    eprintln!("  Warning: failed to embed {}: {err}", node.name);
+                }
+                skipped += 1;
+            }
+        }
+
+        if !args.quiet && (i + 1) % args.batch_size == 0 {
+            print!("\r  {}/{total}", i + 1);
+        }
+    }
+
+    if !args.quiet {
+        println!("\rEmbedded {ok}/{total} nodes ({skipped} skipped)");
     }
 }
 

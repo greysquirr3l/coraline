@@ -29,12 +29,12 @@ use tree_sitter::{Node as TsNode, Parser};
 use crate::config::is_language_supported;
 use crate::db;
 use crate::resolution::ReferenceResolver;
-use tracing::{debug, info, warn};
 use crate::types::{
     CodeGraphConfig, Edge, EdgeKind, ExtractionError, ExtractionErrorSeverity, FileRecord,
     Language, Node, NodeKind, UnresolvedReference,
 };
 use crate::utils::{hash_sha256, node_id_for_symbol};
+use tracing::{debug, info, warn};
 
 #[derive(Debug, Clone, Copy)]
 pub enum IndexPhase {

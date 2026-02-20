@@ -719,6 +719,28 @@ pub fn get_nodes_by_file(
     Ok(results)
 }
 
+/// Return every node in the database ordered by file path then start line.
+pub fn get_all_nodes(conn: &Connection) -> std::io::Result<Vec<Node>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, kind, name, qualified_name, file_path, language,
+                    start_line, end_line, start_column, end_column,
+                    docstring, signature, visibility,
+                    is_exported, is_async, is_static, is_abstract,
+                    decorators, type_parameters, updated_at
+             FROM nodes
+             ORDER BY file_path ASC, start_line ASC",
+        )
+        .map_err(io_other)?;
+
+    let rows = stmt.query_map([], row_to_node).map_err(io_other)?;
+    let mut results = Vec::new();
+    for row in rows {
+        results.push(row.map_err(io_other)?);
+    }
+    Ok(results)
+}
+
 /// Database statistics returned by `get_db_stats`.
 #[derive(Debug, serde::Serialize)]
 pub struct DbStats {

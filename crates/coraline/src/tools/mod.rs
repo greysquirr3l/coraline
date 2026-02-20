@@ -190,6 +190,14 @@ pub fn create_default_registry(project_root: &std::path::Path) -> ToolRegistry {
         registry.register(Box::new(tool));
     }
 
+    // Register semantic search only when the ONNX model is present.
+    let model_dir = crate::vectors::default_model_dir(project_root);
+    if model_dir.join("model.onnx").exists() {
+        registry.register(Box::new(file_tools::SemanticSearchTool::new(
+            project_root.to_path_buf(),
+        )));
+    }
+
     registry
 }
 
