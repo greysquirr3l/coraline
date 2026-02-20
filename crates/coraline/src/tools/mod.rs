@@ -167,6 +167,9 @@ pub fn create_default_registry(project_root: &std::path::Path) -> ToolRegistry {
     registry.register(Box::new(file_tools::UpdateConfigTool::new(
         project_root.to_path_buf(),
     )));
+    registry.register(Box::new(file_tools::SyncTool::new(
+        project_root.to_path_buf(),
+    )));
 
     // Register context tools
     registry.register(Box::new(context_tools::BuildContextTool::new(

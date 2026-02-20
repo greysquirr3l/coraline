@@ -491,6 +491,57 @@ impl Tool for UpdateConfigTool {
     }
 }
 
+/// Tool for triggering an incremental index sync.
+pub struct SyncTool {
+    project_root: PathBuf,
+}
+
+impl SyncTool {
+    pub const fn new(project_root: PathBuf) -> Self {
+        Self { project_root }
+    }
+}
+
+impl Tool for SyncTool {
+    fn name(&self) -> &'static str {
+        "coraline_sync"
+    }
+
+    fn description(&self) -> &'static str {
+        "Trigger an incremental sync of the Coraline index. \
+         Detects files added, modified, or removed since the last index run \
+         and updates only what changed. Run this after editing source files \
+         so the graph reflects your latest changes."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {}
+        })
+    }
+
+    fn execute(&self, _params: Value) -> ToolResult {
+        let mut cfg = crate::config::load_config(&self.project_root)
+            .map_err(|e| ToolError::internal_error(format!("Failed to load config: {e}")))?;
+        if let Ok(toml_cfg) = crate::config::load_toml_config(&self.project_root) {
+            crate::config::apply_toml_to_code_graph(&mut cfg, &toml_cfg);
+        }
+
+        let result = crate::extraction::sync(&self.project_root, &cfg, None)
+            .map_err(|e| ToolError::internal_error(format!("Sync failed: {e}")))?;
+
+        Ok(json!({
+            "files_checked":  result.files_checked,
+            "files_added":    result.files_added,
+            "files_modified": result.files_modified,
+            "files_removed":  result.files_removed,
+            "nodes_updated":  result.nodes_updated,
+            "duration_ms":    result.duration_ms,
+        }))
+    }
+}
+
 /// Tool for semantic (vector) search over indexed nodes.
 pub struct SemanticSearchTool {
     project_root: PathBuf,
