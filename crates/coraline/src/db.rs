@@ -319,13 +319,26 @@ pub fn store_file_batch(
                 .map(|v| serde_json::to_string(v).unwrap_or_default());
             let visibility = node.visibility.map(visibility_to_string);
             stmt.execute(params![
-                node.id, kind_to_string(node.kind), node.name, node.qualified_name,
-                node.file_path, language_to_string(node.language),
-                node.start_line, node.end_line, node.start_column, node.end_column,
-                node.docstring, node.signature, visibility,
-                i32::from(node.is_exported), i32::from(node.is_async),
-                i32::from(node.is_static), i32::from(node.is_abstract),
-                decorators, type_parameters, node.updated_at,
+                node.id,
+                kind_to_string(node.kind),
+                node.name,
+                node.qualified_name,
+                node.file_path,
+                language_to_string(node.language),
+                node.start_line,
+                node.end_line,
+                node.start_column,
+                node.end_column,
+                node.docstring,
+                node.signature,
+                visibility,
+                i32::from(node.is_exported),
+                i32::from(node.is_async),
+                i32::from(node.is_static),
+                i32::from(node.is_abstract),
+                decorators,
+                type_parameters,
+                node.updated_at,
             ])
             .map_err(io_other)?;
         }
@@ -345,8 +358,12 @@ pub fn store_file_batch(
                 .as_ref()
                 .map(|v| serde_json::to_string(v).unwrap_or_default());
             stmt.execute(params![
-                edge.source, edge.target, edge_kind_to_string(edge.kind),
-                metadata, edge.line, edge.column,
+                edge.source,
+                edge.target,
+                edge_kind_to_string(edge.kind),
+                metadata,
+                edge.line,
+                edge.column,
             ])
             .map_err(io_other)?;
         }
@@ -367,8 +384,12 @@ pub fn store_file_batch(
                 .as_ref()
                 .map(|v| serde_json::to_string(v).unwrap_or_default());
             stmt.execute(params![
-                r.from_node_id, r.reference_name, edge_kind_to_string(r.reference_kind),
-                r.line, r.column, candidates,
+                r.from_node_id,
+                r.reference_name,
+                edge_kind_to_string(r.reference_kind),
+                r.line,
+                r.column,
+                candidates,
             ])
             .map_err(io_other)?;
         }

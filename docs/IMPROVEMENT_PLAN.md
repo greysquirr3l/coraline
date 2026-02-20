@@ -325,78 +325,30 @@ pub fn search_similar(conn: &Connection, query_embedding: &[f32], limit: usize, 
 
 ---
 
-### 2.3 Configuration System ⬜
+### 2.3 Configuration System ✅ COMPLETE
 
-**Current State:** Hardcoded configuration in `src/config.rs`
+**Added:** February 2026
 
-**Target State:** User-customizable configuration with sensible defaults
+**Storage:** `.coraline/config.toml` — written as a commented template on `coraline init`
 
-**Configuration File:** `.coraline/config.toml`
+**Sections implemented:**
 
 ```toml
-[project]
-name = "coraline"
-languages = ["rust", "typescript", "javascript", "blazor"]
-
-[indexing]
-max_file_size = 1048576  # 1MB
-batch_size = 100
-parallel_workers = 4
-exclude_patterns = [
-    "**/node_modules/**",
-    "**/target/**",
-    "**/.git/**",
-    "**/dist/**",
-    "**/build/**",
-]
-include_patterns = ["**/*.rs", "**/*.ts", "**/*.js", "**/*.razor"]
-
-[resolution]
-max_candidates = 5
-prefer_same_file = true
-prefer_same_directory = true
-framework_hints = ["axum", "tokio", "react"]
-
-[context]
-max_nodes = 20
-max_code_blocks = 5
-max_code_block_size = 1500
-traversal_depth = 2
-default_edge_kinds = ["contains", "calls"]
-
-[vectors]
-enabled = true
-model = "nomic-embed-text-v1.5"
-dimension = 384
-batch_size = 32
-
-[sync]
-git_hooks_enabled = true
-watch_mode = false
-debounce_ms = 500
+[indexing]   # max_file_size, batch_size, include_patterns, exclude_patterns
+[context]    # max_nodes, max_code_blocks, max_code_block_size, traversal_depth
+[sync]       # git_hooks_enabled, watch_mode, debounce_ms
+[vectors]    # enabled, model, dimension, batch_size
 ```
 
-**Files to Create:**
-- [ ] `src/config/mod.rs` - Configuration loading and validation
-- [ ] `src/config/defaults.rs` - Default configuration values
-- [ ] Template `.coraline/config.toml` created on init
+**Files updated:**
+- [x] `src/config.rs` — `CoralineConfig`, `IndexingConfig`, `ContextConfig`, `SyncConfig`, `VectorsConfig`; `load_toml_config`, `save_toml_config`, `write_toml_template`, `apply_toml_to_code_graph` ✅
+- [x] `src/bin/coraline.rs` — `run_index` and `run_sync` load TOML config and merge into `CodeGraphConfig` ✅
+- [x] `src/context.rs` — `build_context` reads TOML `ContextConfig` as default fallback for all `BuildContextOptions` fields ✅
+- [x] Template `.coraline/config.toml` written on `coraline init` ✅
 
-**Files to Update:**
-- [ ] `src/lib.rs` - Use config throughout
-- [ ] `src/extraction.rs` - Respect exclude/include patterns
-- [ ] `src/resolution.rs` - Use resolution config
-- [ ] `src/context.rs` - Use context config
-
-**MCP Tools:**
-- [ ] `coraline_get_config()` - Get current configuration
-- [ ] `coraline_update_config(section, key, value)` - Update config
-
-**Benefits:**
-- User customization per project
-- Clear documentation of options
-- Easy to add new configuration
-
-**Estimated Effort:** 4-5 hours
+**MCP Tools (in `src/tools/file_tools.rs`):**
+- [x] `coraline_get_config()` — returns current `config.toml` as JSON ✅
+- [x] `coraline_update_config(section, key, value)` — patch a single key and persist ✅
 
 ---
 
@@ -446,42 +398,16 @@ debounce_ms = 500
 
 ---
 
-### 3.2 Framework-Specific Resolution ⬜
+### 3.2 Framework-Specific Resolution ✅ COMPLETE
 
-**Current State:** Generic name-based resolution
+**Shipped:** `fd0a787`
 
-**Target State:** Smart resolution using framework patterns
-
-**From CodeGraph Reference:**
-
-**Laravel Patterns:**
-- [ ] `User::find()` → `app/Models/User.php`
-- [ ] `route('checkout.store')` → routes file
-- [ ] `view('checkout.form')` → `resources/views/checkout/form.blade.php`
-- [ ] Facade calls → Framework service classes
-
-**React/Next.js Patterns:**
-- [ ] Component imports with barrel files
-- [ ] Dynamic imports
-- [ ] CSS module imports
-- [ ] API route resolution
-
-**Rust Patterns:**
-- [ ] Crate imports → Cargo.toml dependencies
-- [ ] Macro resolution
-- [ ] Trait implementations
-
-**Blazor Patterns:**
-- [ ] Component references
-- [ ] Directive resolution
-- [ ] Dependency injection resolution
-
-**Files to Create:**
-- [ ] `src/resolution/frameworks/mod.rs` - Framework resolver registry
-- [ ] `src/resolution/frameworks/laravel.rs`
-- [ ] `src/resolution/frameworks/react.rs`
-- [ ] `src/resolution/frameworks/rust.rs`
-- [ ] `src/resolution/frameworks/blazor.rs`
+**Implemented resolvers** in `src/resolution/frameworks/`:
+- [x] `laravel.rs` — `User::find()`, routes, views, facade calls ✅
+- [x] `react.rs` — component imports, barrel files, dynamic imports, CSS modules ✅
+- [x] `rust.rs` — crate imports, macro resolution, trait implementations ✅
+- [x] `blazor.rs` — component references, directives, DI resolution ✅
+- [x] `mod.rs` — resolver registry ✅
 
 **Pattern Matching:**
 
@@ -691,7 +617,7 @@ pub trait FrameworkResolver {
 - ✅ All enhanced MCP tools implemented (15 tools)
 - ✅ Configuration system with TOML file (`coraline_get_config`, `coraline_update_config`)
 
-**Phase 2 Status: 75% Complete**
+**Phase 2 Status: 85% Complete**
 
 **Phase 3 Complete When:**
 - ✅ Structured logging to files

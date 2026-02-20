@@ -393,6 +393,25 @@ pub fn save_toml_config(project_root: &Path, cfg: &CoralineConfig) -> std::io::R
     fs::write(path, raw)
 }
 
+/// Merge TOML config settings into a `CodeGraphConfig`.
+///
+/// TOML values override the code-graph config only when the TOML config
+/// differs from its own defaults, which means user-set values win but an
+/// untouched `config.toml` leaves the existing `CodeGraphConfig` unchanged.
+pub fn apply_toml_to_code_graph(code_cfg: &mut CodeGraphConfig, toml_cfg: &CoralineConfig) {
+    let def = IndexingConfig::default();
+
+    if toml_cfg.indexing.max_file_size != def.max_file_size {
+        code_cfg.max_file_size = toml_cfg.indexing.max_file_size;
+    }
+    if toml_cfg.indexing.include_patterns != def.include_patterns {
+        code_cfg.include = toml_cfg.indexing.include_patterns.clone();
+    }
+    if toml_cfg.indexing.exclude_patterns != def.exclude_patterns {
+        code_cfg.exclude = toml_cfg.indexing.exclude_patterns.clone();
+    }
+}
+
 /// Write a well-commented default `config.toml` template.
 pub fn write_toml_template(project_root: &Path) -> std::io::Result<()> {
     let path = toml_config_path(project_root);

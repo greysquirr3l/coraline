@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
+use crate::config;
 use crate::db;
 use crate::graph;
 use crate::types::{
@@ -20,16 +21,19 @@ pub fn build_context(
     options: &BuildContextOptions,
 ) -> std::io::Result<String> {
     let conn = db::open_database(project_root)?;
-    let max_nodes = options.max_nodes.unwrap_or(20);
-    let max_code_blocks = options.max_code_blocks.unwrap_or(5);
-    let max_code_block_size = options.max_code_block_size.unwrap_or(1500);
+    let toml_cfg = config::load_toml_config(project_root).unwrap_or_default();
+    let ctx_cfg = &toml_cfg.context;
+
+    let max_nodes = options.max_nodes.unwrap_or(ctx_cfg.max_nodes);
+    let max_code_blocks = options.max_code_blocks.unwrap_or(ctx_cfg.max_code_blocks);
+    let max_code_block_size = options.max_code_block_size.unwrap_or(ctx_cfg.max_code_block_size);
     let include_code = options.include_code.unwrap_or(true);
     let format = options.format.unwrap_or(ContextFormat::Markdown);
 
     let results = db::search_nodes(&conn, task, None, max_nodes)?;
     let entry_points: Vec<_> = results.iter().map(|r| r.node.clone()).collect();
     let traversal = TraversalOptions {
-        max_depth: options.traversal_depth.or(Some(1)),
+        max_depth: options.traversal_depth.or(Some(ctx_cfg.traversal_depth)),
         edge_kinds: Some(vec![EdgeKind::Contains, EdgeKind::Calls]),
         node_kinds: None,
         direction: Some(TraversalDirection::Both),

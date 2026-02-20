@@ -340,13 +340,16 @@ fn run_index(args: IndexArgs) {
         std::process::exit(1);
     }
 
-    let cfg = match config::load_config(&project_root) {
+    let mut cfg = match config::load_config(&project_root) {
         Ok(cfg) => cfg,
         Err(err) => {
             eprintln!("Failed to load config: {err}");
             std::process::exit(1);
         }
     };
+    if let Ok(toml_cfg) = config::load_toml_config(&project_root) {
+        config::apply_toml_to_code_graph(&mut cfg, &toml_cfg);
+    }
 
     if !args.quiet {
         println!("Indexing project...\n");
@@ -383,13 +386,16 @@ fn run_sync(args: SyncArgs) {
         std::process::exit(1);
     }
 
-    let cfg = match config::load_config(&project_root) {
+    let mut cfg = match config::load_config(&project_root) {
         Ok(cfg) => cfg,
         Err(err) => {
             eprintln!("Failed to load config: {err}");
             std::process::exit(1);
         }
     };
+    if let Ok(toml_cfg) = config::load_toml_config(&project_root) {
+        config::apply_toml_to_code_graph(&mut cfg, &toml_cfg);
+    }
 
     let result = extraction::sync(
         &project_root,
