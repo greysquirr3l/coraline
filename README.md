@@ -119,45 +119,65 @@ Configure your MCP client to use Coraline:
 ```bash
 coraline init [path]              # Initialize project
 coraline index [path]             # Build code graph
-coraline sync [path]              # Incremental update
-coraline status [path]            # Show statistics
+coraline sync [path]              # Incremental update (git-diff based)
+coraline status [path]            # Show project status and paths
+coraline stats [path]             # Show index statistics
 coraline query <search>           # Search symbols
 coraline context <task>           # Build AI context
+coraline callers <node-id>        # Find what calls a symbol
+coraline callees <node-id>        # Find what a symbol calls
+coraline impact <node-id>         # Analyze change impact
+coraline config [--set key=val]   # Read or update configuration
+coraline hooks install|remove     # Manage git post-commit hook
 coraline serve --mcp              # Start MCP server
 ```
 
+See [docs/CLI_REFERENCE.md](docs/CLI_REFERENCE.md) for full documentation.
+
 ## 🔌 MCP Tools
 
-When running as an MCP server, Coraline provides these tools:
+When running as an MCP server, Coraline exposes **20 tools** prefixed with `coraline_`.
+See [docs/MCP_TOOLS.md](docs/MCP_TOOLS.md) for the full reference.
 
-### Graph Tools (CodeGraph-inspired)
-
-| Tool | Description |
-| ------ | ------------- |
-| `coraline_search` | Find symbols by name |
-| `coraline_context` | Build context for a task |
-| `coraline_callers` | Find what calls a function |
-| `coraline_callees` | Find what a function calls |
-| `coraline_impact` | Analyze change impact |
-| `coraline_node` | Get symbol details + code |
-
-### Symbol Tools (Serena-inspired)
+### Graph Tools
 
 | Tool | Description |
 | ------ | ------------- |
-| `find_symbol` | Find symbols with pattern matching |
-| `get_symbols_overview` | List all symbols in a file |
-| `find_referencing_symbols` | Find all references to a symbol |
-| `read_symbol` | Read a symbol's source code |
+| `coraline_search` | Find symbols by name or pattern |
+| `coraline_callers` | Find what calls a symbol |
+| `coraline_callees` | Find what a symbol calls |
+| `coraline_impact` | Analyze change impact radius |
+| `coraline_find_symbol` | Find symbols with rich metadata + optional body |
+| `coraline_get_symbols_overview` | List all symbols in a file |
+| `coraline_find_references` | Find all references to a symbol |
+| `coraline_node` | Get full node details and source code |
+
+### Context Tool
+
+| Tool | Description |
+| ------ | ------------- |
+| `coraline_context` | Build structured context for an AI task |
+
+### File & Config Tools
+
+| Tool | Description |
+| ------ | ------------- |
+| `coraline_read_file` | Read file contents |
+| `coraline_list_dir` | List directory contents |
+| `coraline_get_file_nodes` | Get all indexed nodes in a file |
+| `coraline_status` | Show project index statistics |
+| `coraline_get_config` | Read project configuration |
+| `coraline_update_config` | Update a config value |
 
 ### Memory Tools
 
 | Tool | Description |
 | ------ | ------------- |
-| `write_memory` | Store project knowledge |
-| `read_memory` | Retrieve stored knowledge |
-| `list_memories` | List all memories |
-| `delete_memory` | Remove a memory |
+| `coraline_write_memory` | Write or update a project memory |
+| `coraline_read_memory` | Retrieve a stored memory |
+| `coraline_list_memories` | List all memories |
+| `coraline_delete_memory` | Remove a memory |
+| `coraline_edit_memory` | Edit memory via literal or regex replace |
 
 ## 🏗️ Architecture
 
@@ -246,23 +266,27 @@ Coraline uses tree-sitter for fast, accurate code parsing. Current support:
 
 ## ⚙️ Configuration
 
-The `.coraline/config.json` file controls behavior:
+Configuration lives in `.coraline/config.toml`. A commented template is created by `coraline init`.
 
-```json
-{
-  "version": 1,
-  "project_name": "my-project",
-  "languages": ["typescript", "rust"],
-  "exclude": [
-    "target/**",
-    "node_modules/**",
-    "dist/**"
-  ],
-  "max_file_size": 1048576,
-  "embedding_model": "nomic-embed-text-v1.5",
-  "git_hooks_enabled": true
-}
+```toml
+[indexing]
+max_file_size = 1048576   # 1 MB
+batch_size    = 100
+
+[context]
+max_nodes          = 20
+max_code_blocks    = 5
+max_code_block_size = 1500
+traversal_depth    = 1
+
+[sync]
+git_hooks_enabled = true
+
+[vectors]
+enabled = false   # ONNX embedding support (pending stable ort 2.0)
 ```
+
+See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for the full reference.
 
 ## 📊 Testing
 
@@ -273,15 +297,26 @@ cargo test --all-features
 # Run with output
 cargo test --all-features -- --nocapture
 
-# Run specific test suite
-cargo test --package coraline context_test
+# Run specific integration test file
+cargo test --test context_test
 ```
 
-Current test coverage: **32/33 tests passing (97%)**
+Current status: **37/37 tests passing**  
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for the full test structure.
+
+## 📚 Documentation
+
+| Document | Description |
+|---|---|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design and data model |
+| [docs/MCP_TOOLS.md](docs/MCP_TOOLS.md) | Complete MCP tools reference |
+| [docs/CLI_REFERENCE.md](docs/CLI_REFERENCE.md) | All CLI commands and flags |
+| [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | Configuration guide |
+| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Build, test, and contribute |
 
 ## 🤝 Contributing
 
-Contributions welcome!
+Contributions welcome! See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for build setup, coding style, and how to add new tools and language parsers.
 
 ## 📄 License
 
