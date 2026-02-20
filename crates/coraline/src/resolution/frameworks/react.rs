@@ -3,7 +3,7 @@
 //! React / Next.js reference resolution.
 //!
 //! Handles relative imports (`./Foo`, `../Bar`), path-aliased imports
-//! (`@/components/Button`, `~/utils`), and bare PascalCase component
+//! (`@/components/Button`, `~/utils`), and bare `PascalCase` component
 //! names by probing common component directories for matching files.
 
 use std::path::{Path, PathBuf};

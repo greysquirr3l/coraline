@@ -2,7 +2,7 @@
 
 //! Blazor / ASP.NET Core component resolution.
 //!
-//! Resolves PascalCase component names (e.g. `Counter`, `UserList`) to
+//! Resolves `PascalCase` component names (e.g. `Counter`, `UserList`) to
 //! their `.razor` or code-behind `.cs` files, and resolves dot-qualified
 //! .NET type names (e.g. `MyApp.Pages.Counter`) to their file path.
 
