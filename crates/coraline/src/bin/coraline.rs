@@ -41,6 +41,7 @@ enum Command {
     Hooks(HooksArgs),
     Serve(ServeArgs),
     Embed(EmbedArgs),
+    Model(ModelArgs),
 }
 
 #[derive(Debug, Args)]
@@ -189,6 +190,38 @@ struct EmbedArgs {
     /// Suppress progress output.
     #[arg(short = 'q', long = "quiet")]
     quiet: bool,
+    /// Download the model from HuggingFace if not already present.
+    #[arg(long = "download")]
+    download: bool,
+    /// ONNX variant to download when using --download (default: model_int8.onnx).
+    #[arg(long = "variant", default_value = "model_int8.onnx")]
+    variant: String,
+}
+
+#[derive(Debug, Args)]
+struct ModelArgs {
+    #[arg(short = 'p', long = "path")]
+    path: Option<PathBuf>,
+    /// Suppress progress output.
+    #[arg(short = 'q', long = "quiet")]
+    quiet: bool,
+    #[command(subcommand)]
+    action: ModelAction,
+}
+
+#[derive(Debug, Subcommand)]
+enum ModelAction {
+    /// Download model files from HuggingFace (tokenizer + ONNX weights).
+    Download {
+        /// ONNX variant filename to download.
+        #[arg(long = "variant", default_value = "model_int8.onnx")]
+        variant: String,
+        /// Re-download even if the file already exists.
+        #[arg(short = 'f', long = "force")]
+        force: bool,
+    },
+    /// Show which model files are present in the model directory.
+    Status,
 }
 
 fn main() {
@@ -218,6 +251,7 @@ fn main() {
         Command::Hooks(a) => a.path.clone(),
         Command::Serve(a) => a.path.clone(),
         Command::Embed(a) => a.path.clone(),
+        Command::Model(a) => a.path.clone(),
         Command::Install => None,
     };
     let project_root = resolve_project_root(project_root_hint);
@@ -255,6 +289,53 @@ fn main() {
             }
         }
         Command::Embed(args) => run_embed(args),
+        Command::Model(args) => run_model(args),
+    }
+}
+
+fn run_model(args: ModelArgs) {
+    let project_root = resolve_project_root(args.path);
+    let cfg = config::load_toml_config(&project_root).unwrap_or_default();
+    let model_dir = cfg
+        .vectors
+        .model_dir
+        .map(PathBuf::from)
+        .unwrap_or_else(|| vectors::default_model_dir(&project_root));
+
+    match args.action {
+        ModelAction::Download { variant, force } => {
+            if !args.quiet {
+                println!("Downloading {variant} into {} ...", model_dir.display());
+            }
+            if let Err(e) = vectors::download_model(&model_dir, &variant, !force, args.quiet) {
+                eprintln!("Download failed: {e}");
+                std::process::exit(1);
+            }
+            if !args.quiet {
+                println!("Done. Run `coraline embed` to generate embeddings.");
+            }
+        }
+        ModelAction::Status => {
+            println!("Model directory: {}", model_dir.display());
+            println!();
+            for name in vectors::MODEL_PREFERENCE_ORDER {
+                let p = model_dir.join(name);
+                if let Ok(meta) = std::fs::metadata(&p) {
+                    println!("  {name:<30}  {:>6} MB  [present]", meta.len() / 1_000_000);
+                } else {
+                    println!("  {name:<30}  (not present)");
+                }
+            }
+            println!();
+            for name in &["tokenizer.json", "tokenizer_config.json"] {
+                let p = model_dir.join(name);
+                if p.exists() {
+                    println!("  {name:<30}  [present]");
+                } else {
+                    println!("  {name:<30}  (not present)");
+                }
+            }
+        }
     }
 }
 
@@ -264,6 +345,27 @@ fn run_embed(args: EmbedArgs) {
     if !is_initialized(&project_root) {
         eprintln!("Coraline not initialized in {}", project_root.display());
         std::process::exit(1);
+    }
+
+    // Auto-download model files if requested.
+    if args.download {
+        let cfg = config::load_toml_config(&project_root).unwrap_or_default();
+        let model_dir = cfg
+            .vectors
+            .model_dir
+            .map(PathBuf::from)
+            .unwrap_or_else(|| vectors::default_model_dir(&project_root));
+        if !args.quiet {
+            println!(
+                "Downloading {} into {} ...",
+                args.variant,
+                model_dir.display()
+            );
+        }
+        if let Err(e) = vectors::download_model(&model_dir, &args.variant, true, args.quiet) {
+            eprintln!("Download failed: {e}");
+            std::process::exit(1);
+        }
     }
 
     if !args.quiet {

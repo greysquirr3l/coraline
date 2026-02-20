@@ -59,14 +59,14 @@ pub const MAX_SEQ_LEN: usize = 512;
 /// Preference is given to quantized variants (smaller on disk, faster to load)
 /// before falling back to the full f32 model.
 pub const MODEL_PREFERENCE_ORDER: &[&str] = &[
-    "model_int8.onnx",       // 137 MB  — int8 quantized (recommended)
-    "model_quantized.onnx",  // 137 MB  — same weights, different name
-    "model_uint8.onnx",      // 137 MB  — uint8 quantized
-    "model_q4f16.onnx",      // 111 MB  — Q4 + fp16 mixed (smallest)
-    "model_q4.onnx",         // 165 MB  — Q4 quantized
-    "model_bnb4.onnx",       // 158 MB  — 4-bit NF4
-    "model_fp16.onnx",       // 274 MB  — fp16
-    "model.onnx",            // 547 MB  — full f32 (fallback)
+    "model_int8.onnx",      // 137 MB  — int8 quantized (recommended)
+    "model_quantized.onnx", // 137 MB  — same weights, different name
+    "model_uint8.onnx",     // 137 MB  — uint8 quantized
+    "model_q4f16.onnx",     // 111 MB  — Q4 + fp16 mixed (smallest)
+    "model_q4.onnx",        // 165 MB  — Q4 quantized
+    "model_bnb4.onnx",      // 158 MB  — 4-bit NF4
+    "model_fp16.onnx",      // 274 MB  — fp16
+    "model.onnx",           // 547 MB  — full f32 (fallback)
 ];
 
 /// Find the best available ONNX model file in `model_dir`.
@@ -98,6 +98,137 @@ pub fn find_model_file(model_dir: &Path, preferred: Option<&str>) -> io::Result<
          tokenizer.json alongside it.",
         model_dir.display()
     )))
+}
+
+// ── HuggingFace download ──────────────────────────────────────────────────────
+
+/// HuggingFace repository base URL for nomic-embed-text-v1.5.
+pub const HF_BASE_URL: &str = "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5/resolve/main";
+
+/// HuggingFace download URL for `tokenizer.json`.
+pub fn tokenizer_url() -> String {
+    format!("{HF_BASE_URL}/tokenizer.json")
+}
+
+/// HuggingFace download URL for `tokenizer_config.json`.
+pub fn tokenizer_config_url() -> String {
+    format!("{HF_BASE_URL}/tokenizer_config.json")
+}
+
+/// HuggingFace download URL for a specific ONNX model variant.
+///
+/// ONNX files live under the `onnx/` subdirectory in the HF repo.
+pub fn model_url(filename: &str) -> String {
+    format!("{HF_BASE_URL}/onnx/{filename}")
+}
+
+/// Download a single URL to a local file path with a progress indicator.
+///
+/// Writes to a `.tmp` sibling first, then renames atomically on success.
+/// This avoids leaving a partially-written file if the download is interrupted.
+pub fn download_to_file(url: &str, dest: &Path, label: &str, quiet: bool) -> io::Result<()> {
+    use std::io::{Read, Write};
+
+    let response = ureq::get(url)
+        .call()
+        .map_err(|e| io::Error::other(format!("GET {url} failed: {e}")))?;
+
+    let body = response.into_body();
+    let content_length = body.content_length();
+
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    let tmp = dest.with_extension("tmp");
+    {
+        let mut file = std::fs::File::create(&tmp)?;
+        let mut reader = body.into_reader();
+        let mut buf = [0u8; 65_536]; // 64 KiB chunks
+        let mut downloaded = 0u64;
+
+        loop {
+            let n = reader.read(&mut buf).map_err(io::Error::other)?;
+            if n == 0 {
+                break;
+            }
+            file.write_all(&buf[..n])?;
+            downloaded += n as u64;
+
+            if !quiet {
+                match content_length {
+                    Some(total) if total > 0 => {
+                        let pct = downloaded * 100 / total;
+                        print!(
+                            "\r  {label}: {pct}% ({}/{} MB)    ",
+                            downloaded / 1_000_000,
+                            total / 1_000_000
+                        );
+                    }
+                    _ => {
+                        print!("\r  {label}: {} MB    ", downloaded / 1_000_000);
+                    }
+                }
+                let _ = std::io::stdout().flush();
+            }
+        }
+
+        file.flush()?;
+        if !quiet {
+            println!(
+                "\r  {label}: {} MB — done                          ",
+                downloaded / 1_000_000
+            );
+        }
+    }
+
+    std::fs::rename(&tmp, dest)?;
+    Ok(())
+}
+
+/// Download all files needed to run the embedding model into `model_dir`.
+///
+/// Downloads:
+/// - `tokenizer.json` and `tokenizer_config.json` (HF repo root)
+/// - `<model_filename>` ONNX weights (HF `onnx/` subdirectory)
+///
+/// Set `skip_existing = true` to skip files that are already present on disk.
+pub fn download_model(
+    model_dir: &Path,
+    model_filename: &str,
+    skip_existing: bool,
+    quiet: bool,
+) -> io::Result<()> {
+    std::fs::create_dir_all(model_dir)?;
+
+    // Small files — always at repo root on HF
+    let meta_files = [
+        ("tokenizer.json", tokenizer_url()),
+        ("tokenizer_config.json", tokenizer_config_url()),
+    ];
+    for (name, url) in &meta_files {
+        let dest = model_dir.join(name);
+        if skip_existing && dest.exists() {
+            if !quiet {
+                println!("  {name}: already present, skipping");
+            }
+            continue;
+        }
+        download_to_file(url, &dest, name, quiet)?;
+    }
+
+    // ONNX model — under onnx/ on HF
+    let dest = model_dir.join(model_filename);
+    if skip_existing && dest.exists() {
+        if !quiet {
+            println!("  {model_filename}: already present, skipping");
+        }
+    } else {
+        let url = model_url(model_filename);
+        download_to_file(&url, &dest, model_filename, quiet)?;
+    }
+
+    Ok(())
 }
 
 type AnyError = Box<dyn std::error::Error + Send + Sync + 'static>;
