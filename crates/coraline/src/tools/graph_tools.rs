@@ -788,6 +788,369 @@ impl Tool for GetNodeTool {
     }
 }
 
+/// Tool for the outgoing dependency graph — everything a node depends on.
+pub struct DependenciesTool {
+    project_root: PathBuf,
+}
+
+impl DependenciesTool {
+    pub const fn new(project_root: PathBuf) -> Self {
+        Self { project_root }
+    }
+}
+
+impl Tool for DependenciesTool {
+    fn name(&self) -> &'static str {
+        "coraline_dependencies"
+    }
+
+    fn description(&self) -> &'static str {
+        "Get the outgoing dependency graph for a node — everything this symbol \
+         depends on (calls, imports, references, etc.), traversed up to a given depth. \
+         Broader than coraline_callees: follows all edge kinds, multiple hops."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "node_id": {
+                    "type": "string",
+                    "description": "ID of the node to find dependencies for"
+                },
+                "depth": {
+                    "type": "number",
+                    "description": "Traversal depth (default 2)",
+                    "default": 2
+                },
+                "limit": {
+                    "type": "number",
+                    "description": "Maximum number of nodes to return (default 50)",
+                    "default": 50
+                }
+            },
+            "required": ["node_id"]
+        })
+    }
+
+    #[allow(clippy::cast_possible_truncation)]
+    fn execute(&self, params: Value) -> ToolResult {
+        let node_id = params
+            .get("node_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ToolError::invalid_params("node_id must be a string"))?;
+
+        let depth = params
+            .get("depth")
+            .and_then(Value::as_u64)
+            .map(|n| n as usize);
+        let limit = params
+            .get("limit")
+            .and_then(Value::as_u64)
+            .map(|n| n as usize);
+
+        let conn = db::open_database(&self.project_root)
+            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
+
+        let options = TraversalOptions {
+            max_depth: depth.or(Some(2)),
+            edge_kinds: None,
+            node_kinds: None,
+            direction: Some(TraversalDirection::Outgoing),
+            limit: limit.or(Some(50)),
+            include_start: Some(false),
+        };
+
+        let subgraph = graph::build_subgraph(&conn, &[node_id.to_string()], &options)
+            .map_err(|e| ToolError::internal_error(format!("Graph traversal failed: {e}")))?;
+
+        let nodes: Vec<Value> = subgraph
+            .nodes
+            .values()
+            .map(|n| {
+                json!({
+                    "id": n.id,
+                    "kind": n.kind,
+                    "name": n.name,
+                    "qualified_name": n.qualified_name,
+                    "file_path": n.file_path,
+                    "start_line": n.start_line,
+                })
+            })
+            .collect();
+
+        let edges: Vec<Value> = subgraph
+            .edges
+            .iter()
+            .map(|e| {
+                json!({
+                    "source": e.source,
+                    "target": e.target,
+                    "kind": e.kind,
+                    "line": e.line,
+                })
+            })
+            .collect();
+
+        Ok(json!({
+            "node_id": node_id,
+            "dependencies": nodes,
+            "edges": edges,
+            "count": nodes.len(),
+        }))
+    }
+}
+
+/// Tool for the incoming dependency graph — everything that depends on a node.
+pub struct DependentsTool {
+    project_root: PathBuf,
+}
+
+impl DependentsTool {
+    pub const fn new(project_root: PathBuf) -> Self {
+        Self { project_root }
+    }
+}
+
+impl Tool for DependentsTool {
+    fn name(&self) -> &'static str {
+        "coraline_dependents"
+    }
+
+    fn description(&self) -> &'static str {
+        "Get the incoming dependency graph for a node — everything that depends on this \
+         symbol (all callers, importers, referencers), traversed up to a given depth. \
+         Broader than coraline_callers: follows all edge kinds, multiple hops."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "node_id": {
+                    "type": "string",
+                    "description": "ID of the node"
+                },
+                "depth": {
+                    "type": "number",
+                    "description": "Traversal depth (default 2)",
+                    "default": 2
+                },
+                "limit": {
+                    "type": "number",
+                    "description": "Maximum number of nodes to return (default 50)",
+                    "default": 50
+                }
+            },
+            "required": ["node_id"]
+        })
+    }
+
+    #[allow(clippy::cast_possible_truncation)]
+    fn execute(&self, params: Value) -> ToolResult {
+        let node_id = params
+            .get("node_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ToolError::invalid_params("node_id must be a string"))?;
+
+        let depth = params
+            .get("depth")
+            .and_then(Value::as_u64)
+            .map(|n| n as usize);
+        let limit = params
+            .get("limit")
+            .and_then(Value::as_u64)
+            .map(|n| n as usize);
+
+        let conn = db::open_database(&self.project_root)
+            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
+
+        let options = TraversalOptions {
+            max_depth: depth.or(Some(2)),
+            edge_kinds: None,
+            node_kinds: None,
+            direction: Some(TraversalDirection::Incoming),
+            limit: limit.or(Some(50)),
+            include_start: Some(false),
+        };
+
+        let subgraph = graph::build_subgraph(&conn, &[node_id.to_string()], &options)
+            .map_err(|e| ToolError::internal_error(format!("Graph traversal failed: {e}")))?;
+
+        let nodes: Vec<Value> = subgraph
+            .nodes
+            .values()
+            .map(|n| {
+                json!({
+                    "id": n.id,
+                    "kind": n.kind,
+                    "name": n.name,
+                    "qualified_name": n.qualified_name,
+                    "file_path": n.file_path,
+                    "start_line": n.start_line,
+                })
+            })
+            .collect();
+
+        let edges: Vec<Value> = subgraph
+            .edges
+            .iter()
+            .map(|e| {
+                json!({
+                    "source": e.source,
+                    "target": e.target,
+                    "kind": e.kind,
+                    "line": e.line,
+                })
+            })
+            .collect();
+
+        Ok(json!({
+            "node_id": node_id,
+            "dependents": nodes,
+            "edges": edges,
+            "count": nodes.len(),
+        }))
+    }
+}
+
+/// Tool for finding the shortest directed path between two nodes.
+pub struct PathTool {
+    project_root: PathBuf,
+}
+
+impl PathTool {
+    pub const fn new(project_root: PathBuf) -> Self {
+        Self { project_root }
+    }
+}
+
+impl Tool for PathTool {
+    fn name(&self) -> &'static str {
+        "coraline_path"
+    }
+
+    fn description(&self) -> &'static str {
+        "Find the shortest directed path through the call/reference graph between two symbols. \
+         Useful for understanding indirect dependencies — how does symbol A transitively lead to B?"
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "from_id": {
+                    "type": "string",
+                    "description": "Starting node ID"
+                },
+                "to_id": {
+                    "type": "string",
+                    "description": "Target node ID"
+                },
+                "max_depth": {
+                    "type": "number",
+                    "description": "Maximum path length to search (default 6)",
+                    "default": 6
+                }
+            },
+            "required": ["from_id", "to_id"]
+        })
+    }
+
+    #[allow(clippy::cast_possible_truncation)]
+    fn execute(&self, params: Value) -> ToolResult {
+        let from_id = params
+            .get("from_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ToolError::invalid_params("from_id must be a string"))?;
+
+        let to_id = params
+            .get("to_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ToolError::invalid_params("to_id must be a string"))?;
+
+        let max_depth = params.get("max_depth").and_then(Value::as_u64).unwrap_or(6) as usize;
+
+        let conn = db::open_database(&self.project_root)
+            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
+
+        // BFS following outgoing edges, recording parents for path reconstruction.
+        use std::collections::HashMap;
+        use std::collections::VecDeque;
+
+        // Maps node_id → parent_id (empty string for the root).
+        let mut parent: HashMap<String, String> = HashMap::new();
+        parent.insert(from_id.to_string(), String::new());
+
+        let mut queue: VecDeque<(String, usize)> = VecDeque::new();
+        queue.push_back((from_id.to_string(), 0));
+
+        let mut found = false;
+        'bfs: while let Some((current, depth)) = queue.pop_front() {
+            if depth >= max_depth {
+                continue;
+            }
+            let edges = db::get_edges_by_source(&conn, &current, None, 500)
+                .map_err(|e| ToolError::internal_error(format!("Edge query failed: {e}")))?;
+            for edge in edges {
+                if parent.contains_key(&edge.target) {
+                    continue;
+                }
+                parent.insert(edge.target.clone(), current.clone());
+                if edge.target == to_id {
+                    found = true;
+                    break 'bfs;
+                }
+                queue.push_back((edge.target.clone(), depth + 1));
+            }
+        }
+
+        if !found {
+            return Ok(json!({
+                "from_id": from_id,
+                "to_id": to_id,
+                "path_found": false,
+                "path": [],
+                "message": format!(
+                    "No directed path found from {from_id} to {to_id} within depth {max_depth}"
+                ),
+            }));
+        }
+
+        // Reconstruct path by walking parents backward from to_id.
+        let mut path_ids: Vec<String> = Vec::new();
+        let mut cursor = to_id.to_string();
+        while !cursor.is_empty() {
+            path_ids.push(cursor.clone());
+            cursor = parent.get(&cursor).cloned().unwrap_or_default();
+        }
+        path_ids.reverse();
+
+        let path: Vec<Value> = path_ids
+            .iter()
+            .filter_map(|id| db::get_node_by_id(&conn, id).ok().flatten())
+            .map(|n| {
+                json!({
+                    "id": n.id,
+                    "kind": n.kind,
+                    "name": n.name,
+                    "qualified_name": n.qualified_name,
+                    "file_path": n.file_path,
+                    "start_line": n.start_line,
+                })
+            })
+            .collect();
+
+        Ok(json!({
+            "from_id": from_id,
+            "to_id": to_id,
+            "path_found": true,
+            "path": path,
+            "length": path.len(),
+        }))
+    }
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 /// Read the source lines for a node from its file on disk.

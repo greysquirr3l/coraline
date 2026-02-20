@@ -135,6 +135,15 @@ pub fn create_default_registry(project_root: &std::path::Path) -> ToolRegistry {
     registry.register(Box::new(graph_tools::ImpactTool::new(
         project_root.to_path_buf(),
     )));
+    registry.register(Box::new(graph_tools::DependenciesTool::new(
+        project_root.to_path_buf(),
+    )));
+    registry.register(Box::new(graph_tools::DependentsTool::new(
+        project_root.to_path_buf(),
+    )));
+    registry.register(Box::new(graph_tools::PathTool::new(
+        project_root.to_path_buf(),
+    )));
     registry.register(Box::new(graph_tools::FindSymbolTool::new(
         project_root.to_path_buf(),
     )));
