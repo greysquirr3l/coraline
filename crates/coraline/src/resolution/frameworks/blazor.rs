@@ -68,8 +68,10 @@ fn resolve_dotnet_type(project_root: &Path, qualified_name: &str) -> Vec<PathBuf
     if parts.len() < 2 {
         return Vec::new();
     }
-    let type_name = parts[parts.len() - 1];
-    let ns_parts = &parts[..parts.len() - 1];
+    let Some(&type_name) = parts.last() else {
+        return Vec::new();
+    };
+    let ns_parts = parts.get(..parts.len() - 1).unwrap_or(&[]);
     let rel_dir: PathBuf = ns_parts.iter().collect();
 
     let mut out = Vec::new();

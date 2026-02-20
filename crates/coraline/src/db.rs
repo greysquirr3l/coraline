@@ -282,12 +282,13 @@ pub fn insert_unresolved_refs(
     tx.commit().map_err(io_other)
 }
 
-/// Store a fully-parsed file's results in a single SQLite transaction:
+/// Store a fully-parsed file's results in a single `SQLite` transaction:
 /// nodes, edges, unresolved refs, and the file metadata record.
 ///
 /// This is more efficient than the three separate `insert_nodes` /
 /// `insert_edges` / `insert_unresolved_refs` calls because it incurs only
 /// one transaction commit instead of three.
+#[allow(clippy::too_many_lines)]
 pub fn store_file_batch(
     conn: &mut Connection,
     file_record: &FileRecord,

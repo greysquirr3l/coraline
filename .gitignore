@@ -113,4 +113,5 @@ temp/
 coverage/
 *.gcda
 *.gcno
-*.gcov*.onnx
+*.gcov
+*.onnx

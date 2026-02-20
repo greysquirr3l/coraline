@@ -1167,7 +1167,9 @@ fn read_node_source(project_root: &std::path::Path, node: &crate::types::Node) -
     let text = std::fs::read_to_string(&path).ok()?;
     let lines: Vec<&str> = text.lines().collect();
 
-    let start = usize::try_from(node.start_line).unwrap_or(0).saturating_sub(1);
+    let start = usize::try_from(node.start_line)
+        .unwrap_or(0)
+        .saturating_sub(1);
     let end = usize::try_from(node.end_line).unwrap_or(0).min(lines.len());
 
     lines.get(start..end).map(|l| l.join("\n"))

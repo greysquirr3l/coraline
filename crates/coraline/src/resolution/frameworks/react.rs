@@ -55,7 +55,9 @@ impl FrameworkResolver for ReactResolver {
 }
 
 fn resolve_relative(from_file: &str, import_path: &str) -> Vec<PathBuf> {
-    let base = Path::new(from_file).parent().unwrap_or(Path::new(""));
+    let base = Path::new(from_file)
+        .parent()
+        .unwrap_or_else(|| Path::new(""));
     let joined = base.join(import_path);
     probe_with_extensions(&joined)
 }

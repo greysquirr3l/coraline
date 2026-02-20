@@ -144,7 +144,7 @@ pub fn download_to_file(url: &str, dest: &Path, label: &str, quiet: bool) -> io:
     {
         let mut file = std::fs::File::create(&tmp)?;
         let mut reader = body.into_reader();
-        let mut buf = [0u8; 65_536]; // 64 KiB chunks
+        let mut buf = vec![0u8; 65_536]; // 64 KiB chunks
         let mut downloaded = 0u64;
 
         loop {
@@ -309,8 +309,7 @@ impl VectorManager {
         let model_dir = cfg
             .vectors
             .model_dir
-            .map(PathBuf::from)
-            .unwrap_or_else(|| default_model_dir(project_root));
+            .map_or_else(|| default_model_dir(project_root), PathBuf::from);
         let model_path = find_model_file(&model_dir, cfg.vectors.model_file.as_deref())?;
         Self::new(&model_path)
     }
@@ -331,11 +330,11 @@ impl VectorManager {
 
         let input_ids: Vec<i64> = encoding.get_ids()[..seq_len]
             .iter()
-            .map(|&x| x as i64)
+            .map(|&x| i64::from(x))
             .collect();
         let attention_mask: Vec<i64> = encoding.get_attention_mask()[..seq_len]
             .iter()
-            .map(|&x| x as i64)
+            .map(|&x| i64::from(x))
             .collect();
         let token_type_ids = vec![0i64; seq_len];
 
@@ -667,7 +666,7 @@ mod tests {
                 if a.len() == b.len() {
                     let sim = cosine_similarity(&a, &b);
                     prop_assert!(
-                        sim >= -1.0 - 1e-5 && sim <= 1.0 + 1e-5,
+                        (-1.0 - 1e-5..=1.0 + 1e-5).contains(&sim),
                         "cosine_similarity out of [-1, 1]: {}",
                         sim
                     );

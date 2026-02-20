@@ -319,7 +319,7 @@ pub struct VectorsConfig {
     /// Defaults to `.coraline/models/nomic-embed-text-v1.5/`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_dir: Option<String>,
-    /// Specific ONNX filename to use (e.g. "model_int8.onnx").
+    /// Specific ONNX filename to use (e.g. `model_int8.onnx`).
     /// When unset, Coraline auto-detects the best available variant.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_file: Option<String>,
@@ -418,10 +418,10 @@ pub fn apply_toml_to_code_graph(code_cfg: &mut CodeGraphConfig, toml_cfg: &Coral
         code_cfg.max_file_size = toml_cfg.indexing.max_file_size;
     }
     if toml_cfg.indexing.include_patterns != def.include_patterns {
-        code_cfg.include = toml_cfg.indexing.include_patterns.clone();
+        code_cfg.include.clone_from(&toml_cfg.indexing.include_patterns);
     }
     if toml_cfg.indexing.exclude_patterns != def.exclude_patterns {
-        code_cfg.exclude = toml_cfg.indexing.exclude_patterns.clone();
+        code_cfg.exclude.clone_from(&toml_cfg.indexing.exclude_patterns);
     }
 }
 

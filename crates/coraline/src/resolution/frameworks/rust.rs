@@ -54,7 +54,7 @@ fn resolve_crate_path(project_root: &Path, path_part: &str) -> Vec<PathBuf> {
     }
     // Drop the final segment (symbol name) to get the module path
     let module_segs = if segments.len() > 1 {
-        &segments[..segments.len() - 1]
+        segments.get(..segments.len() - 1).unwrap_or(&[])
     } else {
         &segments[..]
     };
@@ -76,7 +76,7 @@ fn resolve_crate_path(project_root: &Path, path_part: &str) -> Vec<PathBuf> {
 
 fn resolve_relative_path(from_file: &str, path_part: &str, up_levels: usize) -> Vec<PathBuf> {
     let from = Path::new(from_file);
-    let mut base = from.parent().unwrap_or(Path::new(""));
+    let mut base = from.parent().unwrap_or_else(|| Path::new(""));
     for _ in 0..up_levels {
         base = base.parent().unwrap_or(base);
     }
@@ -86,7 +86,7 @@ fn resolve_relative_path(from_file: &str, path_part: &str, up_levels: usize) -> 
         return Vec::new();
     }
     let module_segs = if segments.len() > 1 {
-        &segments[..segments.len() - 1]
+        segments.get(..segments.len() - 1).unwrap_or(&[])
     } else {
         &segments[..]
     };

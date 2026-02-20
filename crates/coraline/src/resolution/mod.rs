@@ -20,6 +20,7 @@ pub struct ResolveResult {
 }
 
 impl ReferenceResolver {
+    #[allow(clippy::option_if_let_else)]
     pub fn resolve_unresolved(
         conn: &mut rusqlite::Connection,
         project_root: &Path,
@@ -101,6 +102,7 @@ impl ReferenceResolver {
 }
 
 /// Use framework-specific resolvers to find candidates when name search fails.
+#[allow(clippy::unnecessary_wraps)]
 fn framework_fallback(
     conn: &rusqlite::Connection,
     project_root: &Path,

@@ -59,7 +59,7 @@ fn resolve_fqn(project_root: &Path, fqn: &str) -> Vec<PathBuf> {
         return Vec::new();
     }
 
-    let base_dir = match parts[0] {
+    let base_dir = match parts.first().copied().unwrap_or_default() {
         "App" => project_root.join("app"),
         "Tests" => project_root.join("tests"),
         "Database" => project_root.join("database"),
@@ -67,10 +67,13 @@ fn resolve_fqn(project_root: &Path, fqn: &str) -> Vec<PathBuf> {
     };
 
     let mut path = base_dir;
-    for part in &parts[1..parts.len() - 1] {
+    for part in parts.get(1..parts.len() - 1).unwrap_or(&[]) {
         path = path.join(part);
     }
-    let file = path.join(format!("{}.php", parts[parts.len() - 1]));
+    let Some(&last) = parts.last() else {
+        return Vec::new();
+    };
+    let file = path.join(format!("{last}.php"));
 
     if file.exists() {
         vec![file]
@@ -122,7 +125,7 @@ fn looks_like_view_name(name: &str) -> bool {
         && cleaned
             .chars()
             .all(|c| c.is_alphanumeric() || c == '.' || c == '_' || c == '-')
-        && cleaned.chars().next().is_some_and(|c| c.is_alphanumeric())
+        && cleaned.chars().next().is_some_and(char::is_alphanumeric)
         // Avoid matching version strings or semver (e.g. "1.0.0")
         && cleaned.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
 }

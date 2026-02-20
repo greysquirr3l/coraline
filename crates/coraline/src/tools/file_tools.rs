@@ -63,18 +63,17 @@ impl Tool for ReadFileTool {
         let start_line = params
             .get("start_line")
             .and_then(Value::as_u64)
-            .map(|n| n as usize)
-            .unwrap_or(1)
+            .map_or(1, |n| n as usize)
             .max(1);
 
         let limit = params
             .get("limit")
             .and_then(Value::as_u64)
-            .map(|n| n as usize)
-            .unwrap_or(200);
+            .map_or(200, |n| n as usize);
 
-        let text = std::fs::read_to_string(&path)
-            .map_err(|e| ToolError::not_found(format!("Cannot read file {:?}: {e}", path)))?;
+        let text = std::fs::read_to_string(&path).map_err(|e| {
+            ToolError::not_found(format!("Cannot read file {}: {e}", path.display()))
+        })?;
 
         let all_lines: Vec<&str> = text.lines().collect();
         let total_lines = all_lines.len();
@@ -82,7 +81,10 @@ impl Tool for ReadFileTool {
         let start_idx = start_line.saturating_sub(1).min(total_lines);
         let end_idx = (start_idx + limit).min(total_lines);
 
-        let content = all_lines[start_idx..end_idx].join("\n");
+        let content = all_lines
+            .get(start_idx..end_idx)
+            .unwrap_or_default()
+            .join("\n");
 
         Ok(json!({
             "path": path,
@@ -132,8 +134,9 @@ impl Tool for ListDirTool {
 
         let dir = resolve_path(&self.project_root, raw_path);
 
-        let entries = std::fs::read_dir(&dir)
-            .map_err(|e| ToolError::not_found(format!("Cannot read directory {:?}: {e}", dir)))?;
+        let entries = std::fs::read_dir(&dir).map_err(|e| {
+            ToolError::not_found(format!("Cannot read directory {}: {e}", dir.display()))
+        })?;
 
         let mut items = Vec::new();
         for entry in entries.flatten() {
@@ -584,6 +587,7 @@ impl Tool for SemanticSearchTool {
         })
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
         let query = params
             .get("query")
