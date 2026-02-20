@@ -1,3 +1,4 @@
+#![allow(clippy::multiple_crate_versions)]
 use std::path::{Path, PathBuf};
 
 use coraline::config;
@@ -190,10 +191,10 @@ struct EmbedArgs {
     /// Suppress progress output.
     #[arg(short = 'q', long = "quiet")]
     quiet: bool,
-    /// Download the model from HuggingFace if not already present.
+    /// Download the model from `HuggingFace` if not already present.
     #[arg(long = "download")]
     download: bool,
-    /// ONNX variant to download when using --download (default: model_int8.onnx).
+    /// ONNX variant to download when using `--download` (default: `model_int8.onnx`).
     #[arg(long = "variant", default_value = "model_int8.onnx")]
     variant: String,
 }
@@ -211,7 +212,7 @@ struct ModelArgs {
 
 #[derive(Debug, Subcommand)]
 enum ModelAction {
-    /// Download model files from HuggingFace (tokenizer + ONNX weights).
+    /// Download model files from `HuggingFace` (tokenizer + ONNX weights).
     Download {
         /// ONNX variant filename to download.
         #[arg(long = "variant", default_value = "model_int8.onnx")]
@@ -299,8 +300,7 @@ fn run_model(args: ModelArgs) {
     let model_dir = cfg
         .vectors
         .model_dir
-        .map(PathBuf::from)
-        .unwrap_or_else(|| vectors::default_model_dir(&project_root));
+        .map_or_else(|| vectors::default_model_dir(&project_root), PathBuf::from);
 
     match args.action {
         ModelAction::Download { variant, force } => {
@@ -353,8 +353,7 @@ fn run_embed(args: EmbedArgs) {
         let model_dir = cfg
             .vectors
             .model_dir
-            .map(PathBuf::from)
-            .unwrap_or_else(|| vectors::default_model_dir(&project_root));
+            .map_or_else(|| vectors::default_model_dir(&project_root), PathBuf::from);
         if !args.quiet {
             println!(
                 "Downloading {} into {} ...",
@@ -1029,19 +1028,17 @@ fn run_config(args: ConfigArgs) {
     // Handle --set section.key=value
     if let Some(set_expr) = &args.set {
         let parts: Vec<&str> = set_expr.splitn(2, '=').collect();
-        if parts.len() != 2 {
+        let &[path_part, value_str] = parts.as_slice() else {
             eprintln!("Invalid --set format. Expected: section.key=value");
             std::process::exit(1);
-        }
-        let (path_part, value_str) = (parts[0], parts[1]);
+        };
         let path_parts: Vec<&str> = path_part.splitn(2, '.').collect();
-        if path_parts.len() != 2 {
+        let &[section, key] = path_parts.as_slice() else {
             eprintln!(
                 "Invalid --set path. Expected: section.key=value (e.g. indexing.batch_size=50)"
             );
             std::process::exit(1);
-        }
-        let (section, key) = (path_parts[0], path_parts[1]);
+        };
 
         let mut cfg = config::load_toml_config(&project_root).unwrap_or_else(|err| {
             eprintln!("Failed to load config: {err}");
