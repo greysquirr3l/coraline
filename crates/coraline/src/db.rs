@@ -12,6 +12,23 @@ use crate::types::{
 pub const DATABASE_FILENAME: &str = "coraline.db";
 pub const SCHEMA_SQL: &str = include_str!("db/schema.sql");
 
+/// PRAGMAs applied on every connection open.
+///
+/// - `foreign_keys = ON`   — enforce referential integrity
+/// - `journal_mode = WAL`  — concurrent readers, faster writes
+/// - `synchronous = NORMAL`— durable on OS crash, faster than FULL
+/// - `cache_size = -65536` — 64 MB page cache (negative = KiB)
+/// - `temp_store = MEMORY` — temp tables in RAM
+/// - `mmap_size = 268435456` — 256 MB memory-mapped I/O
+const PERF_PRAGMAS: &str = "
+    PRAGMA foreign_keys  = ON;
+    PRAGMA journal_mode  = WAL;
+    PRAGMA synchronous   = NORMAL;
+    PRAGMA cache_size    = -65536;
+    PRAGMA temp_store    = MEMORY;
+    PRAGMA mmap_size     = 268435456;
+";
+
 #[derive(Debug, Default)]
 pub struct Database;
 
@@ -37,8 +54,7 @@ pub fn initialize_database(project_root: &Path) -> std::io::Result<PathBuf> {
     }
 
     let conn = rusqlite::Connection::open(&db_path).map_err(io_other)?;
-    conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;")
-        .map_err(io_other)?;
+    conn.execute_batch(PERF_PRAGMAS).map_err(io_other)?;
     conn.execute_batch(SCHEMA_SQL).map_err(io_other)?;
     Ok(db_path)
 }
@@ -46,8 +62,7 @@ pub fn initialize_database(project_root: &Path) -> std::io::Result<PathBuf> {
 pub fn open_database(project_root: &Path) -> std::io::Result<Connection> {
     let db_path = database_path(project_root);
     let conn = Connection::open(&db_path).map_err(io_other)?;
-    conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;")
-        .map_err(io_other)?;
+    conn.execute_batch(PERF_PRAGMAS).map_err(io_other)?;
     Ok(conn)
 }
 
@@ -262,6 +277,132 @@ pub fn insert_unresolved_refs(
             .map_err(io_other)?;
         }
     }
+    tx.commit().map_err(io_other)
+}
+
+/// Store a fully-parsed file's results in a single SQLite transaction:
+/// nodes, edges, unresolved refs, and the file metadata record.
+///
+/// This is more efficient than the three separate `insert_nodes` /
+/// `insert_edges` / `insert_unresolved_refs` calls because it incurs only
+/// one transaction commit instead of three.
+pub fn store_file_batch(
+    conn: &mut Connection,
+    file_record: &FileRecord,
+    nodes: &[Node],
+    edges: &[Edge],
+    unresolved_refs: &[UnresolvedReference],
+) -> std::io::Result<()> {
+    let tx = conn.transaction().map_err(io_other)?;
+
+    // Nodes
+    if !nodes.is_empty() {
+        let mut stmt = tx
+            .prepare(
+                "INSERT INTO nodes (
+                    id, kind, name, qualified_name, file_path, language,
+                    start_line, end_line, start_column, end_column,
+                    docstring, signature, visibility,
+                    is_exported, is_async, is_static, is_abstract,
+                    decorators, type_parameters, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            )
+            .map_err(io_other)?;
+        for node in nodes {
+            let decorators = node
+                .decorators
+                .as_ref()
+                .map(|v| serde_json::to_string(v).unwrap_or_default());
+            let type_parameters = node
+                .type_parameters
+                .as_ref()
+                .map(|v| serde_json::to_string(v).unwrap_or_default());
+            let visibility = node.visibility.map(visibility_to_string);
+            stmt.execute(params![
+                node.id, kind_to_string(node.kind), node.name, node.qualified_name,
+                node.file_path, language_to_string(node.language),
+                node.start_line, node.end_line, node.start_column, node.end_column,
+                node.docstring, node.signature, visibility,
+                i32::from(node.is_exported), i32::from(node.is_async),
+                i32::from(node.is_static), i32::from(node.is_abstract),
+                decorators, type_parameters, node.updated_at,
+            ])
+            .map_err(io_other)?;
+        }
+    }
+
+    // Edges
+    if !edges.is_empty() {
+        let mut stmt = tx
+            .prepare(
+                "INSERT INTO edges (source, target, kind, metadata, line, col)
+                 VALUES (?, ?, ?, ?, ?, ?)",
+            )
+            .map_err(io_other)?;
+        for edge in edges {
+            let metadata = edge
+                .metadata
+                .as_ref()
+                .map(|v| serde_json::to_string(v).unwrap_or_default());
+            stmt.execute(params![
+                edge.source, edge.target, edge_kind_to_string(edge.kind),
+                metadata, edge.line, edge.column,
+            ])
+            .map_err(io_other)?;
+        }
+    }
+
+    // Unresolved references
+    if !unresolved_refs.is_empty() {
+        let mut stmt = tx
+            .prepare(
+                "INSERT INTO unresolved_refs (
+                    from_node_id, reference_name, reference_kind, line, col, candidates
+                 ) VALUES (?, ?, ?, ?, ?, ?)",
+            )
+            .map_err(io_other)?;
+        for r in unresolved_refs {
+            let candidates = r
+                .candidates
+                .as_ref()
+                .map(|v| serde_json::to_string(v).unwrap_or_default());
+            stmt.execute(params![
+                r.from_node_id, r.reference_name, edge_kind_to_string(r.reference_kind),
+                r.line, r.column, candidates,
+            ])
+            .map_err(io_other)?;
+        }
+    }
+
+    // File record (upsert)
+    let errors = file_record
+        .errors
+        .as_ref()
+        .map(|e| serde_json::to_string(e).unwrap_or_default());
+    tx.execute(
+        "INSERT INTO files (path, content_hash, language, size, modified_at, indexed_at, node_count, errors)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(path) DO UPDATE SET
+            content_hash = excluded.content_hash,
+            language = excluded.language,
+            size = excluded.size,
+            modified_at = excluded.modified_at,
+            indexed_at = excluded.indexed_at,
+            node_count = excluded.node_count,
+            errors = excluded.errors",
+        params![
+            file_record.path,
+            file_record.content_hash,
+            language_to_string(file_record.language),
+            i64::try_from(file_record.size).unwrap_or(i64::MAX),
+            file_record.modified_at,
+            file_record.indexed_at,
+            file_record.node_count,
+            errors,
+        ],
+    )
+    .map_err(io_other)?;
+
     tx.commit().map_err(io_other)
 }
 

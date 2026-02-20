@@ -23,6 +23,7 @@ use std::fs;
 use std::path::Path;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
+use rayon::prelude::*;
 use tree_sitter::{Node as TsNode, Parser};
 
 use crate::config::is_language_supported;
@@ -71,6 +72,113 @@ pub struct SyncResult {
     pub duration_ms: u128,
 }
 
+struct ParsedFile {
+    file_record: FileRecord,
+    nodes: Vec<Node>,
+    edges: Vec<Edge>,
+    unresolved_refs: Vec<UnresolvedReference>,
+    node_count: usize,
+    edge_count: usize,
+}
+
+fn parse_file_only(
+    project_root: &Path,
+    config: &CodeGraphConfig,
+    existing_hashes: &std::collections::HashMap<String, String>,
+    relative_path: &str,
+) -> Option<ParsedFile> {
+    let full_path = project_root.join(relative_path);
+    let content = fs::read_to_string(&full_path).ok()?;
+
+    if (content.len() as u64) > config.max_file_size {
+        return None;
+    }
+
+    let language = detect_language(relative_path);
+    if !is_language_supported(&language) {
+        return None;
+    }
+
+    let content_hash = hash_sha256(&content);
+    if existing_hashes
+        .get(relative_path)
+        .is_some_and(|h| *h == content_hash)
+    {
+        return None; // unchanged
+    }
+
+    let file_name = Path::new(relative_path)
+        .file_name()
+        .and_then(|v| v.to_str())
+        .unwrap_or(relative_path);
+    let qualified_name = relative_path.to_string();
+    let node_id = node_id_for_symbol(relative_path, "file", &qualified_name, 1);
+    let file_node_id = node_id.clone();
+
+    let now_ms = now_millis();
+    let mut nodes = Vec::new();
+    let file_node = Node {
+        id: node_id,
+        kind: NodeKind::File,
+        name: file_name.to_string(),
+        qualified_name,
+        file_path: relative_path.to_string(),
+        language,
+        start_line: 1,
+        end_line: 1,
+        start_column: 0,
+        end_column: 0,
+        docstring: None,
+        signature: None,
+        visibility: None,
+        is_exported: false,
+        is_async: false,
+        is_static: false,
+        is_abstract: false,
+        decorators: None,
+        type_parameters: None,
+        updated_at: now_ms,
+    };
+    nodes.push(file_node);
+
+    let (mut extracted_nodes, edges, unresolved_refs) = extract_nodes(
+        project_root,
+        relative_path,
+        &content,
+        language,
+        now_ms,
+        &file_node_id,
+    );
+    nodes.append(&mut extracted_nodes);
+
+    let metadata = fs::metadata(&full_path).ok()?;
+    let file_record = FileRecord {
+        path: relative_path.to_string(),
+        content_hash,
+        language,
+        size: metadata.len(),
+        modified_at: metadata
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+            .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX)),
+        indexed_at: now_ms,
+        node_count: nodes.len() as i64,
+        errors: None,
+    };
+
+    let node_count = nodes.len();
+    let edge_count = edges.len();
+    Some(ParsedFile {
+        file_record,
+        nodes,
+        edges,
+        unresolved_refs,
+        node_count,
+        edge_count,
+    })
+}
+
 pub fn index_all(
     project_root: &Path,
     config: &CodeGraphConfig,
@@ -80,7 +188,6 @@ pub fn index_all(
     let start = Instant::now();
     let mut errors = Vec::new();
     let mut files_indexed = 0;
-    let mut files_skipped = 0;
     let mut nodes_created = 0;
     let mut edges_created = 0;
 
@@ -100,28 +207,67 @@ pub fn index_all(
         db::clear_database(&conn)?;
     }
 
-    for (idx, file) in files.iter().enumerate() {
+    // Pre-fetch existing file hashes to avoid DB access in the parallel parse phase.
+    let existing_hashes: std::collections::HashMap<String, String> = if force {
+        std::collections::HashMap::new()
+    } else {
+        db::list_files(&conn)?
+            .into_iter()
+            .map(|f| (f.path, f.content_hash))
+            .collect()
+    };
+
+    if let Some(cb) = on_progress {
+        cb(IndexProgress {
+            phase: IndexPhase::Parsing,
+            current: 0,
+            total: files.len(),
+            current_file: None,
+        });
+    }
+
+    // Phase 1: Parse all files in parallel (CPU-bound, no DB access).
+    let parsed: Vec<ParsedFile> = files
+        .par_iter()
+        .filter_map(|file| parse_file_only(project_root, config, &existing_hashes, file))
+        .collect();
+
+    let files_skipped = files.len().saturating_sub(parsed.len());
+
+    if let Some(cb) = on_progress {
+        cb(IndexProgress {
+            phase: IndexPhase::Storing,
+            current: 0,
+            total: parsed.len(),
+            current_file: None,
+        });
+    }
+
+    // Phase 2: Store results sequentially (SQLite does not support concurrent writes).
+    for (idx, parsed_file) in parsed.into_iter().enumerate() {
+        // Delete the old record before inserting the new batch so foreign keys are clean.
+        let _ = db::delete_file(&mut conn, &parsed_file.file_record.path);
+
         if let Some(cb) = on_progress {
             cb(IndexProgress {
-                phase: IndexPhase::Parsing,
+                phase: IndexPhase::Storing,
                 current: idx + 1,
                 total: files.len(),
-                current_file: Some(file.clone()),
+                current_file: Some(parsed_file.file_record.path.clone()),
             });
         }
 
-        match index_file(project_root, config, &mut conn, file) {
-            Ok(Some((node_count, edge_count))) => {
-                if node_count > 0 {
-                    files_indexed += 1;
-                    nodes_created += node_count;
-                    edges_created += edge_count;
-                } else {
-                    files_skipped += 1;
-                }
-            }
-            Ok(None) => {
-                files_skipped += 1;
+        match db::store_file_batch(
+            &mut conn,
+            &parsed_file.file_record,
+            &parsed_file.nodes,
+            &parsed_file.edges,
+            &parsed_file.unresolved_refs,
+        ) {
+            Ok(()) => {
+                files_indexed += 1;
+                nodes_created += parsed_file.node_count;
+                edges_created += parsed_file.edge_count;
             }
             Err(err) => {
                 errors.push(ExtractionError {

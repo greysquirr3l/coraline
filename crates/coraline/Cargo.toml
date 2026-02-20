@@ -29,6 +29,7 @@ sha2 = "0.10"
 hex = "0.4"
 regex = "1"
 globset = "0.4.18"
+rayon = "1"
 
 # Tree-sitter core and parsers
 tree-sitter = "0.26.5"
