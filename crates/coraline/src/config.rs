@@ -315,10 +315,14 @@ pub struct VectorsConfig {
     pub dimension: usize,
     /// Batch size for embedding generation.
     pub batch_size: usize,
-    /// Path to the model directory (containing model.onnx + tokenizer.json).
+    /// Path to the model directory (containing an ONNX file + tokenizer.json).
     /// Defaults to `.coraline/models/nomic-embed-text-v1.5/`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_dir: Option<String>,
+    /// Specific ONNX filename to use (e.g. "model_int8.onnx").
+    /// When unset, Coraline auto-detects the best available variant.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_file: Option<String>,
     /// Maximum sequence length in tokens (default 512).
     pub max_seq_len: usize,
 }
@@ -331,6 +335,7 @@ impl Default for VectorsConfig {
             dimension: 768,
             batch_size: 32,
             model_dir: None,
+            model_file: None,
             max_seq_len: 512,
         }
     }
@@ -461,15 +466,23 @@ watch_mode        = false
 debounce_ms       = 500
 
 [vectors]
-# Full vector search requires an ONNX model (see docs).
-# Download nomic-embed-text-v1.5 into .coraline/models/nomic-embed-text-v1.5/:
-#   model.onnx       — ONNX export from nomic-ai/nomic-embed-text-v1.5
-#   tokenizer.json   — tokenizer from the same HuggingFace repo
+# Full vector search requires an ONNX model.
+# Download any variant from huggingface.co/nomic-ai/nomic-embed-text-v1.5
+# (also copy tokenizer.json) into the directory below:
+#   model_int8.onnx      137 MB  — int8 quantized (recommended)
+#   model_quantized.onnx 137 MB  — same as int8
+#   model_uint8.onnx     137 MB  — uint8 quantized
+#   model_q4f16.onnx     111 MB  — smallest (Q4 + fp16)
+#   model_q4.onnx        165 MB  — Q4 quantized
+#   model_fp16.onnx      274 MB  — fp16
+#   model.onnx           547 MB  — full f32
+# Coraline auto-selects the best available file; set model_file to override.
 # Then run: coraline embed
 enabled    = false
 model      = "nomic-embed-text-v1.5"
 dimension  = 768
 batch_size = 32
 max_seq_len = 512
-# model_dir = ".coraline/models/nomic-embed-text-v1.5"  # override default path
+# model_dir  = ".coraline/models/nomic-embed-text-v1.5"  # override default path
+# model_file = "model_int8.onnx"                          # pin a specific variant
 "#;

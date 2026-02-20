@@ -17,11 +17,18 @@
 //!
 //! ## Quick start
 //!
-//! 1. Download the model into `.coraline/models/nomic-embed-text-v1.5/`:
-//!    - `model.onnx`  — the ONNX export from `nomic-ai/nomic-embed-text-v1.5`
-//!    - `tokenizer.json` — the tokenizer from the same repo
+//! 1. Download a model into `.coraline/models/nomic-embed-text-v1.5/`.
+//!    Any of the ONNX variants from `nomic-ai/nomic-embed-text-v1.5` work;
+//!    the smallest usable option is `model_int8.onnx` (137 MB).
+//!    Also copy `tokenizer.json` from the same HuggingFace repo.
 //! 2. Run `coraline embed` to generate embeddings for all indexed nodes.
-//! 3. Use `coraline_semantic_search` MCP tool to search by natural language.
+//! 3. Use the `coraline_semantic_search` MCP tool to search by natural language.
+//!
+//! ## Model variant preference order
+//!
+//! When `model_file` is not configured, Coraline picks the first file found
+//! from [`MODEL_PREFERENCE_ORDER`].  This prefers well-quantized variants
+//! (137 MB) over the full f32 model (547 MB).
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -46,6 +53,52 @@ pub const EMBEDDING_DIM: usize = 768;
 /// Maximum sequence length fed to the model (tokens).
 /// nomic-embed-text-v1.5 supports up to 8192, but 512 covers most code snippets.
 pub const MAX_SEQ_LEN: usize = 512;
+
+/// ONNX model file names tried in order when `model_file` is not configured.
+///
+/// Preference is given to quantized variants (smaller on disk, faster to load)
+/// before falling back to the full f32 model.
+pub const MODEL_PREFERENCE_ORDER: &[&str] = &[
+    "model_int8.onnx",       // 137 MB  — int8 quantized (recommended)
+    "model_quantized.onnx",  // 137 MB  — same weights, different name
+    "model_uint8.onnx",      // 137 MB  — uint8 quantized
+    "model_q4f16.onnx",      // 111 MB  — Q4 + fp16 mixed (smallest)
+    "model_q4.onnx",         // 165 MB  — Q4 quantized
+    "model_bnb4.onnx",       // 158 MB  — 4-bit NF4
+    "model_fp16.onnx",       // 274 MB  — fp16
+    "model.onnx",            // 547 MB  — full f32 (fallback)
+];
+
+/// Find the best available ONNX model file in `model_dir`.
+///
+/// If `preferred` is `Some(name)`, that exact filename is required (error if
+/// absent).  Otherwise, the first filename from [`MODEL_PREFERENCE_ORDER`]
+/// that exists in the directory is returned.
+pub fn find_model_file(model_dir: &Path, preferred: Option<&str>) -> io::Result<PathBuf> {
+    if let Some(name) = preferred {
+        let p = model_dir.join(name);
+        if p.exists() {
+            return Ok(p);
+        }
+        return Err(io::Error::other(format!(
+            "Configured model_file '{name}' not found in {}",
+            model_dir.display()
+        )));
+    }
+    for name in MODEL_PREFERENCE_ORDER {
+        let p = model_dir.join(name);
+        if p.exists() {
+            return Ok(p);
+        }
+    }
+    Err(io::Error::other(format!(
+        "No ONNX model file found in {}. \
+         Download a model variant (e.g. model_int8.onnx) from \
+         huggingface.co/nomic-ai/nomic-embed-text-v1.5 and copy \
+         tokenizer.json alongside it.",
+        model_dir.display()
+    )))
+}
 
 type AnyError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
@@ -108,12 +161,18 @@ impl VectorManager {
         })
     }
 
-    /// Load from a directory containing `model.onnx` and `tokenizer.json`.
+    /// Load from a directory, auto-detecting the best available model variant.
+    ///
+    /// Uses [`find_model_file`] with no preference, so it picks the first file
+    /// from [`MODEL_PREFERENCE_ORDER`] that exists in `model_dir`.
     pub fn from_dir(model_dir: &Path) -> io::Result<Self> {
-        Self::new(&model_dir.join("model.onnx"))
+        let model_path = find_model_file(model_dir, None)?;
+        Self::new(&model_path)
     }
 
     /// Load using the project's config (falls back to default model dir).
+    ///
+    /// Respects `vectors.model_dir` and `vectors.model_file` from config.toml.
     pub fn from_project(project_root: &Path) -> io::Result<Self> {
         let cfg = crate::config::load_toml_config(project_root).unwrap_or_default();
         let model_dir = cfg
@@ -121,7 +180,8 @@ impl VectorManager {
             .model_dir
             .map(PathBuf::from)
             .unwrap_or_else(|| default_model_dir(project_root));
-        Self::from_dir(&model_dir)
+        let model_path = find_model_file(&model_dir, cfg.vectors.model_file.as_deref())?;
+        Self::new(&model_path)
     }
 
     /// Generate a normalised embedding vector for `text`.
