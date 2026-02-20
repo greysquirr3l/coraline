@@ -5,6 +5,7 @@ pub mod context;
 pub mod db;
 pub mod extraction;
 pub mod graph;
+pub mod logging;
 pub mod mcp;
 pub mod memory;
 pub mod resolution;

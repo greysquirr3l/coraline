@@ -229,7 +229,7 @@ impl Tool for GetFileNodesTool {
 
         // Try absolute path first, fall back to raw_path (in case stored relative)
         let nodes = {
-            let mut n = db::get_nodes_by_file(&conn, &abs_path, kind.clone())
+            let mut n = db::get_nodes_by_file(&conn, &abs_path, kind)
                 .map_err(|e| ToolError::internal_error(format!("Failed to query nodes: {e}")))?;
             if n.is_empty() {
                 n = db::get_nodes_by_file(&conn, raw_path, kind).map_err(|e| {
@@ -474,8 +474,10 @@ impl Tool for UpdateConfigTool {
 
         obj.insert(key.to_string(), new_value.clone());
 
-        let updated: crate::config::CoralineConfig = serde_json::from_value(cfg_json)
-            .map_err(|e| ToolError::invalid_params(format!("Invalid value for {section}.{key}: {e}")))?;
+        let updated: crate::config::CoralineConfig =
+            serde_json::from_value(cfg_json).map_err(|e| {
+                ToolError::invalid_params(format!("Invalid value for {section}.{key}: {e}"))
+            })?;
 
         crate::config::save_toml_config(&self.project_root, &updated)
             .map_err(|e| ToolError::internal_error(format!("Failed to save config: {e}")))?;

@@ -553,6 +553,7 @@ pub fn get_nodes_by_file(
 }
 
 /// Database statistics returned by `get_db_stats`.
+#[derive(Debug, serde::Serialize)]
 pub struct DbStats {
     pub node_count: i64,
     pub edge_count: i64,

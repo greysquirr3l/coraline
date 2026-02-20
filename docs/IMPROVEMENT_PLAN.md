@@ -501,25 +501,24 @@ pub trait FrameworkResolver {
 
 ---
 
-### 3.3 CLI Enhancements ⬜
+### 3.3 CLI Enhancements ✅
 
-**Current State:** Binary exists but limited commands
+**Current State:** Full-featured CLI
 
-**Target State:** Rich CLI matching CodeGraph specification
-
-**Commands to Add:**
-- [ ] `coraline init` - Initialize project
-- [ ] `coraline index` - Full reindex
-- [ ] `coraline sync` - Incremental sync
-- [ ] `coraline status` - Show index status
-- [ ] `coraline query <pattern>` - Search symbols
-- [ ] `coraline context <task>` - Build context for task
-- [ ] `coraline impact <node-id>` - Show impact radius
-- [ ] `coraline callers <node-id>` - Show callers
-- [ ] `coraline callees <node-id>` - Show callees
-- [ ] `coraline config` - Show/edit configuration
-- [ ] `coraline serve` - Start MCP server
-- [ ] `coraline stats` - Show statistics
+**Commands implemented:**
+- [x] `coraline init` ✅
+- [x] `coraline index` ✅
+- [x] `coraline sync` ✅
+- [x] `coraline status` ✅
+- [x] `coraline stats` — graph statistics (node/edge/file counts) ✅
+- [x] `coraline query <pattern>` ✅
+- [x] `coraline context <task>` ✅
+- [x] `coraline callers <node-id>` ✅
+- [x] `coraline callees <node-id>` ✅
+- [x] `coraline impact <node-id>` — BFS impact analysis ✅
+- [x] `coraline config` — show/edit TOML config ✅
+- [x] `coraline serve --mcp` ✅
+- [x] `--json` flag on query, stats, callers, callees, impact, config ✅
 
 **Output Formatting:**
 - [ ] JSON output with `--json` flag
@@ -657,7 +656,9 @@ pub trait FrameworkResolver {
 - ✅ Critical bug fix: FTS search with multi-word queries
 - ✅ Phase 2.1: Vector Embeddings Infrastructure (50%)
 - ✅ Phase 2.2: Enhanced MCP Tools (15 tools total)
-- ✅ Phase 2.3: Configuration System (17 tools total, TOML config, coraline_get_config + coraline_update_config)
+- ✅ Phase 2.3: Configuration System (17 tools total, TOML config)
+- ✅ Phase 3.1: Structured Logging (`tracing`, daily rotating `.coraline/logs/coraline.log`)
+- ✅ Phase 3.3: CLI Enhancements (callers, callees, impact, config, stats commands)
 - ✅ Released v0.1.2
 
 ### Currently In Progress
@@ -669,6 +670,11 @@ pub trait FrameworkResolver {
 1. Complete ONNX integration when ort 2.0 API is stable (awaiting stable release)
 2. Phase 3.1: Structured Logging (use `tracing` crate, log to `.coraline/coraline.log`)
 3. Phase 3.3: CLI Enhancements
+
+**Next Up:**
+
+1. Phase 3.2: Framework-Specific Resolution (optional, high-effort)
+2. Phase 4.1: Documentation updates (MCP_TOOLS.md, CLI_REFERENCE.md, CONFIGURATION.md)
 
 ---
 
@@ -691,7 +697,7 @@ pub trait FrameworkResolver {
 **Phase 2 Status: 75% Complete**
 
 **Phase 3 Complete When:**
-- ⬜ Structured logging to files
+- ✅ Structured logging to files
 - ✅ Framework-specific resolvers for 3+ frameworks
 - ✅ CLI with all major commands
 
@@ -728,7 +734,9 @@ pub trait FrameworkResolver {
   - Phase 2.1 (Vectors): 8-10 hours → ~2 hours (50% complete) ⏳
   - Phase 2.2 (Enhanced Tools): 6-8 hours → ~3 hours ✅
   - Phase 2.3 (Configuration): 4-5 hours → ~1 hour ✅
-- **Phase 3:** 24-39 hours (not started)
+  - Phase 3.1 (Logging): 8-12 hours → ~1 hour ✅
+  - Phase 3.2 (Framework Resolution): 10-15 hours (not started)
+  - Phase 3.3 (CLI Enhancements): 6-8 hours → ~1 hour ✅
 - **Phase 4:** 10-16 hours (not started)
 
 **Total:** 65-96 hours (8-12 full working days)

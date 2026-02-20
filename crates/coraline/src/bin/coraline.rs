@@ -4,11 +4,13 @@ use coraline::config;
 use coraline::context;
 use coraline::db;
 use coraline::extraction;
+use coraline::logging;
 use coraline::mcp::McpServer;
 use coraline::memory;
 use coraline::sync::GitHooksManager;
 use coraline::types::NodeKind;
 use coraline::types::{BuildContextOptions, ContextFormat};
+use tracing::{debug, info};
 
 use clap::{Args, Parser, Subcommand};
 
@@ -28,8 +30,13 @@ enum Command {
     Index(IndexArgs),
     Sync(SyncArgs),
     Status(StatusArgs),
+    Stats(StatsArgs),
     Query(QueryArgs),
     Context(ContextArgs),
+    Callers(CallersArgs),
+    Callees(CalleesArgs),
+    Impact(ImpactArgs),
+    Config(ConfigArgs),
     Hooks(HooksArgs),
     Serve(ServeArgs),
 }
@@ -93,6 +100,61 @@ struct ContextArgs {
 }
 
 #[derive(Debug, Args)]
+struct StatsArgs {
+    path: Option<PathBuf>,
+    #[arg(short = 'j', long = "json")]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct CallersArgs {
+    node_id: String,
+    #[arg(short = 'p', long = "path")]
+    path: Option<PathBuf>,
+    #[arg(short = 'l', long = "limit", default_value_t = 20)]
+    limit: usize,
+    #[arg(short = 'j', long = "json")]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct CalleesArgs {
+    node_id: String,
+    #[arg(short = 'p', long = "path")]
+    path: Option<PathBuf>,
+    #[arg(short = 'l', long = "limit", default_value_t = 20)]
+    limit: usize,
+    #[arg(short = 'j', long = "json")]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct ImpactArgs {
+    node_id: String,
+    #[arg(short = 'p', long = "path")]
+    path: Option<PathBuf>,
+    #[arg(short = 'd', long = "depth", default_value_t = 3)]
+    depth: usize,
+    #[arg(short = 'j', long = "json")]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct ConfigArgs {
+    #[arg(short = 'p', long = "path")]
+    path: Option<PathBuf>,
+    /// Print config as JSON
+    #[arg(short = 'j', long = "json")]
+    json: bool,
+    /// Section to display (indexing, context, sync, vectors)
+    #[arg(short = 's', long = "section")]
+    section: Option<String>,
+    /// Set a value: --set section.key=value
+    #[arg(long = "set")]
+    set: Option<String>,
+}
+
+#[derive(Debug, Args)]
 struct HooksArgs {
     #[command(subcommand)]
     action: HooksAction,
@@ -126,14 +188,41 @@ fn main() {
         return;
     };
 
+    // Resolve project root early so logging can target the right directory
+    let project_root_hint = match &command {
+        Command::Init(a) => a.path.clone(),
+        Command::Index(a) => a.path.clone(),
+        Command::Sync(a) => a.path.clone(),
+        Command::Status(a) => a.path.clone(),
+        Command::Stats(a) => a.path.clone(),
+        Command::Query(a) => a.path.clone(),
+        Command::Context(a) => a.path.clone(),
+        Command::Callers(a) => a.path.clone(),
+        Command::Callees(a) => a.path.clone(),
+        Command::Impact(a) => a.path.clone(),
+        Command::Config(a) => a.path.clone(),
+        Command::Hooks(a) => a.path.clone(),
+        Command::Serve(a) => a.path.clone(),
+        Command::Install => None,
+    };
+    let project_root = resolve_project_root(project_root_hint);
+    let _log_guard = logging::init(Some(&project_root));
+    info!("coraline starting");
+    debug!(command = ?command, "dispatching command");
+
     match command {
         Command::Install => run_installer(),
         Command::Init(args) => run_init(args),
         Command::Index(args) => run_index(args),
         Command::Sync(args) => run_sync(args),
         Command::Status(args) => run_status(args),
+        Command::Stats(args) => run_stats(args),
         Command::Query(args) => run_query(args),
         Command::Context(args) => run_context(args),
+        Command::Callers(args) => run_callers(args),
+        Command::Callees(args) => run_callees(args),
+        Command::Impact(args) => run_impact(args),
+        Command::Config(args) => run_config(args),
         Command::Hooks(args) => match args.action {
             HooksAction::Install => run_hooks_install(args.path),
             HooksAction::Remove => run_hooks_remove(args.path),
@@ -486,6 +575,298 @@ fn run_hooks_status(path: Option<PathBuf>) {
         println!("Git hook is installed.");
     } else {
         println!("Git hook is not installed.");
+    }
+}
+
+fn run_stats(args: StatsArgs) {
+    let project_root = resolve_project_root(args.path);
+
+    if !is_initialized(&project_root) {
+        eprintln!("Coraline not initialized in {}", project_root.display());
+        std::process::exit(1);
+    }
+
+    let conn = db::open_database(&project_root).unwrap_or_else(|err| {
+        eprintln!("Failed to open database: {err}");
+        std::process::exit(1);
+    });
+
+    let stats = db::get_db_stats(&conn).unwrap_or_else(|err| {
+        eprintln!("Failed to get stats: {err}");
+        std::process::exit(1);
+    });
+
+    if args.json {
+        let json = serde_json::to_string_pretty(&stats).unwrap_or_default();
+        println!("{json}");
+        return;
+    }
+
+    println!("Coraline Statistics\n");
+    println!("Files:     {}", stats.file_count);
+    println!("\nNodes:     {}", stats.node_count);
+    println!("Edges:     {}", stats.edge_count);
+    println!("Unresolved refs: {}", stats.unresolved_count);
+}
+
+fn run_callers(args: CallersArgs) {
+    let project_root = resolve_project_root(args.path);
+
+    if !is_initialized(&project_root) {
+        eprintln!("Coraline not initialized in {}", project_root.display());
+        std::process::exit(1);
+    }
+
+    let conn = db::open_database(&project_root).unwrap_or_else(|err| {
+        eprintln!("Failed to open database: {err}");
+        std::process::exit(1);
+    });
+
+    let node = db::get_node_by_id(&conn, &args.node_id)
+        .unwrap_or_else(|err| {
+            eprintln!("Database error: {err}");
+            std::process::exit(1);
+        })
+        .unwrap_or_else(|| {
+            eprintln!("Node not found: {}", args.node_id);
+            std::process::exit(1);
+        });
+
+    let edges = db::get_edges_by_target(&conn, &args.node_id, None, args.limit)
+        .unwrap_or_else(|err| {
+            eprintln!("Failed to get callers: {err}");
+            std::process::exit(1);
+        });
+
+    if args.json {
+        let results: Vec<_> = edges
+            .iter()
+            .filter_map(|e| db::get_node_by_id(&conn, &e.source).ok().flatten())
+            .map(|n| serde_json::json!({ "id": n.id, "name": n.name, "kind": n.kind, "file": n.file_path, "line": n.start_line }))
+            .collect();
+        println!("{}", serde_json::to_string_pretty(&results).unwrap_or_default());
+        return;
+    }
+
+    println!("Callers of {} ({:?}):\n", node.name, node.kind);
+    if edges.is_empty() {
+        println!("  No callers found.");
+        return;
+    }
+    for edge in &edges {
+        if let Ok(Some(caller)) = db::get_node_by_id(&conn, &edge.source) {
+            println!("  {:?} {} ({}:{})", caller.kind, caller.name, caller.file_path, caller.start_line);
+        }
+    }
+}
+
+fn run_callees(args: CalleesArgs) {
+    let project_root = resolve_project_root(args.path);
+
+    if !is_initialized(&project_root) {
+        eprintln!("Coraline not initialized in {}", project_root.display());
+        std::process::exit(1);
+    }
+
+    let conn = db::open_database(&project_root).unwrap_or_else(|err| {
+        eprintln!("Failed to open database: {err}");
+        std::process::exit(1);
+    });
+
+    let node = db::get_node_by_id(&conn, &args.node_id)
+        .unwrap_or_else(|err| {
+            eprintln!("Database error: {err}");
+            std::process::exit(1);
+        })
+        .unwrap_or_else(|| {
+            eprintln!("Node not found: {}", args.node_id);
+            std::process::exit(1);
+        });
+
+    let edges = db::get_edges_by_source(&conn, &args.node_id, None, args.limit)
+        .unwrap_or_else(|err| {
+            eprintln!("Failed to get callees: {err}");
+            std::process::exit(1);
+        });
+
+    if args.json {
+        let results: Vec<_> = edges
+            .iter()
+            .filter_map(|e| db::get_node_by_id(&conn, &e.target).ok().flatten())
+            .map(|n| serde_json::json!({ "id": n.id, "name": n.name, "kind": n.kind, "file": n.file_path, "line": n.start_line }))
+            .collect();
+        println!("{}", serde_json::to_string_pretty(&results).unwrap_or_default());
+        return;
+    }
+
+    println!("Callees of {} ({:?}):\n", node.name, node.kind);
+    if edges.is_empty() {
+        println!("  No callees found.");
+        return;
+    }
+    for edge in &edges {
+        if let Ok(Some(callee)) = db::get_node_by_id(&conn, &edge.target) {
+            println!("  {:?} {} ({}:{})", callee.kind, callee.name, callee.file_path, callee.start_line);
+        }
+    }
+}
+
+fn run_impact(args: ImpactArgs) {
+    let project_root = resolve_project_root(args.path);
+
+    if !is_initialized(&project_root) {
+        eprintln!("Coraline not initialized in {}", project_root.display());
+        std::process::exit(1);
+    }
+
+    let conn = db::open_database(&project_root).unwrap_or_else(|err| {
+        eprintln!("Failed to open database: {err}");
+        std::process::exit(1);
+    });
+
+    let node = db::get_node_by_id(&conn, &args.node_id)
+        .unwrap_or_else(|err| {
+            eprintln!("Database error: {err}");
+            std::process::exit(1);
+        })
+        .unwrap_or_else(|| {
+            eprintln!("Node not found: {}", args.node_id);
+            std::process::exit(1);
+        });
+
+    // BFS outward from target edges (who directly or transitively uses this node)
+    let mut visited = std::collections::HashSet::new();
+    let mut frontier = vec![args.node_id.clone()];
+    visited.insert(args.node_id.clone());
+
+    for _ in 0..args.depth {
+        let mut next = Vec::new();
+        for id in &frontier {
+            if let Ok(edges) = db::get_edges_by_target(&conn, id, None, 100) {
+                for edge in edges {
+                    if visited.insert(edge.source.clone()) {
+                        next.push(edge.source);
+                    }
+                }
+            }
+        }
+        if next.is_empty() {
+            break;
+        }
+        frontier = next;
+    }
+    visited.remove(&args.node_id);
+
+    if args.json {
+        let results: Vec<_> = visited
+            .iter()
+            .filter_map(|id| db::get_node_by_id(&conn, id).ok().flatten())
+            .map(|n| serde_json::json!({ "id": n.id, "name": n.name, "kind": n.kind, "file": n.file_path }))
+            .collect();
+        println!("{}", serde_json::to_string_pretty(&results).unwrap_or_default());
+        return;
+    }
+
+    println!("Impact of {} ({:?}) — depth {}:\n", node.name, node.kind, args.depth);
+    if visited.is_empty() {
+        println!("  No dependents found.");
+        return;
+    }
+    let mut affected: Vec<_> = visited
+        .iter()
+        .filter_map(|id| db::get_node_by_id(&conn, id).ok().flatten())
+        .collect();
+    affected.sort_by(|a, b| a.file_path.cmp(&b.file_path).then(a.start_line.cmp(&b.start_line)));
+    for n in &affected {
+        println!("  {:?} {} ({}:{})", n.kind, n.name, n.file_path, n.start_line);
+    }
+    println!("\n{} affected symbol(s)", affected.len());
+}
+
+fn run_config(args: ConfigArgs) {
+    let project_root = resolve_project_root(args.path);
+
+    if !is_initialized(&project_root) {
+        eprintln!("Coraline not initialized in {}", project_root.display());
+        std::process::exit(1);
+    }
+
+    // Handle --set section.key=value
+    if let Some(set_expr) = &args.set {
+        let parts: Vec<&str> = set_expr.splitn(2, '=').collect();
+        if parts.len() != 2 {
+            eprintln!("Invalid --set format. Expected: section.key=value");
+            std::process::exit(1);
+        }
+        let (path_part, value_str) = (parts[0], parts[1]);
+        let path_parts: Vec<&str> = path_part.splitn(2, '.').collect();
+        if path_parts.len() != 2 {
+            eprintln!("Invalid --set path. Expected: section.key=value (e.g. indexing.batch_size=50)");
+            std::process::exit(1);
+        }
+        let (section, key) = (path_parts[0], path_parts[1]);
+
+        let mut cfg = config::load_toml_config(&project_root).unwrap_or_else(|err| {
+            eprintln!("Failed to load config: {err}");
+            std::process::exit(1);
+        });
+
+        // Parse value as JSON for type flexibility
+        let json_value: serde_json::Value = serde_json::from_str(value_str)
+            .unwrap_or_else(|_| serde_json::Value::String(value_str.to_string()));
+
+        let mut cfg_json = serde_json::to_value(&cfg).unwrap_or_default();
+        if let Some(section_obj) = cfg_json.get_mut(section).and_then(|v| v.as_object_mut()) {
+            section_obj.insert(key.to_string(), json_value.clone());
+        } else {
+            eprintln!("Unknown config section: {section}");
+            std::process::exit(1);
+        }
+
+        cfg = serde_json::from_value(cfg_json).unwrap_or_else(|err| {
+            eprintln!("Invalid value for {section}.{key}: {err}");
+            std::process::exit(1);
+        });
+
+        config::save_toml_config(&project_root, &cfg).unwrap_or_else(|err| {
+            eprintln!("Failed to save config: {err}");
+            std::process::exit(1);
+        });
+
+        println!("Updated {section}.{key} = {json_value}");
+        return;
+    }
+
+    let cfg = config::load_toml_config(&project_root).unwrap_or_else(|err| {
+        eprintln!("Failed to load config: {err}");
+        std::process::exit(1);
+    });
+
+    if args.json {
+        let mut v = serde_json::to_value(&cfg).unwrap_or_default();
+        if let Some(section) = &args.section {
+            v = v.get(section.as_str()).cloned().unwrap_or(serde_json::Value::Null);
+        }
+        println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
+        return;
+    }
+
+    // Pretty-print TOML
+    let toml_str = toml::to_string_pretty(&cfg).unwrap_or_else(|_| format!("{cfg:#?}"));
+    if let Some(section) = &args.section {
+        // Print only the requested section
+        let section_header = format!("[{section}]");
+        let mut in_section = false;
+        for line in toml_str.lines() {
+            if line.starts_with('[') {
+                in_section = line == section_header;
+            }
+            if in_section {
+                println!("{line}");
+            }
+        }
+    } else {
+        println!("{toml_str}");
     }
 }
 

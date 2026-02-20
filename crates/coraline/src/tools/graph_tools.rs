@@ -565,18 +565,15 @@ fn build_overview_response(nodes: Vec<crate::types::Node>, file_path: &str) -> T
 
     for node in &nodes {
         let kind_str = format!("{:?}", node.kind).to_lowercase();
-        by_kind
-            .entry(kind_str)
-            .or_default()
-            .push(json!({
-                "id": node.id,
-                "name": node.name,
-                "qualified_name": node.qualified_name,
-                "start_line": node.start_line,
-                "end_line": node.end_line,
-                "signature": node.signature,
-                "is_exported": node.is_exported,
-            }));
+        by_kind.entry(kind_str).or_default().push(json!({
+            "id": node.id,
+            "name": node.name,
+            "qualified_name": node.qualified_name,
+            "start_line": node.start_line,
+            "end_line": node.end_line,
+            "signature": node.signature,
+            "is_exported": node.is_exported,
+        }));
     }
 
     let symbols: Vec<Value> = nodes
