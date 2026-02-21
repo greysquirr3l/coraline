@@ -445,34 +445,92 @@ fn run_embed(args: EmbedArgs) {
     }
 }
 
-fn run_installer() {
-    println!("Coraline installer (Rust rewrite)\n");
-    let checks = [
-        ("claude", "Claude Code"),
-        ("openai", "OpenAI CLI"),
-        ("oa", "OpenAI CLI (alt)"),
-    ];
+fn cargo_bin_dir() -> PathBuf {
+    // Prefer CARGO_HOME if set, then fall back to the platform home directory.
+    if let Ok(cargo_home) = std::env::var("CARGO_HOME") {
+        return PathBuf::from(cargo_home).join("bin");
+    }
+    let home_var = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+    if let Some(home) = std::env::var_os(home_var) {
+        return PathBuf::from(home).join(".cargo").join("bin");
+    }
+    PathBuf::from(".cargo/bin")
+}
 
-    for (bin, label) in checks {
-        if which(bin) {
-            println!("- {label}: found ({bin})");
-        } else {
-            println!("- {label}: not found ({bin})");
-            print_install_hint(bin, label);
+fn run_installer() {
+    let version = env!("CARGO_PKG_VERSION");
+    println!("Coraline v{version} — installation check\n");
+
+    // 1. Where is this binary right now?
+    let current_exe = match std::env::current_exe() {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("Could not determine current executable path: {e}");
+            std::process::exit(1);
+        }
+    };
+    let current_exe = current_exe.canonicalize().unwrap_or(current_exe);
+    println!("Current binary : {}", current_exe.display());
+
+    // 2. Determine the standard cargo bin directory.
+    let cargo_bin = cargo_bin_dir();
+    let bin_name = if cfg!(windows) { "coraline.exe" } else { "coraline" };
+    let target = cargo_bin.join(bin_name);
+    println!("Install target : {}\n", target.display());
+
+    // 3. Copy to cargo bin if not already there.
+    let already_installed = current_exe == target.canonicalize().unwrap_or_else(|_| target.clone());
+    if already_installed {
+        println!("✔  Already installed at: {}", target.display());
+    } else {
+        if let Err(e) = std::fs::create_dir_all(&cargo_bin) {
+            eprintln!("Error creating {}: {e}", cargo_bin.display());
+            std::process::exit(1);
+        }
+        match std::fs::copy(&current_exe, &target) {
+            Ok(_) => println!("✔  Installed to: {}", target.display()),
+            Err(e) => {
+                eprintln!("Failed to copy binary to {}: {e}", target.display());
+                if cfg!(windows) {
+                    eprintln!("Try running the installer as Administrator, or install via:");
+                } else {
+                    eprintln!("Try running with sudo, or install via:");
+                }
+                eprintln!("  cargo install coraline");
+                std::process::exit(1);
+            }
         }
     }
 
-    if which("gh") {
-        println!("- GitHub CLI: found (gh)");
-        println!("  Check Copilot: run 'gh copilot --help'");
-    } else if which("copilot-cli") {
-        println!("- Copilot CLI: found (copilot-cli)");
-    } else {
-        println!("- Copilot CLI: not found (gh copilot or copilot-cli)");
-        print_install_hint("copilot-cli", "Copilot CLI");
+    // 4. Set executable bit on Unix.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(meta) = std::fs::metadata(&target) {
+            let mut perms = meta.permissions();
+            perms.set_mode(perms.mode() | 0o111);
+            let _ = std::fs::set_permissions(&target, perms);
+        }
     }
 
-    println!("\nInstaller actions will be added in the next pass.");
+    // 5. PATH check.
+    println!();
+    if which("coraline") {
+        println!("✔  'coraline' is on PATH — run `coraline --version` to verify.");
+    } else {
+        println!("⚠  The install directory is not on PATH.");
+        if cfg!(windows) {
+            println!(
+                "   Add it via: System Properties → Environment Variables → PATH → add:\n   {}",
+                cargo_bin.display()
+            );
+            println!("   Then open a new terminal and run: coraline --version");
+        } else {
+            println!("   Add this to your shell profile (~/.bashrc, ~/.zshrc, etc.):");
+            println!("     export PATH=\"$HOME/.cargo/bin:$PATH\"");
+            println!("   Then open a new terminal and run: coraline --version");
+        }
+    }
 }
 
 fn run_init(args: InitArgs) {
@@ -1229,11 +1287,4 @@ fn is_executable(path: &PathBuf) -> bool {
     }
 }
 
-fn print_install_hint(bin: &str, label: &str) {
-    match bin {
-        "claude" => println!("  Install {label}: https://claude.ai/code"),
-        "copilot-cli" => println!("  Install {label}: https://github.com/github/copilot-cli"),
-        "openai" => println!("  Install {label}: https://github.com/openai/openai-cli"),
-        _ => println!("  Install {label}: check vendor docs."),
-    }
-}
+

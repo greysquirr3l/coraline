@@ -47,15 +47,57 @@ Built from the ground up in Rust, Coraline provides:
 
 ## 📦 Installation
 
+### From crates.io (recommended)
+
+```bash
+cargo install coraline
+```
+
+This builds and installs the `coraline` binary to your Cargo bin directory and adds it to your `PATH`.
+
+| Platform | Install location |
+|----------|-----------------|
+| Linux / macOS | `~/.cargo/bin/coraline` |
+| Windows | `%USERPROFILE%\.cargo\bin\coraline.exe` |
+
+> **Windows note:** After installation completes the binary is at `%USERPROFILE%\.cargo\bin\coraline.exe`.
+> This directory is automatically added to `PATH` by the Rust installer (`rustup`). Open a new terminal
+> and run `coraline --version` to confirm it's working. If you see "command not found", add
+> `%USERPROFILE%\.cargo\bin` to your `PATH` manually via System Properties → Environment Variables.
+
+### Pre-built binaries
+
+Download the latest release archive for your platform from the
+[Releases page](https://github.com/greysquirr3l/coraline/releases):
+
+| Platform | Archive |
+|----------|---------|
+| Linux x86\_64 | `coraline-linux-x86_64.tar.gz` |
+| Linux ARM64 | `coraline-linux-aarch64.tar.gz` |
+| macOS x86\_64 | `coraline-macos-x86_64.tar.gz` |
+| macOS ARM64 (Apple Silicon) | `coraline-macos-aarch64.tar.gz` |
+| Windows x86\_64 | `coraline-windows-x86_64.exe.zip` |
+
+Extract the archive and move the binary somewhere on your `PATH`:
+
+```bash
+# Linux / macOS
+tar xzf coraline-*.tar.gz
+sudo mv coraline /usr/local/bin/
+
+# Windows (PowerShell)
+Expand-Archive coraline-windows-x86_64.exe.zip .
+# Move coraline.exe to a directory on your PATH, e.g.:
+Move-Item coraline.exe "$env:USERPROFILE\.cargo\bin\"
+```
+
 ### Build from Source
 
 ```bash
 git clone https://github.com/greysquirr3l/coraline.git
 cd coraline
-cargo build --release
+cargo install --path crates/coraline --force
 ```
-
-The binary will be at `target/release/coraline`.
 
 ## 🚀 Quick Start
 
