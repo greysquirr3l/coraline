@@ -256,7 +256,16 @@ fn main() {
         Command::Install => None,
     };
     let project_root = resolve_project_root(project_root_hint);
-    let _log_guard = logging::init(Some(&project_root));
+    // Don't create .coraline/logs/ before the init command runs — that would
+    // cause is_initialized() to return true and block a fresh init.
+    let log_root = if matches!(command, Command::Init(_))
+        && !project_root.join(".coraline").is_dir()
+    {
+        None
+    } else {
+        Some(project_root.as_path())
+    };
+    let _log_guard = logging::init(log_root);
     info!("coraline starting");
     debug!(command = ?command, "dispatching command");
 
