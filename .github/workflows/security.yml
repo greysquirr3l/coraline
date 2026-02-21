@@ -6,6 +6,7 @@ on:
     paths:
       - "**/Cargo.toml"
       - "**/Cargo.lock"
+      - "deny.toml"
       - ".github/workflows/security.yml"
   pull_request:
     paths:
