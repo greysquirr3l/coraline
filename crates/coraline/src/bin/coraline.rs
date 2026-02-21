@@ -11,6 +11,7 @@ use coraline::memory;
 use coraline::sync::GitHooksManager;
 use coraline::types::NodeKind;
 use coraline::types::{BuildContextOptions, ContextFormat, EdgeKind};
+#[cfg(feature = "embeddings")]
 use coraline::vectors;
 use tracing::{debug, info};
 
@@ -41,7 +42,9 @@ enum Command {
     Config(ConfigArgs),
     Hooks(HooksArgs),
     Serve(ServeArgs),
+    #[cfg(feature = "embeddings")]
     Embed(EmbedArgs),
+    #[cfg(feature = "embeddings")]
     Model(ModelArgs),
 }
 
@@ -181,6 +184,7 @@ struct ServeArgs {
     mcp: bool,
 }
 
+#[cfg(feature = "embeddings")]
 #[derive(Debug, Args)]
 struct EmbedArgs {
     /// Project root (defaults to current directory).
@@ -199,6 +203,7 @@ struct EmbedArgs {
     variant: String,
 }
 
+#[cfg(feature = "embeddings")]
 #[derive(Debug, Args)]
 struct ModelArgs {
     #[arg(short = 'p', long = "path")]
@@ -210,6 +215,7 @@ struct ModelArgs {
     action: ModelAction,
 }
 
+#[cfg(feature = "embeddings")]
 #[derive(Debug, Subcommand)]
 enum ModelAction {
     /// Download model files from `HuggingFace` (tokenizer + ONNX weights).
@@ -251,7 +257,9 @@ fn main() {
         Command::Config(a) => a.path.clone(),
         Command::Hooks(a) => a.path.clone(),
         Command::Serve(a) => a.path.clone(),
+        #[cfg(feature = "embeddings")]
         Command::Embed(a) => a.path.clone(),
+        #[cfg(feature = "embeddings")]
         Command::Model(a) => a.path.clone(),
         Command::Install => None,
     };
@@ -297,11 +305,14 @@ fn main() {
                 println!("Use --mcp to start the MCP server.");
             }
         }
+        #[cfg(feature = "embeddings")]
         Command::Embed(args) => run_embed(args),
+        #[cfg(feature = "embeddings")]
         Command::Model(args) => run_model(args),
     }
 }
 
+#[cfg(feature = "embeddings")]
 fn run_model(args: ModelArgs) {
     let project_root = resolve_project_root(args.path);
     let cfg = config::load_toml_config(&project_root).unwrap_or_default();
@@ -347,6 +358,7 @@ fn run_model(args: ModelArgs) {
     }
 }
 
+#[cfg(feature = "embeddings")]
 fn run_embed(args: EmbedArgs) {
     let project_root = resolve_project_root(args.path);
 

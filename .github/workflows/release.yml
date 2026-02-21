@@ -17,6 +17,7 @@ jobs:
   build-binaries:
     name: Build ${{ matrix.target }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           # Linux x86_64
@@ -150,7 +151,13 @@ jobs:
         run: sleep 30
 
       - name: Publish coraline to crates.io
-        run: cargo publish --package coraline
+        run: |
+          CORALINE_VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "coraline") | .version')
+          if cargo search coraline --limit 1 2>/dev/null | grep -q "^coraline = \"$CORALINE_VERSION\""; then
+            echo "coraline@$CORALINE_VERSION already published, skipping"
+          else
+            cargo publish --package coraline
+          fi
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 

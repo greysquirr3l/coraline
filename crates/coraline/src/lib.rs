@@ -15,6 +15,7 @@ pub mod sync;
 pub mod tools;
 pub mod types;
 pub mod utils;
+#[cfg(feature = "embeddings")]
 pub mod vectors;
 
 #[derive(Debug, Default)]

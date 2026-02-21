@@ -546,16 +546,19 @@ impl Tool for SyncTool {
 }
 
 /// Tool for semantic (vector) search over indexed nodes.
+#[cfg(feature = "embeddings")]
 pub struct SemanticSearchTool {
     project_root: PathBuf,
 }
 
+#[cfg(feature = "embeddings")]
 impl SemanticSearchTool {
     pub const fn new(project_root: PathBuf) -> Self {
         Self { project_root }
     }
 }
 
+#[cfg(feature = "embeddings")]
 impl Tool for SemanticSearchTool {
     fn name(&self) -> &'static str {
         "coraline_semantic_search"

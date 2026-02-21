@@ -30,9 +30,9 @@ hex = "0.4"
 regex = "1"
 globset = "0.4.18"
 rayon = "1"
-ndarray = "0.17"
-ort = { version = "=2.0.0-rc.11", features = ["download-binaries", "ndarray"] }
-tokenizers = { version = "0.21", default-features = false, features = ["onig"] }
+ndarray = { version = "0.17", optional = true }
+ort = { version = "=2.0.0-rc.11", features = ["download-binaries", "ndarray"], optional = true }
+tokenizers = { version = "0.21", default-features = false, features = ["onig"], optional = true }
 ureq = "3"
 
 # Tree-sitter core and parsers
@@ -75,6 +75,9 @@ tree-sitter-zig = "1.1.2"
 tree-sitter-php = "0.24.2"
 tree-sitter-swift = "0.7.1"
 tree-sitter-kotlin-ng = "1.1.0"  # Using -ng fork which is compatible with tree-sitter 0.26
+
+[features]
+embeddings = ["dep:ort", "dep:tokenizers", "dep:ndarray"]
 
 [dev-dependencies]
 tempfile = "3"
