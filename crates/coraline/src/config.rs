@@ -418,10 +418,14 @@ pub fn apply_toml_to_code_graph(code_cfg: &mut CodeGraphConfig, toml_cfg: &Coral
         code_cfg.max_file_size = toml_cfg.indexing.max_file_size;
     }
     if toml_cfg.indexing.include_patterns != def.include_patterns {
-        code_cfg.include.clone_from(&toml_cfg.indexing.include_patterns);
+        code_cfg
+            .include
+            .clone_from(&toml_cfg.indexing.include_patterns);
     }
     if toml_cfg.indexing.exclude_patterns != def.exclude_patterns {
-        code_cfg.exclude.clone_from(&toml_cfg.indexing.exclude_patterns);
+        code_cfg
+            .exclude
+            .clone_from(&toml_cfg.indexing.exclude_patterns);
     }
 }
 

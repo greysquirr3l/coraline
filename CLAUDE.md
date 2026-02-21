@@ -98,7 +98,7 @@ crates/coraline/src/
 | `coraline_callers` | Find what calls a symbol |
 | `coraline_callees` | Find what a symbol calls |
 | `coraline_impact` | Impact radius analysis |
-| `coraline_stats` | Detailed graph statistics (by language, kind, edge kind) | |
+| `coraline_stats` | Detailed graph statistics (by language, kind, edge kind) |
 | `coraline_read_memory` | Read a project memory |
 | `coraline_list_memories` | List all memories |
 | `coraline_delete_memory` | Delete a memory |

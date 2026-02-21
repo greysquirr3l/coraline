@@ -113,17 +113,13 @@ fn framework_fallback(
     let from_abs = project_root.join(&from_node.file_path);
     let from_abs_str = from_abs.to_string_lossy();
 
-    let hints =
-        frameworks::framework_path_hints(project_root, &from_abs_str, reference_name);
+    let hints = frameworks::framework_path_hints(project_root, &from_abs_str, reference_name);
     if hints.is_empty() {
         return Ok(Vec::new());
     }
 
     // The last "::" segment is the symbol name we're looking for in those files
-    let sym_name = reference_name
-        .split("::")
-        .last()
-        .unwrap_or(reference_name);
+    let sym_name = reference_name.split("::").last().unwrap_or(reference_name);
 
     let mut candidates = Vec::new();
     for hint_path in &hints {
