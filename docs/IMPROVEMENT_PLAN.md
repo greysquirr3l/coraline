@@ -509,7 +509,7 @@ cargo bench --bench indexing -- search  # single group
 
 **GitHub Actions Workflows Created:**
 - [x] `.github/workflows/ci.yml` - Comprehensive CI pipeline ✅
-  - Check, test (with/without --all-features), clippy, fmt, docs, MSRV (1.85)
+  - Check, test (with/without --all-features), clippy, fmt, docs, MSRV (1.93)
   - Cross-platform testing (Linux, Windows, macOS)
   - Cargo caching for faster builds
 - [x] `.github/workflows/release.yml` - Automated releases ✅

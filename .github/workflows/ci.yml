@@ -64,6 +64,9 @@ jobs:
       - name: Run tests (all features)
         run: cargo test --all-features --workspace
 
+      - name: Build benchmarks (compile check)
+        run: cargo build --benches --workspace
+
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
