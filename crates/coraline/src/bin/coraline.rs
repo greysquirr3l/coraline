@@ -474,7 +474,11 @@ fn run_installer() {
 
     // 2. Determine the standard cargo bin directory.
     let cargo_bin = cargo_bin_dir();
-    let bin_name = if cfg!(windows) { "coraline.exe" } else { "coraline" };
+    let bin_name = if cfg!(windows) {
+        "coraline.exe"
+    } else {
+        "coraline"
+    };
     let target = cargo_bin.join(bin_name);
     println!("Install target : {}\n", target.display());
 
@@ -524,12 +528,11 @@ fn run_installer() {
                 "   Add it via: System Properties → Environment Variables → PATH → add:\n   {}",
                 cargo_bin.display()
             );
-            println!("   Then open a new terminal and run: coraline --version");
         } else {
             println!("   Add this to your shell profile (~/.bashrc, ~/.zshrc, etc.):");
             println!("     export PATH=\"$HOME/.cargo/bin:$PATH\"");
-            println!("   Then open a new terminal and run: coraline --version");
         }
+        println!("   Then open a new terminal and run: coraline --version");
     }
 }
 
@@ -1286,5 +1289,3 @@ fn is_executable(path: &PathBuf) -> bool {
         path.exists() && path.is_file()
     }
 }
-
-

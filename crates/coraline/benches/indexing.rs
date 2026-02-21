@@ -168,7 +168,7 @@ fn bench_graph(c: &mut Criterion) {
         b.iter(|| {
             graph::build_subgraph(
                 &conn,
-                &[start_id.clone()],
+                std::slice::from_ref(&start_id),
                 &TraversalOptions {
                     max_depth: Some(3),
                     edge_kinds: Some(vec![EdgeKind::Calls]),
@@ -186,7 +186,7 @@ fn bench_graph(c: &mut Criterion) {
         b.iter(|| {
             graph::build_subgraph(
                 &conn,
-                &[start_id.clone()],
+                std::slice::from_ref(&start_id),
                 &TraversalOptions {
                     max_depth: Some(2),
                     edge_kinds: None,
