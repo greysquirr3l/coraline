@@ -10,7 +10,7 @@ use coraline::mcp::McpServer;
 use coraline::memory;
 use coraline::sync::GitHooksManager;
 use coraline::types::NodeKind;
-use coraline::types::{BuildContextOptions, ContextFormat};
+use coraline::types::{BuildContextOptions, ContextFormat, EdgeKind};
 use coraline::vectors;
 use tracing::{debug, info};
 
@@ -258,13 +258,12 @@ fn main() {
     let project_root = resolve_project_root(project_root_hint);
     // Don't create .coraline/logs/ before the init command runs — that would
     // cause is_initialized() to return true and block a fresh init.
-    let log_root = if matches!(command, Command::Init(_))
-        && !project_root.join(".coraline").is_dir()
-    {
-        None
-    } else {
-        Some(project_root.as_path())
-    };
+    let log_root =
+        if matches!(command, Command::Init(_)) && !project_root.join(".coraline").is_dir() {
+            None
+        } else {
+            Some(project_root.as_path())
+        };
     let _log_guard = logging::init(log_root);
     info!("coraline starting");
     debug!(command = ?command, "dispatching command");
@@ -911,8 +910,8 @@ fn run_callers(args: CallersArgs) {
             std::process::exit(1);
         });
 
-    let edges =
-        db::get_edges_by_target(&conn, &args.node_id, None, args.limit).unwrap_or_else(|err| {
+    let edges = db::get_edges_by_target(&conn, &args.node_id, Some(EdgeKind::Calls), args.limit)
+        .unwrap_or_else(|err| {
             eprintln!("Failed to get callers: {err}");
             std::process::exit(1);
         });
@@ -968,8 +967,8 @@ fn run_callees(args: CalleesArgs) {
             std::process::exit(1);
         });
 
-    let edges =
-        db::get_edges_by_source(&conn, &args.node_id, None, args.limit).unwrap_or_else(|err| {
+    let edges = db::get_edges_by_source(&conn, &args.node_id, Some(EdgeKind::Calls), args.limit)
+        .unwrap_or_else(|err| {
             eprintln!("Failed to get callees: {err}");
             std::process::exit(1);
         });

@@ -371,18 +371,28 @@ pub fn sync(
 
         if let Some(tracked) = tracked {
             if tracked.content_hash != content_hash {
-                if let Some((node_count, _edge_count)) =
-                    index_file(project_root, config, &mut conn, file)?
-                {
-                    files_modified += 1;
-                    nodes_updated += node_count;
+                match index_file(project_root, config, &mut conn, file) {
+                    Ok(Some((node_count, _))) => {
+                        files_modified += 1;
+                        nodes_updated += node_count;
+                    }
+                    Ok(None) => {}
+                    Err(err) => {
+                        warn!(file = %file, error = %err, "failed to sync file");
+                    }
                 }
             }
-        } else if let Some((node_count, _edge_count)) =
-            index_file(project_root, config, &mut conn, file)?
-        {
-            files_added += 1;
-            nodes_updated += node_count;
+        } else {
+            match index_file(project_root, config, &mut conn, file) {
+                Ok(Some((node_count, _))) => {
+                    files_added += 1;
+                    nodes_updated += node_count;
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    warn!(file = %file, error = %err, "failed to sync file");
+                }
+            }
         }
     }
 
