@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2026-02-21
+
+### Fixed
+
+- **Release pipeline: binary builds failing on `ort-sys`** — `ort`, `tokenizers`, and `ndarray` are now optional, gated behind an `embeddings` feature flag; default builds no longer require ONNX Runtime prebuilt binaries
+- **Release pipeline: `coraline publish` failing when version already on crates.io** — publish steps for both `tree-sitter-blazor` and `coraline` now skip gracefully if the version already exists
+- **Release pipeline: build matrix cancelling all jobs on first failure** — added `fail-fast: false` so platform builds run independently
+- **Dropped `x86_64-apple-darwin` release binary** — Intel Mac is not a supported target; ONNX Runtime provides no prebuilt binaries for it
+
+---
+
 ## [0.2.1] - 2026-02-21
 
 ### Fixed
