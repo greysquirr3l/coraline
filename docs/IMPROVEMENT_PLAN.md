@@ -199,15 +199,15 @@ pub struct MemoryManager {
 
 ### 2.1 Vector Embeddings ✅ COMPLETE
 
-**Current State:** ~~`src/vectors.rs` is a stub~~ Infrastructure implemented, ONNX integration pending
+**Current State:** Complete — full ONNX embedding pipeline shipped.
 
 **Target State:** Local vector embeddings with semantic search
 
-**Status:** Complete. Full ONNX pipeline using `ort = "2.0.0-rc.11"`, nomic-embed-text-v1.5, tokenizers, and `coraline embed` CLI command all shipped.
+**Status:** Complete. Full ONNX pipeline using `ort = "=2.0.0-rc.11"` (latest RC), nomic-embed-text-v1.5, tokenizers, and `coraline embed` CLI command all shipped.
 
 **Completed:**
 - [x] `src/vectors.rs` - Vector storage and similarity search implementation ✅
-- [x] `VectorManager` struct (placeholder for ONNX integration) ✅
+- [x] `VectorManager` struct with ONNX embedding generation ✅
 - [x] `store_embedding()` - Store embedding vectors to database ✅
 - [x] `load_embedding()` - Load embedding vectors from database ✅
 - [x] `cosine_similarity()` - Calculate similarity between vectors ✅
@@ -220,14 +220,6 @@ pub struct MemoryManager {
 - [x] Tokenizer integration (`tokenizers` 0.21) ✅
 - [x] MCP tool: `coraline_semantic_search(query, limit)` ✅
 - [x] `coraline embed` CLI command ✅
-
-**Dependencies (Commented Out - For Future Use):**
-
-```toml
-[dependencies]
-# ort = { version = "2.0.0-rc.11", features = ["download-binaries", "tls-native"] }
-# ndarray = "0.16"
-```
 
 **Model:** nomic-embed-text-v1.5 (384 dimensions)
 
@@ -251,7 +243,7 @@ pub struct VectorManager {
 
 impl VectorManager {
     pub fn new(model_path: &Path) -> io::Result<Self>;
-    pub fn embed(&self, text: &str) -> io::Result<Vec<f32>>; // TODO: ONNX integration
+    pub fn embed(&self, text: &str) -> io::Result<Vec<f32>>;
     pub fn model_name(&self) -> &str;
 }
 
@@ -270,10 +262,9 @@ pub fn search_similar(conn: &Connection, query_embedding: &[f32], limit: usize, 
 - ✅ Infrastructure ready for semantic search
 - ✅ Database schema supports vector storage
 - ✅ Similarity search algorithm implemented and tested
-- ⏳ Awaiting stable ONNX Runtime API for full embedding generation
+- ✅ Full embedding generation pipeline implemented with `ort = "=2.0.0-rc.11"` (latest RC)
 
-**Estimated Effort:** 8-10 hours → **Actual: ~2 hours** (50% complete - core infrastructure)  
-**Remaining:** ~2-3 hours (ONNX integration when API is stable)
+**Estimated Effort:** 8-10 hours → **Actual: ~4 hours** ✅
 
 ---
 
@@ -593,9 +584,8 @@ No active work items — all phases complete.
 
 ### Future / Deferred
 
-1. ONNX embedding generation — awaiting stable `ort` 2.0 GA release
-2. TUI progress bars (`indicatif`) — optional polish
-3. Flamegraph profiling (`cargo flamegraph`) — on-demand performance investigation
+1. TUI progress bars (`indicatif`) — optional polish
+2. Flamegraph profiling (`cargo flamegraph`) — on-demand performance investigation
 
 ---
 
