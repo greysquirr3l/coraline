@@ -137,11 +137,21 @@ jobs:
           fi
 
       - name: Publish tree-sitter-blazor to crates.io
-        run: cargo publish --package tree-sitter-blazor
+        id: publish_blazor
+        run: |
+          TSB_VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "tree-sitter-blazor") | .version')
+          if cargo search tree-sitter-blazor --limit 1 2>/dev/null | grep -q "\"$TSB_VERSION\""; then
+            echo "tree-sitter-blazor@$TSB_VERSION already published, skipping"
+            echo "skipped=true" >> "$GITHUB_OUTPUT"
+          else
+            cargo publish --package tree-sitter-blazor
+            echo "skipped=false" >> "$GITHUB_OUTPUT"
+          fi
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
       - name: Wait for tree-sitter-blazor to be available
+        if: steps.publish_blazor.outputs.skipped == 'false'
         run: sleep 30
 
       - name: Publish coraline to crates.io
