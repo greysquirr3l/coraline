@@ -74,7 +74,6 @@ Download the latest release archive for your platform from the
 |----------|---------|
 | Linux x86\_64 | `coraline-linux-x86_64.tar.gz` |
 | Linux ARM64 | `coraline-linux-aarch64.tar.gz` |
-| macOS x86\_64 | `coraline-macos-x86_64.tar.gz` |
 | macOS ARM64 (Apple Silicon) | `coraline-macos-aarch64.tar.gz` |
 | Windows x86\_64 | `coraline-windows-x86_64.exe.zip` |
 
@@ -98,6 +97,39 @@ git clone https://github.com/greysquirr3l/coraline.git
 cd coraline
 cargo install --path crates/coraline --force
 ```
+
+### With LLM / Semantic Search (optional)
+
+By default Coraline installs **without** ONNX / vector-embedding support to keep the binary small and the build dependency-free. To enable semantic search (`coraline_semantic_search` MCP tool and the `embed`/`model` CLI commands), compile with the `embeddings` feature:
+
+```bash
+# From crates.io
+cargo install coraline --features embeddings
+
+# From source
+cargo install --path crates/coraline --features embeddings --force
+```
+
+The `embeddings` feature pulls in `ort` (ONNX Runtime), `tokenizers`, and `ndarray`. A compatible model must be downloaded before embeddings can be generated:
+
+```bash
+# Download the quantised model (~25 MB) from HuggingFace
+coraline model download
+
+# Generate embeddings for the indexed project
+coraline embed
+
+# Check which model files are present
+coraline model status
+```
+
+Models are stored in `~/.coraline/models/` by default, shared across all projects. The `embed` command also accepts `--download` to combine both steps in one go:
+
+```bash
+coraline embed --download
+```
+
+> **Note:** Pre-built release binaries do **not** include the `embeddings` feature. Build from source if you need semantic search.
 
 ## 🚀 Quick Start
 
@@ -123,7 +155,8 @@ Coraline will:
 - Parse source files using tree-sitter
 - Extract symbols (functions, classes, methods, types)
 - Build the call graph and reference map
-- Generate vector embeddings for semantic search
+
+> **Semantic search**: run `coraline embed` after indexing to generate vector embeddings (requires the `embeddings` feature — see [Installation](#installation)).
 
 ### 3. Use as MCP Server
 
@@ -349,7 +382,7 @@ cargo test --all-features -- --nocapture
 cargo test --test context_test
 ```
 
-Current status: **37/37 tests passing**  
+Current status: **38/38 tests passing**  
 See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for the full test structure.
 
 ## 📚 Documentation
