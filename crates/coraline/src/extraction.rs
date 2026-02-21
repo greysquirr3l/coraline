@@ -983,7 +983,10 @@ fn import_symbols(node: &TsNode, source: &str, language: Language) -> Vec<Import
         Language::JavaScript | Language::Jsx | Language::TypeScript | Language::Tsx
     ) {
         let mut imports = Vec::new();
-        if let Some(clause) = node.child_by_field_name("import_clause") {
+        if let Some(clause) = node
+            .children(&mut node.walk())
+            .find(|c| c.kind() == "import_clause")
+        {
             collect_import_symbols(clause, source, &module_path, &mut imports);
         }
 
@@ -1420,7 +1423,7 @@ fn map_node_kind(kind: &str, language: Language) -> (Option<NodeKind>, bool) {
             "method_definition" => (Some(NodeKind::Method), false),
             "interface_declaration" => (Some(NodeKind::Interface), true),
             "type_alias_declaration" => (Some(NodeKind::TypeAlias), false),
-            "import_declaration" => (Some(NodeKind::Import), false),
+            "import_statement" => (Some(NodeKind::Import), false),
             "export_statement" | "export_declaration" => (Some(NodeKind::Export), false),
             _ => (None, false),
         },

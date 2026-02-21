@@ -95,7 +95,7 @@ crates/coraline/src/
 | `coraline_callers` | Find what calls a symbol |
 | `coraline_callees` | Find what a symbol calls |
 | `coraline_impact` | Impact radius analysis |
-| `coraline_write_memory` | Persist a project memory |
+| `coraline_stats` | Detailed graph statistics (by language, kind, edge kind) |
 | `coraline_read_memory` | Read a project memory |
 | `coraline_list_memories` | List all memories |
 | `coraline_delete_memory` | Delete a memory |
@@ -111,12 +111,12 @@ crates/coraline/
 │   ├── memory.rs           # Unit tests: memory CRUD (11 tests)
 │   └── vectors.rs          # Unit tests: cosine similarity (5 tests)
 └── tests/
-    ├── extraction_test.rs  # Integration: AST parsing (4 tests, 1 ignored)
+    ├── extraction_test.rs  # Integration: AST parsing (4 tests)
     ├── graph_test.rs       # Integration: graph traversal (4 tests)
     └── context_test.rs     # Integration: context building (5 tests)
 ```
 
-**Current status:** 36/36 passing, 1 ignored (`test_cross_file_references` — import edge extraction not yet implemented)
+**Current status:** 37/37 passing, 0 ignored
 
 ## Supported Languages
 

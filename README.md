@@ -136,7 +136,7 @@ See [docs/CLI_REFERENCE.md](docs/CLI_REFERENCE.md) for full documentation.
 
 ## 🔌 MCP Tools
 
-When running as an MCP server, Coraline exposes **20 tools** prefixed with `coraline_`.
+When running as an MCP server, Coraline exposes **25 tools** (26 with vector embeddings) prefixed with `coraline_`.
 See [docs/MCP_TOOLS.md](docs/MCP_TOOLS.md) for the full reference.
 
 ### Graph Tools
@@ -147,6 +147,10 @@ See [docs/MCP_TOOLS.md](docs/MCP_TOOLS.md) for the full reference.
 | `coraline_callers` | Find what calls a symbol |
 | `coraline_callees` | Find what a symbol calls |
 | `coraline_impact` | Analyze change impact radius |
+| `coraline_dependencies` | Outgoing dependency graph from a node |
+| `coraline_dependents` | Incoming dependency graph — what depends on a node |
+| `coraline_path` | Find a path between two nodes |
+| `coraline_stats` | Detailed statistics by language, kind, and edge type |
 | `coraline_find_symbol` | Find symbols with rich metadata + optional body |
 | `coraline_get_symbols_overview` | List all symbols in a file |
 | `coraline_find_references` | Find all references to a symbol |
@@ -166,8 +170,10 @@ See [docs/MCP_TOOLS.md](docs/MCP_TOOLS.md) for the full reference.
 | `coraline_list_dir` | List directory contents |
 | `coraline_get_file_nodes` | Get all indexed nodes in a file |
 | `coraline_status` | Show project index statistics |
+| `coraline_sync` | Trigger incremental index sync |
 | `coraline_get_config` | Read project configuration |
 | `coraline_update_config` | Update a config value |
+| `coraline_semantic_search` | Vector similarity search (requires embeddings) |
 
 ### Memory Tools
 

@@ -171,7 +171,6 @@ fn test_incremental_sync() {
 }
 
 #[test]
-#[ignore = "Import edge extraction not yet fully implemented"]
 fn test_cross_file_references() {
     let (_temp, project_root) = setup_test_db();
     let project_path = Path::new(&project_root);
@@ -196,7 +195,7 @@ fn test_cross_file_references() {
 
     // Check if import edges exist
     let edges: Vec<_> = conn
-        .prepare("SELECT * FROM edges WHERE kind = 'imports'")
+        .prepare("SELECT source, target FROM edges WHERE kind = 'imports'")
         .expect("Failed to prepare SQL statement")
         .query_map([], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))

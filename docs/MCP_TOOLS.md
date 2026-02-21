@@ -1,6 +1,6 @@
 # Coraline MCP Tools Reference
 
-Coraline exposes **20 MCP tools** when running as an MCP server (`coraline serve --mcp`).
+Coraline exposes **25 MCP tools** (26 with vector embeddings enabled) when running as an MCP server (`coraline serve --mcp`).
 All tool names are prefixed with `coraline_` to avoid collisions with other MCP servers.
 
 ---
@@ -13,6 +13,10 @@ All tool names are prefixed with `coraline_` to avoid collisions with other MCP 
 | | `coraline_callers` | Find what calls a symbol |
 | | `coraline_callees` | Find what a symbol calls |
 | | `coraline_impact` | Analyze change impact radius |
+| | `coraline_dependencies` | Outgoing dependency graph from a node |
+| | `coraline_dependents` | Incoming dependency graph (what depends on a node) |
+| | `coraline_path` | Find a path between two nodes |
+| | `coraline_stats` | Detailed graph statistics by language/kind/edge |
 | | `coraline_find_symbol` | Find symbols with rich metadata + optional body |
 | | `coraline_get_symbols_overview` | List all symbols in a file |
 | | `coraline_find_references` | Find all references to a symbol |
@@ -22,8 +26,10 @@ All tool names are prefixed with `coraline_` to avoid collisions with other MCP 
 | | `coraline_list_dir` | List directory contents |
 | | `coraline_get_file_nodes` | Get all indexed nodes in a file |
 | | `coraline_status` | Show project index statistics |
+| | `coraline_sync` | Trigger incremental index sync |
 | | `coraline_get_config` | Read project configuration |
 | | `coraline_update_config` | Update a config value |
+| | `coraline_semantic_search` | Vector similarity search (requires embeddings) |
 | **Memory** | `coraline_write_memory` | Write or update a project memory |
 | | `coraline_read_memory` | Read a project memory |
 | | `coraline_list_memories` | List all memories |
@@ -140,6 +146,90 @@ Analyze the impact radius of changing a symbol — finds everything that directl
     "file_count": 4,
     "max_depth": 2
   }
+}
+```
+
+---
+
+### `coraline_dependencies`
+
+Get the outgoing dependency graph from a node — what does this symbol import, call, or reference, recursively up to a configurable depth?
+
+**Input:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `node_id` | string | ✅ | — | ID of the source node |
+| `max_depth` | number | | `2` | BFS traversal depth |
+| `max_nodes` | number | | `50` | Cap on returned nodes |
+| `edge_kinds` | string[] | | all | Edge kinds to follow (e.g. `["calls", "imports"]`) |
+
+**Output:**
+```json
+{
+  "root_id": "abc123",
+  "nodes": [ ... ],
+  "edges": [ ... ],
+  "stats": { "node_count": 8, "edge_count": 10, "file_count": 3, "max_depth": 2 }
+}
+```
+
+---
+
+### `coraline_dependents`
+
+Get the incoming dependency graph — what symbols depend on (call, import, or reference) this node, recursively?
+
+**Input:** Same as `coraline_dependencies`.
+
+**Output:** Same shape as `coraline_dependencies` but traversal follows edges in reverse.
+
+---
+
+### `coraline_path`
+
+Find a path between two nodes in the graph, using BFS over all edge kinds.
+
+**Input:**
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `from_id` | string | ✅ | Starting node ID |
+| `to_id` | string | ✅ | Target node ID |
+
+**Output:**
+```json
+{
+  "from_id": "abc123",
+  "to_id": "def456",
+  "path_found": true,
+  "path": ["abc123", "mid789", "def456"],
+  "length": 3
+}
+```
+Returns `{ "path_found": false }` if no path exists.
+
+---
+
+### `coraline_stats`
+
+Return detailed graph statistics: total counts, per-language file breakdown, node kind breakdown, and edge kind breakdown.
+
+**Input:** None.
+
+**Output:**
+```json
+{
+  "totals": {
+    "nodes": 1842,
+    "edges": 4201,
+    "files": 47,
+    "unresolved_references": 123,
+    "vectors": 0
+  },
+  "files_by_language": { "rust": 28, "typescript": 14, "toml": 5 },
+  "nodes_by_kind":     { "function": 412, "method": 287, "import": 201, "struct": 88 },
+  "edges_by_kind":     { "contains": 1842, "calls": 987, "imports": 201, "exports": 178 }
 }
 ```
 
@@ -322,6 +412,50 @@ Update a single configuration value using dot-notation path.
 |---|---|---|---|
 | `key` | string | ✅ | Dot-notation path, e.g. `context.max_nodes` |
 | `value` | any | ✅ | New value (type must match the field) |
+
+---
+
+### `coraline_sync`
+
+Trigger an incremental sync of the index. Detects files added, modified, or removed since the last index run and updates only what changed. Run after editing source files to keep the graph current.
+
+**Input:** None.
+
+**Output:**
+```json
+{
+  "files_checked": 42,
+  "files_added": 1,
+  "files_modified": 3,
+  "files_removed": 0,
+  "nodes_updated": 47,
+  "duration_ms": 380
+}
+```
+
+---
+
+### `coraline_semantic_search`
+
+Search indexed nodes using natural-language vector similarity. Requires embeddings to have been generated with `coraline embed`.
+
+**Input:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `query` | string | ✅ | — | Natural-language description of what you're looking for |
+| `limit` | number | | `10` | Max results |
+| `min_similarity` | number | | `0.3` | Minimum cosine similarity threshold (0–1) |
+
+**Output:**
+```json
+{
+  "results": [
+    { "node_id": "abc123", "name": "resolve_unresolved", "similarity": 0.87, "file_path": "src/resolution/mod.rs" }
+  ],
+  "count": 1
+}
+```
 
 ---
 

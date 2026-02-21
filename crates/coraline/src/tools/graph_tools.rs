@@ -1154,6 +1154,117 @@ impl Tool for PathTool {
     }
 }
 
+/// Tool for detailed graph statistics broken down by language, node kind, and edge kind.
+pub struct StatsTool {
+    project_root: PathBuf,
+}
+
+impl StatsTool {
+    pub const fn new(project_root: PathBuf) -> Self {
+        Self { project_root }
+    }
+}
+
+impl Tool for StatsTool {
+    fn name(&self) -> &'static str {
+        "coraline_stats"
+    }
+
+    fn description(&self) -> &'static str {
+        "Return detailed graph statistics: total counts, per-language file breakdown, node kind breakdown, and edge kind breakdown."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {}
+        })
+    }
+
+    fn execute(&self, _params: Value) -> ToolResult {
+        let conn = db::open_database(&self.project_root)
+            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
+
+        // Basic counts
+        let node_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM nodes", [], |r| r.get(0))
+            .map_err(|e| ToolError::internal_error(format!("Query failed: {e}")))?;
+        let edge_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM edges", [], |r| r.get(0))
+            .map_err(|e| ToolError::internal_error(format!("Query failed: {e}")))?;
+        let file_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM files", [], |r| r.get(0))
+            .map_err(|e| ToolError::internal_error(format!("Query failed: {e}")))?;
+        let unresolved_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM unresolved_refs", [], |r| r.get(0))
+            .map_err(|e| ToolError::internal_error(format!("Query failed: {e}")))?;
+        let vector_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM vectors", [], |r| r.get(0))
+            .map_err(|e| ToolError::internal_error(format!("Query failed: {e}")))?;
+
+        // Files by language
+        let mut by_language = serde_json::Map::new();
+        {
+            let mut stmt = conn
+                .prepare("SELECT language, COUNT(*) FROM files GROUP BY language ORDER BY 2 DESC")
+                .map_err(|e| ToolError::internal_error(format!("Query failed: {e}")))?;
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+                })
+                .map_err(|e| ToolError::internal_error(format!("Query failed: {e}")))?;
+            for row in rows.flatten() {
+                by_language.insert(row.0, Value::Number(row.1.into()));
+            }
+        }
+
+        // Nodes by kind
+        let mut by_kind = serde_json::Map::new();
+        {
+            let mut stmt = conn
+                .prepare("SELECT kind, COUNT(*) FROM nodes GROUP BY kind ORDER BY 2 DESC")
+                .map_err(|e| ToolError::internal_error(format!("Query failed: {e}")))?;
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+                })
+                .map_err(|e| ToolError::internal_error(format!("Query failed: {e}")))?;
+            for row in rows.flatten() {
+                by_kind.insert(row.0, Value::Number(row.1.into()));
+            }
+        }
+
+        // Edges by kind
+        let mut by_edge_kind = serde_json::Map::new();
+        {
+            let mut stmt = conn
+                .prepare("SELECT kind, COUNT(*) FROM edges GROUP BY kind ORDER BY 2 DESC")
+                .map_err(|e| ToolError::internal_error(format!("Query failed: {e}")))?;
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+                })
+                .map_err(|e| ToolError::internal_error(format!("Query failed: {e}")))?;
+            for row in rows.flatten() {
+                by_edge_kind.insert(row.0, Value::Number(row.1.into()));
+            }
+        }
+
+        Ok(json!({
+            "totals": {
+                "nodes": node_count,
+                "edges": edge_count,
+                "files": file_count,
+                "unresolved_references": unresolved_count,
+                "vectors": vector_count,
+            },
+            "files_by_language": by_language,
+            "nodes_by_kind": by_kind,
+            "edges_by_kind": by_edge_kind,
+        }))
+    }
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 /// Read the source lines for a node from its file on disk.
