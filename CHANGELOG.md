@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-02-21
+
+### Fixed
+
+- **`coraline init` blocked by log directory** — `logging::init()` eagerly created `.coraline/logs/` before `is_initialized()` ran, making every re-init attempt report "already initialized"
+- **`sync` crash on UNIQUE constraint** — incremental sync now catches per-file store errors (warn + continue) instead of aborting the entire sync, consistent with `index_all`
+- **`callers`/`callees` CLI showing incorrect results** — CLI was passing no edge-kind filter, surfacing `contains` edges as false callers; now filters to `calls` edges only, consistent with MCP tools
+- **CI `actions/checkout@v6`** — updated all workflow steps to the current stable `v4`
+
+---
+
 ## [0.2.0] - 2026-02-20
 
 ### Added
