@@ -162,6 +162,10 @@ pub fn default_exclude_patterns() -> Vec<String> {
         "**/__pycache__/**",
         "**/.venv/**",
         "**/venv/**",
+        "**/*_venv/**",
+        "**/*-venv/**",
+        "**/env/**",
+        "**/.env/**",
         "**/.pytest_cache/**",
         "**/.mypy_cache/**",
         "**/.ruff_cache/**",
@@ -456,6 +460,10 @@ include_patterns = [
 exclude_patterns = [
   "**/.git/**", "**/target/**", "**/node_modules/**",
   "**/dist/**", "**/build/**", "**/.coraline/**",
+  # Python virtualenvs — covers .venv/, venv/, env/, and named venvs
+  # like cluster_venv/, memory_venv/, project-venv/, etc.
+  "**/.venv/**", "**/venv/**", "**/*_venv/**", "**/*-venv/**",
+  "**/env/**", "**/.env/**", "**/__pycache__/**",
 ]
 
 [context]

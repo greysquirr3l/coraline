@@ -55,6 +55,12 @@ struct InitArgs {
     index: bool,
     #[arg(long = "no-hooks")]
     no_hooks: bool,
+    #[arg(
+        short = 'f',
+        long = "force",
+        help = "Overwrite existing .coraline directory without prompting"
+    )]
+    force: bool,
 }
 
 #[derive(Debug, Args)]
@@ -560,8 +566,33 @@ fn run_init(args: InitArgs) {
     let project_root = resolve_project_root(args.path);
 
     if is_initialized(&project_root) {
-        eprintln!("Coraline already initialized in {}", project_root.display());
-        return;
+        if !args.force {
+            // Only prompt when stdin is a terminal; otherwise abort safely.
+            if std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+                eprint!(
+                    "Coraline is already initialized in {}. Overwrite? [y/N] ",
+                    project_root.display()
+                );
+                let mut input = String::new();
+                if std::io::stdin().read_line(&mut input).is_err()
+                    || !input.trim().eq_ignore_ascii_case("y")
+                {
+                    println!("Aborted.");
+                    return;
+                }
+            } else {
+                eprintln!(
+                    "Coraline already initialized in {}. Use --force to overwrite.",
+                    project_root.display()
+                );
+                return;
+            }
+        }
+        // Remove the existing .coraline directory before re-initializing.
+        if let Err(err) = std::fs::remove_dir_all(project_root.join(".coraline")) {
+            eprintln!("Failed to remove existing .coraline directory: {err}");
+            std::process::exit(1);
+        }
     }
 
     if let Err(err) = create_coraline_dir(&project_root) {
@@ -1210,6 +1241,7 @@ fn create_coraline_dir(project_root: &Path) -> std::io::Result<()> {
 
 #[allow(clippy::needless_pass_by_value)]
 fn print_progress(progress: extraction::IndexProgress) {
+    use std::io::Write;
     let phase = match progress.phase {
         extraction::IndexPhase::Scanning => "Scanning",
         extraction::IndexPhase::Parsing => "Parsing",
@@ -1221,11 +1253,17 @@ fn print_progress(progress: extraction::IndexProgress) {
         .as_ref()
         .map(|f| format!(" {f}"))
         .unwrap_or_default();
-    print!("\r{phase}: {}/{}{}", progress.current, progress.total, file);
+    print!(
+        "\r\x1B[K{phase}: {}/{}{}",
+        progress.current, progress.total, file
+    );
+    let _ = std::io::stdout().flush();
 }
 
 fn clear_progress_line() {
+    use std::io::Write;
     println!();
+    let _ = std::io::stdout().flush();
 }
 
 fn parse_node_kind(value: &str) -> Option<NodeKind> {

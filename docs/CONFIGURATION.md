@@ -115,6 +115,11 @@ exclude_patterns = [
 ```
 
 > **Tip:** The default exclusion list is extensive. You typically only need to add project-specific paths.
+>
+> **Python virtualenvs:** The defaults cover `.venv/`, `venv/`, `env/`, and named venvs matching `*_venv/` or `*-venv/` (e.g. `cluster_venv/`, `memory_venv/`). If you use a different naming convention, add it explicitly:
+> ```toml
+> exclude_patterns = ["**/my_custom_env/**"]
+> ```
 
 ---
 

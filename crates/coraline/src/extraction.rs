@@ -113,7 +113,7 @@ fn parse_file_only(
         .and_then(|v| v.to_str())
         .unwrap_or(relative_path);
     let qualified_name = relative_path.to_string();
-    let node_id = node_id_for_symbol(relative_path, "file", &qualified_name, 1);
+    let node_id = node_id_for_symbol(relative_path, "file", &qualified_name, 1, 0);
     let file_node_id = node_id.clone();
 
     let now_ms = now_millis();
@@ -448,7 +448,7 @@ fn index_file(
         .and_then(|v| v.to_str())
         .unwrap_or(relative_path);
     let qualified_name = relative_path.to_string();
-    let node_id = node_id_for_symbol(relative_path, "file", &qualified_name, 1);
+    let node_id = node_id_for_symbol(relative_path, "file", &qualified_name, 1, 0);
     let file_node_id = node_id.clone();
 
     let now_ms = now_millis();
@@ -703,6 +703,7 @@ fn walk_tree_collect(
             &format!("{:?}", kind).to_ascii_lowercase(),
             &qualified_name,
             node.start_position().row as i64 + 1,
+            node.start_position().column as i64,
         );
         let start = node.start_position();
         let end = node.end_position();
@@ -938,7 +939,13 @@ fn add_import_nodes(
             "{}::import::{}::{}",
             file_path, import.local_name, import.module_path
         );
-        let id = node_id_for_symbol(file_path, "import", &qualified_name, start.row as i64 + 1);
+        let id = node_id_for_symbol(
+            file_path,
+            "import",
+            &qualified_name,
+            start.row as i64 + 1,
+            start.column as i64,
+        );
         let signature = build_import_signature(&import.module_path, import.export_name.as_deref());
 
         nodes.push(Node {
@@ -1136,7 +1143,13 @@ fn add_module_node(
     let start = node.start_position();
     let end = node.end_position();
     let qualified_name = format!("{}::{}", file_path, name);
-    let id = node_id_for_symbol(file_path, "module", &qualified_name, start.row as i64 + 1);
+    let id = node_id_for_symbol(
+        file_path,
+        "module",
+        &qualified_name,
+        start.row as i64 + 1,
+        start.column as i64,
+    );
 
     let signature = match language {
         Language::Rust => rust_module_target(project_root, file_path, &name),
@@ -1222,7 +1235,13 @@ fn add_export_nodes(
 
     for export in exports {
         let qualified_name = format!("{}::export::{}", file_path, export.name);
-        let id = node_id_for_symbol(file_path, "export", &qualified_name, start.row as i64 + 1);
+        let id = node_id_for_symbol(
+            file_path,
+            "export",
+            &qualified_name,
+            start.row as i64 + 1,
+            start.column as i64,
+        );
 
         nodes.push(Node {
             id: id.clone(),
@@ -1471,6 +1490,11 @@ fn scan_directory(
             if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
                 let dir_pattern = format!("{}/", rel_str);
                 if config.exclude.iter().any(|p| matches_glob(&dir_pattern, p)) {
+                    continue;
+                }
+                // Skip Python virtual environments by their canonical marker file
+                // (covers any venv name, not just common patterns like .venv/venv/env)
+                if path.join("pyvenv.cfg").exists() {
                     continue;
                 }
                 stack.push(path);

@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.3] - 2026-03-01
+
+### Fixed
+
+- **`coraline init -i` on an already-initialized project** — instead of hard-failing, the CLI now prompts "Overwrite? [y/N]" when stdin is a TTY, or prints a clear error with `--force` guidance in non-interactive contexts; `--force` / `-f` flag added to `init` to skip the prompt
+- **UNIQUE constraint failures on minified/single-line files** — node IDs now incorporate `start_column` in addition to `start_line`, preventing hash collisions for multiple symbols on the same line
+- **Garbled progress output during `index`/`sync`** — progress lines now use `\r\x1B[K` (erase-to-end-of-line) instead of bare `\r`, and `stdout` is flushed after each update to prevent interleaving with log output
+
+### Internal
+
+- OSSF Scorecard CI workflow added
+- Security audit workflow now also triggers on `deny.toml` changes
+- `cargo fmt` style pass across `config.rs` and `resolution/mod.rs`
+
+---
+
 ## [0.2.2] - 2026-02-21
 
 ### Fixed

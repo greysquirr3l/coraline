@@ -18,7 +18,8 @@ pub fn node_id_for_symbol(
     kind: &str,
     qualified_name: &str,
     start_line: i64,
+    start_column: i64,
 ) -> String {
-    let seed = format!("{file_path}|{kind}|{qualified_name}|{start_line}");
+    let seed = format!("{file_path}|{kind}|{qualified_name}|{start_line}|{start_column}");
     hash_sha256(&seed)
 }
