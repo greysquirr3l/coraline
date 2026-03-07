@@ -21,21 +21,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - All tests validated; cosine similarity property tests ensure numerical accuracy
 
 ---
-## [0.2.4] - 2026-03-07
-
-### Changed
-
-- **Rust 1.94.0 optimizations** — vector math now uses fused multiply-add (`mul_add()`) for improved performance and numerical stability in cosine similarity and L2 normalization
-- **TOML 1.1 formatting** — `Cargo.toml` dependencies now use multi-line inline tables with trailing commas for improved readability (requires Cargo from Rust 1.94+)
-- **Workspace versioning** — root `Cargo.toml` now explicit defines workspace version (0.2.4) for DRY dependency management
-
-### Internal
-
-- Updated to leverage Rust 1.94 stabilized APIs
-- All tests validated; cosine similarity property tests ensure numerical accuracy
-
----
-
 ## [0.2.3] - 2026-03-01
 
 ### Fixed
