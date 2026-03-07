@@ -408,11 +408,12 @@ fn mean_pool(slice: &[f32], shape: &[usize], attention_mask: &[i64]) -> Vec<f32>
 
 /// L2-normalise a vector in place and return it.
 ///
-/// Uses fused multiply-add for improved numerical stability (Rust 1.94+).
+/// Uses fused multiply-add (`x.mul_add(x, acc)`) to compute the sum of squares
+/// with a single rounding per element for improved numerical stability.
 fn l2_normalize(mut v: Vec<f32>) -> Vec<f32> {
     let norm: f32 = v
         .iter()
-        .fold(0.0_f32, |acc: f32, &x| acc.mul_add(1.0, x * x))
+        .fold(0.0_f32, |acc: f32, &x| x.mul_add(x, acc))
         .sqrt();
     if norm > 1e-9 {
         for x in &mut v {
@@ -528,14 +529,14 @@ pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     let dot = a
         .iter()
         .zip(b.iter())
-        .fold(0.0_f32, |acc: f32, (&x, &y)| acc.mul_add(1.0, x * y));
+        .fold(0.0_f32, |acc: f32, (&x, &y)| x.mul_add(y, acc));
     let norm_a = a
         .iter()
-        .fold(0.0_f32, |acc: f32, &x| acc.mul_add(1.0, x * x))
+        .fold(0.0_f32, |acc: f32, &x| x.mul_add(x, acc))
         .sqrt();
     let norm_b = b
         .iter()
-        .fold(0.0_f32, |acc: f32, &y| acc.mul_add(1.0, y * y))
+        .fold(0.0_f32, |acc: f32, &y| y.mul_add(y, acc))
         .sqrt();
 
     if norm_a == 0.0 || norm_b == 0.0 {
