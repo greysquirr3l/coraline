@@ -412,7 +412,7 @@ fn mean_pool(slice: &[f32], shape: &[usize], attention_mask: &[i64]) -> Vec<f32>
 fn l2_normalize(mut v: Vec<f32>) -> Vec<f32> {
     let norm: f32 = v
         .iter()
-        .fold(0.0_f32, |acc: f32, &x| acc.mul_add(1.0, x * x))
+        .fold(0.0_f32, |acc: f32, &x| x.mul_add(x, acc))
         .sqrt();
     if norm > 1e-9 {
         for x in &mut v {
