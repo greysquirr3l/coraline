@@ -408,7 +408,8 @@ fn mean_pool(slice: &[f32], shape: &[usize], attention_mask: &[i64]) -> Vec<f32>
 
 /// L2-normalise a vector in place and return it.
 ///
-/// Uses fused multiply-add for improved numerical stability (Rust 1.94+).
+/// Uses fused multiply-add (`x.mul_add(x, acc)`) to compute the sum of squares
+/// with a single rounding per element for improved numerical stability.
 fn l2_normalize(mut v: Vec<f32>) -> Vec<f32> {
     let norm: f32 = v
         .iter()
