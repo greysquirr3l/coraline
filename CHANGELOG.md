@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Dependencies updated** — tree-sitter (0.26.6), clap (4.5.60), tempfile (3.26.0), rustls (0.23.37), syn (2.0.117), and transitive updates for security and compatibility
+- **Dependencies updated** — refreshed core dependencies and applied transitive updates for security and compatibility
 - **Workspace structure** — removed workspace version redeclaration (single version per package)
 
 ### Internal
