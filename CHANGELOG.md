@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.3.0] - 2026-03-07
+
+### Added
+
+- **Vector math optimizations** — cosine similarity and L2 normalization now use fused multiply-add for improved numerical stability
+
+### Changed
+
+- **Dependencies updated** — refreshed core dependencies and applied transitive updates for security and compatibility (tree-sitter, clap, tempfile, syn, and 16+ transitive deps)
+
+### Internal
+
+- All tests validated (37/37 passing); property tests ensure numerical accuracy
+
+---
 
 ## [0.2.3] - 2026-03-01
 

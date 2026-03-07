@@ -407,8 +407,13 @@ fn mean_pool(slice: &[f32], shape: &[usize], attention_mask: &[i64]) -> Vec<f32>
 }
 
 /// L2-normalise a vector in place and return it.
+///
+/// Uses fused multiply-add for improved numerical stability.
 fn l2_normalize(mut v: Vec<f32>) -> Vec<f32> {
-    let norm: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
+    let norm: f32 = v
+        .iter()
+        .fold(0.0_f32, |acc: f32, &x| x.mul_add(x, acc))
+        .sqrt();
     if norm > 1e-9 {
         for x in &mut v {
             *x /= norm;
@@ -505,6 +510,8 @@ pub fn load_embedding(conn: &Connection, node_id: &str) -> io::Result<Option<Vec
 
 /// Calculate cosine similarity between two vectors.
 ///
+/// Uses fused multiply-add for improved numerical stability.
+///
 /// # Arguments
 ///
 /// * `a` - First vector
@@ -518,9 +525,18 @@ pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
         return 0.0;
     }
 
-    let dot: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
-    let norm_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
-    let norm_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
+    let dot = a
+        .iter()
+        .zip(b.iter())
+        .fold(0.0_f32, |acc: f32, (&x, &y)| x.mul_add(y, acc));
+    let norm_a = a
+        .iter()
+        .fold(0.0_f32, |acc: f32, &x| x.mul_add(x, acc))
+        .sqrt();
+    let norm_b = b
+        .iter()
+        .fold(0.0_f32, |acc: f32, &y| y.mul_add(y, acc))
+        .sqrt();
 
     if norm_a == 0.0 || norm_b == 0.0 {
         return 0.0;
