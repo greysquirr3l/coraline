@@ -1,6 +1,6 @@
 [package]
 name = "coraline"
-version = "0.2.3"
+version.workspace = true
 edition = "2024"
 license = "MIT"
 description = "Coraline: semantic code knowledge graph for faster AI-assisted development."
@@ -17,22 +17,46 @@ name = "coraline"
 path = "src/bin/coraline.rs"
 
 [dependencies]
-serde = { version = "1", features = ["derive"] }
+serde = {
+    version = "1",
+    features = ["derive"],
+}
 serde_json = "1"
 toml = "0.8"
-clap = { version = "4", features = ["derive"] }
+clap = {
+    version = "4",
+    features = ["derive"],
+}
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+tracing-subscriber = {
+    version = "0.3",
+    features = ["env-filter", "fmt"],
+}
 tracing-appender = "0.2"
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = {
+    version = "0.32",
+    features = ["bundled"],
+}
 sha2 = "0.10"
 hex = "0.4"
 regex = "1"
 globset = "0.4.18"
 rayon = "1"
-ndarray = { version = "0.17", optional = true }
-ort = { version = "=2.0.0-rc.11", features = ["download-binaries", "ndarray"], optional = true }
-tokenizers = { version = "0.21", default-features = false, features = ["onig"], optional = true }
+ndarray = {
+    version = "0.17",
+    optional = true,
+}
+ort = {
+    version = "=2.0.0-rc.11",
+    features = ["download-binaries", "ndarray"],
+    optional = true,
+}
+tokenizers = {
+    version = "0.21",
+    default-features = false,
+    features = ["onig"],
+    optional = true,
+}
 ureq = "3"
 
 # Tree-sitter core and parsers
