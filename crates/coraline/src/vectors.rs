@@ -528,14 +528,14 @@ pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     let dot = a
         .iter()
         .zip(b.iter())
-        .fold(0.0_f32, |acc: f32, (&x, &y)| acc.mul_add(1.0, x * y));
+        .fold(0.0_f32, |acc: f32, (&x, &y)| x.mul_add(y, acc));
     let norm_a = a
         .iter()
-        .fold(0.0_f32, |acc: f32, &x| acc.mul_add(1.0, x * x))
+        .fold(0.0_f32, |acc: f32, &x| x.mul_add(x, acc))
         .sqrt();
     let norm_b = b
         .iter()
-        .fold(0.0_f32, |acc: f32, &y| acc.mul_add(1.0, y * y))
+        .fold(0.0_f32, |acc: f32, &y| y.mul_add(y, acc))
         .sqrt();
 
     if norm_a == 0.0 || norm_b == 0.0 {
