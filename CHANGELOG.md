@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Rust 1.94.0 optimizations** — vector math now uses fused multiply-add (`mul_add()`) for improved performance and numerical stability in cosine similarity and L2 normalization
+- **Corrected FMA usage in L2 normalisation** — `l2_normalize` now uses `x.mul_add(x, acc)` for genuine fused multiply-add accumulation of squared magnitudes, improving numerical stability
 
 ### Changed
 
@@ -17,7 +17,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
-- Leverages Rust 1.94 stabilized APIs
 - All tests validated; cosine similarity property tests ensure numerical accuracy
 
 ---
@@ -25,13 +24,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Rust 1.94.0 optimizations** — vector math now uses fused multiply-add (`mul_add()`) for improved performance and numerical stability in cosine similarity and L2 normalization
+- **Improved FMA usage in vector math** — `l2_normalize` and cosine similarity now use `x.mul_add(x, acc)` for genuine fused multiply-add accumulation; `mul_add` has been stable since early Rust and is not a Rust 1.94 feature
 - **TOML 1.1 formatting** — `Cargo.toml` dependencies now use multi-line inline tables with trailing commas for improved readability (requires Cargo from Rust 1.94+)
-- **Workspace versioning** — root `Cargo.toml` now explicit defines workspace version (0.2.4) for DRY dependency management
+- **Workspace versioning** — root `Cargo.toml` now explicitly defines workspace version (0.2.4) for DRY dependency management
 
 ### Internal
 
-- Updated to leverage Rust 1.94 stabilized APIs
 - All tests validated; cosine similarity property tests ensure numerical accuracy
 
 ---
