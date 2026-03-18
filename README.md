@@ -131,6 +131,18 @@ coraline embed --download
 
 > **Note:** Pre-built release binaries do **not** include the `embeddings` feature. Build from source if you need semantic search.
 
+#### Older Linux / HPC systems (glibc issues)
+
+If the standard `embeddings` feature fails to compile due to glibc incompatibility (e.g., Rocky Linux, CentOS, HPC nodes), use the `embeddings-dynamic` feature instead:
+
+```bash
+cargo install coraline --features embeddings-dynamic
+```
+
+This uses `ort/load-dynamic` — instead of bundling ONNX Runtime binaries, it loads `libonnxruntime.so` at runtime from your system. You must install or build ONNX Runtime separately and ensure it's on your library path (`LD_LIBRARY_PATH` or `/usr/local/lib`).
+
+Alternatively, download the **musl static binary** from the [Releases](https://github.com/greysquirr3l/coraline/releases) page — these have zero glibc dependency (but do not include embeddings support).
+
 ## 🚀 Quick Start
 
 ### 1. Initialize a Project
