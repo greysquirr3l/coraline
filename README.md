@@ -113,7 +113,7 @@ cargo install --path crates/coraline --features embeddings --force
 The `embeddings` feature pulls in `ort` (ONNX Runtime), `tokenizers`, and `ndarray`. A compatible model must be downloaded before embeddings can be generated:
 
 ```bash
-# Download the quantised model (~25 MB) from HuggingFace
+# Download the quantised model (~131 MB) from HuggingFace
 coraline model download
 
 # Generate embeddings for the indexed project
@@ -123,7 +123,7 @@ coraline embed
 coraline model status
 ```
 
-Models are stored in `~/.coraline/models/` by default, shared across all projects. The `embed` command also accepts `--download` to combine both steps in one go:
+Models are stored per-project in `.coraline/models/` inside each project root. The `embed` command also accepts `--download` to combine both steps in one go:
 
 ```bash
 coraline embed --download
