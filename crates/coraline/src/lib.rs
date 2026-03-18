@@ -15,7 +15,7 @@ pub mod sync;
 pub mod tools;
 pub mod types;
 pub mod utils;
-#[cfg(feature = "embeddings")]
+#[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
 pub mod vectors;
 
 #[derive(Debug, Default)]

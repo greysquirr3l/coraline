@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.3.1] - 2026-03-18
+
+### Added
+
+- **`embeddings-dynamic` feature flag** — alternative to `embeddings` that uses `ort/load-dynamic` instead of `ort/download-binaries`, allowing users on systems with older glibc (e.g., Rocky Linux, HPC nodes) to supply their own `libonnxruntime.so` built against their local glibc ([#8](https://github.com/greysquirr3l/coraline/issues/8))
+- **musl static binaries in releases** — `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl` targets added to the release CI matrix, producing fully static binaries with zero glibc dependency
+
+---
+
 ## [0.3.0] - 2026-03-07
 
 ### Added
