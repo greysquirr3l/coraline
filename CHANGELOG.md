@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.4.0] - 2026-03-20
+
+### Added
+
+- **Full multi-language symbol extraction coverage** across all supported languages, including previously missing Python internals and broad AST node-kind mappings.
+- **Expanded import/export resolution across languages** for stronger cross-file graph relationships and MCP traversal behavior.
+- **Broader call-expression detection and callee extraction** across language grammars to improve call graph completeness.
+
+### Changed
+
+- **Cross-language resolution quality** improved for callers/callees/impact tooling due to richer import/export and call mapping.
+
+### Internal
+
+- Strict lint compliance restored after expansion (`cargo clippy --all-features -- -D warnings`).
+- Release validated with build + full test suite.
+
+---
+
 ## [0.3.1] - 2026-03-18
 
 ### Added
