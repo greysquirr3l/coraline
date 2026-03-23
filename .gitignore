@@ -5,6 +5,7 @@ reference_projects/
 docs/dev/
 .coraline/
 .mypy_cache/
+aur/
 
 # Rust
 target/
