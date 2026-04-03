@@ -23,6 +23,8 @@ When `[PATH]` is omitted, the current working directory is used as the project r
 | `config` | Read or update configuration |
 | `hooks` | Manage git hooks |
 | `serve` | Start the MCP server |
+| `embed` | Generate vector embeddings for indexed nodes |
+| `model` | Manage the ONNX embedding model |
 
 ---
 
@@ -30,19 +32,25 @@ When `[PATH]` is omitted, the current working directory is used as the project r
 
 Initialize Coraline in a project directory. Creates `.coraline/` with a SQLite database, default `config.toml`, and initial memory templates.
 
+When stdin is a TTY, prompts to download the embedding model (~137 MB) after initialization. Decline to skip — all non-embedding tools remain fully functional and you can download later with `coraline model download`.
+
+If `.coraline/` already exists and `--index` is passed **without** `--force`, `init` skips the overwrite and runs indexing directly on the existing project.
+
 **Options:**
 
 | Flag | Description |
 |---|---|
 | `-i`, `--index` | Run a full index immediately after initialization |
+| `-f`, `--force` | Overwrite an existing `.coraline/` directory without prompting |
 | `--no-hooks` | Skip automatic git hook installation |
 
 **Examples:**
 ```bash
 coraline init                    # Initialize current directory
 coraline init /path/to/my-app   # Initialize a specific path
-coraline init -i                 # Initialize and index immediately
-coraline init --no-hooks         # Initialize without git hooks
+coraline init -i                 # Initialize, prompt for model, then index
+coraline init -i --no-hooks      # Initialize and index, skip git hooks
+coraline init --force            # Wipe and reinitialize existing project
 ```
 
 **On success, creates:**
@@ -348,3 +356,62 @@ CORALINE_LOG=coraline=trace coraline serve --mcp
 ```
 
 Logs are written to `.coraline/logs/coraline.log` (daily rotating) and to stderr at the configured level.
+
+---
+
+## `coraline embed [PATH]`
+
+Generate vector embeddings for all indexed nodes using the local ONNX model. Embeddings enable the `coraline_semantic_search` MCP tool.
+
+**Options:**
+
+| Flag | Description |
+|---|---|
+| `--download` | Download the model automatically before embedding |
+| `--variant FILENAME` | ONNX variant to download (default: `model_int8.onnx`) |
+| `--batch-size N` | Nodes per progress batch (default: `50`) |
+| `-q`, `--quiet` | Suppress progress output |
+
+**Examples:**
+```bash
+coraline embed                        # Embed using already-downloaded model
+coraline embed --download             # Download model_int8.onnx then embed
+coraline embed --download --variant model_fp16.onnx
+```
+
+Run `coraline index` first. Models are stored in `.coraline/models/nomic-embed-text-v1.5/`.
+
+---
+
+## `coraline model [PATH]`
+
+Manage the ONNX embedding model files.
+
+### `coraline model download`
+
+Download model files from HuggingFace (`nomic-ai/nomic-embed-text-v1.5`).
+
+| Flag | Description |
+|---|---|
+| `--variant FILENAME` | ONNX variant to download (default: `model_int8.onnx`) |
+| `-f`, `--force` | Re-download even if files already exist |
+| `-q`, `--quiet` | Suppress progress output |
+
+Downloads `tokenizer.json`, `tokenizer_config.json`, and the chosen ONNX weights into `.coraline/models/nomic-embed-text-v1.5/`.
+
+**Available variants (smallest to largest):**
+
+| Variant | Size | Notes |
+|---|---|---|
+| `model_q4f16.onnx` | ~111 MB | Q4 + fp16 mixed (smallest) |
+| `model_int8.onnx` | ~137 MB | int8 quantized (recommended) |
+| `model_fp16.onnx` | ~274 MB | fp16 |
+| `model.onnx` | ~547 MB | full f32 |
+
+### `coraline model status`
+
+Show which model files are present in the model directory.
+
+```bash
+coraline model status
+```

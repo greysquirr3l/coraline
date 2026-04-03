@@ -35,8 +35,17 @@ pub struct MemoryManager {
 impl MemoryManager {
     /// Create a new memory manager for the given project root.
     pub fn new(project_root: &Path) -> io::Result<Self> {
-        let memory_dir = project_root.join(".coraline").join("memories");
-        fs::create_dir_all(&memory_dir)?;
+        let coraline_dir = project_root.join(".coraline");
+        if !coraline_dir.is_dir() {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!(
+                    "Coraline not initialized in {}. Run 'coraline init' first.",
+                    project_root.display()
+                ),
+            ));
+        }
+        let memory_dir = coraline_dir.join("memories");
         Ok(Self { memory_dir })
     }
 
@@ -48,6 +57,7 @@ impl MemoryManager {
 
     /// Write or update a memory.
     pub fn write_memory(&self, name: &str, content: &str) -> io::Result<String> {
+        fs::create_dir_all(&self.memory_dir)?;
         let path = self.get_memory_path(name);
         fs::write(&path, content)?;
         Ok(format!("Memory '{name}' written successfully"))

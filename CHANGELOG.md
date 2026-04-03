@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.4.1] - 2026-04-03
+
+### Added
+
+- **Embedding model prompt on `coraline init`** — when stdin is a TTY, `init` now offers to download the embedding model (~137 MB) immediately after initialization; declined or non-interactive runs print a tip and continue normally with full graph functionality
+- **`embeddings` is now the default feature** — `cargo install coraline` includes ONNX/semantic search support out of the box; no `--features` flag required for most users
+
+### Fixed
+
+- **MCP server no longer ghost-creates `.coraline/`** — `MemoryManager` previously called `create_dir_all(.coraline/memories/)` eagerly on every MCP startup, leaving a stub directory that blocked `coraline init` from running cleanly; it now returns an error if `.coraline/` doesn't exist, which the MCP tool registry handles gracefully
+- **`coraline init -i` on an already-initialized project no longer prompts to overwrite** — when `--index` is present without `--force`, init detects the existing directory, skips the destructive overwrite, and runs indexing directly; use `--force` to explicitly wipe and reinitialize
+- **`coraline_semantic_search` MCP tool degrades gracefully without a model** — when no ONNX model file is present the tool is not registered (all other tools remain available) and a warning is emitted to the project log
+
+---
+
 ## [0.4.0] - 2026-03-20
 
 ### Added

@@ -1,6 +1,6 @@
 [package]
 name = "coraline"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2024"
 license = "MIT"
 description = "Coraline: semantic code knowledge graph for faster AI-assisted development."
@@ -77,6 +77,7 @@ tree-sitter-swift = "0.7.1"
 tree-sitter-kotlin-ng = "1.1.0"  # Using -ng fork which is compatible with tree-sitter 0.26
 
 [features]
+default = ["embeddings"]
 embeddings = ["dep:ort", "dep:tokenizers", "dep:ndarray", "ort/download-binaries"]
 embeddings-dynamic = ["dep:ort", "dep:tokenizers", "dep:ndarray", "ort/load-dynamic"]
 

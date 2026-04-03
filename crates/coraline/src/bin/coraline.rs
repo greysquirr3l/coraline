@@ -566,6 +566,23 @@ fn run_init(args: InitArgs) {
     let project_root = resolve_project_root(args.path);
 
     if is_initialized(&project_root) {
+        // If the user just wants to (re)index an already-initialized project,
+        // skip the destructive overwrite entirely.
+        if args.index && !args.force {
+            println!(
+                "Coraline already initialized in {}.",
+                project_root.display()
+            );
+            #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
+            maybe_prompt_model_download(&project_root);
+            run_index(IndexArgs {
+                path: Some(project_root),
+                force: false,
+                quiet: false,
+            });
+            return;
+        }
+
         if !args.force {
             // Only prompt when stdin is a terminal; otherwise abort safely.
             if std::io::IsTerminal::is_terminal(&std::io::stdin()) {
@@ -638,12 +655,64 @@ fn run_init(args: InitArgs) {
         }
     }
 
+    #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
+    maybe_prompt_model_download(&project_root);
+
     if args.index {
         run_index(IndexArgs {
             path: Some(project_root),
             force: false,
             quiet: false,
         });
+    }
+}
+
+/// After a fresh `init`, offer to download the embedding model when stdin is a
+/// terminal.  If the user declines (or is non-interactive), we print a hint and
+/// continue — all non-embedding tools remain fully functional.
+#[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
+fn maybe_prompt_model_download(project_root: &Path) {
+    use std::io::Write as _;
+
+    let cfg = config::load_toml_config(project_root).unwrap_or_default();
+    let model_dir = cfg
+        .vectors
+        .model_dir
+        .map_or_else(|| vectors::default_model_dir(project_root), PathBuf::from);
+
+    // Nothing to do if any model variant is already present.
+    if vectors::MODEL_PREFERENCE_ORDER
+        .iter()
+        .any(|name| model_dir.join(name).exists())
+    {
+        return;
+    }
+
+    if !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+        eprintln!(
+            "Tip: run `coraline model download` then `coraline embed` to enable semantic search."
+        );
+        return;
+    }
+
+    eprint!("Download embedding model for semantic search? (~137 MB) [Y/n] ");
+    let _ = std::io::stderr().flush();
+    let mut input = String::new();
+    if std::io::stdin().read_line(&mut input).is_err() {
+        return;
+    }
+    let answer = input.trim();
+    if answer.is_empty() || answer.eq_ignore_ascii_case("y") {
+        println!("Downloading model into {} ...", model_dir.display());
+        match vectors::download_model(&model_dir, "model_int8.onnx", true, false) {
+            Ok(()) => println!("Done. Run `coraline embed` to generate embeddings."),
+            Err(e) => {
+                eprintln!("Model download failed: {e}");
+                eprintln!("You can retry later with: coraline model download");
+            }
+        }
+    } else {
+        println!("Skipped. Run `coraline model download` later to enable semantic search.");
     }
 }
 

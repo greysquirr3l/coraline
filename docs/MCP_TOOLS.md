@@ -1,7 +1,9 @@
 # Coraline MCP Tools Reference
 
-Coraline exposes **25 MCP tools** (26 with vector embeddings enabled) when running as an MCP server (`coraline serve --mcp`).
+Coraline exposes **26 MCP tools** when running as an MCP server (`coraline serve --mcp`).
 All tool names are prefixed with `coraline_` to avoid collisions with other MCP servers.
+
+`coraline_semantic_search` is available by default (the `embeddings` feature ships enabled) but only registered when an ONNX model is present in `.coraline/models/`. Run `coraline model download` then `coraline embed` to activate it. All other 25 tools are always available.
 
 ---
 
@@ -29,7 +31,7 @@ All tool names are prefixed with `coraline_` to avoid collisions with other MCP 
 | | `coraline_sync` | Trigger incremental index sync |
 | | `coraline_get_config` | Read project configuration |
 | | `coraline_update_config` | Update a config value |
-| | `coraline_semantic_search` | Vector similarity search (requires embeddings) |
+| | `coraline_semantic_search` | Vector similarity search (requires model download — see below) |
 | **Memory** | `coraline_write_memory` | Write or update a project memory |
 | | `coraline_read_memory` | Read a project memory |
 | | `coraline_list_memories` | List all memories |
@@ -437,7 +439,12 @@ Trigger an incremental sync of the index. Detects files added, modified, or remo
 
 ### `coraline_semantic_search`
 
-Search indexed nodes using natural-language vector similarity. Requires embeddings to have been generated with `coraline embed`.
+Search indexed nodes using natural-language vector similarity. Included in the default build; only registered as an MCP tool once an ONNX model is present in `.coraline/models/`. To activate:
+
+```bash
+coraline model download   # download nomic-embed-text-v1.5 (~137 MB)
+coraline embed            # generate embeddings for all indexed nodes
+```
 
 **Input:**
 

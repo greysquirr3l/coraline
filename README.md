@@ -98,50 +98,47 @@ cd coraline
 cargo install --path crates/coraline --force
 ```
 
-### With LLM / Semantic Search (optional)
+### Semantic Search / LLM Embeddings
 
-By default Coraline installs **without** ONNX / vector-embedding support to keep the binary small and the build dependency-free. To enable semantic search (`coraline_semantic_search` MCP tool and the `embed`/`model` CLI commands), compile with the `embeddings` feature:
+Semantic search is **included by default** — `cargo install coraline` bundles ONNX/vector-embedding support (via the `embeddings` feature). No extra flags required.
 
-```bash
-# From crates.io
-cargo install coraline --features embeddings
+After running `coraline init`, you will be prompted to download the embedding model (~137 MB) if stdin is a TTY:
 
-# From source
-cargo install --path crates/coraline --features embeddings --force
+```
+Download embedding model for semantic search? (~137 MB) [Y/n]
 ```
 
-The `embeddings` feature pulls in `ort` (ONNX Runtime), `tokenizers`, and `ndarray`. A compatible model must be downloaded before embeddings can be generated:
+You can always download or re-download the model manually:
 
 ```bash
-# Download the quantised model (~131 MB) from HuggingFace
+# Download the int8-quantised model (~137 MB) from HuggingFace
 coraline model download
 
 # Generate embeddings for the indexed project
 coraline embed
 
+# Combine both steps
+coraline embed --download
+
 # Check which model files are present
 coraline model status
 ```
 
-Models are stored per-project in `.coraline/models/` inside each project root. The `embed` command also accepts `--download` to combine both steps in one go:
+Models are stored per-project in `.coraline/models/`. If no model is present, `coraline_semantic_search` is simply not registered as an MCP tool — all other tools remain fully functional.
 
-```bash
-coraline embed --download
-```
-
-> **Note:** Pre-built release binaries do **not** include the `embeddings` feature. Build from source if you need semantic search.
+> **Note:** Pre-built release binaries do **not** include the `embeddings` feature (to keep them statically linkable). Build from source for semantic search in pre-built environments.
 
 #### Older Linux / HPC systems (glibc issues)
 
-If the standard `embeddings` feature fails to compile due to glibc incompatibility (e.g., Rocky Linux, CentOS, HPC nodes), use the `embeddings-dynamic` feature instead:
+If the `embeddings` feature fails to compile due to glibc incompatibility (e.g., Rocky Linux, CentOS, HPC nodes), use `embeddings-dynamic` instead — it links against a system-installed `libonnxruntime.so` at runtime:
 
 ```bash
-cargo install coraline --features embeddings-dynamic
+cargo install coraline --no-default-features --features embeddings-dynamic
 ```
 
-This uses `ort/load-dynamic` — instead of bundling ONNX Runtime binaries, it loads `libonnxruntime.so` at runtime from your system. You must install or build ONNX Runtime separately and ensure it's on your library path (`LD_LIBRARY_PATH` or `/usr/local/lib`).
+You must have ONNX Runtime installed and on your library path (`LD_LIBRARY_PATH` or `/usr/local/lib`).
 
-Alternatively, download the **musl static binary** from the [Releases](https://github.com/greysquirr3l/coraline/releases) page — these have zero glibc dependency (but do not include embeddings support).
+Alternatively, download the **musl static binary** from the [Releases](https://github.com/greysquirr3l/coraline/releases) page — zero glibc dependency (embeddings not included).
 
 ## 🚀 Quick Start
 
@@ -168,7 +165,7 @@ Coraline will:
 - Extract symbols (functions, classes, methods, types)
 - Build the call graph and reference map
 
-> **Semantic search**: run `coraline embed` after indexing to generate vector embeddings (requires the `embeddings` feature — see [Installation](#installation)).
+> **Semantic search**: run `coraline embed` after indexing to generate vector embeddings (model download is prompted automatically on `coraline init`).
 
 ### 3. Use as MCP Server
 
@@ -223,7 +220,7 @@ See [docs/CLI_REFERENCE.md](docs/CLI_REFERENCE.md) for full documentation.
 
 ## 🔌 MCP Tools
 
-When running as an MCP server, Coraline exposes **25 tools** (26 with vector embeddings) prefixed with `coraline_`.
+When running as an MCP server, Coraline exposes **26 tools** prefixed with `coraline_` (`coraline_semantic_search` requires the embedding model to be downloaded — see [Semantic Search](#semantic-search--llm-embeddings)).
 See [docs/MCP_TOOLS.md](docs/MCP_TOOLS.md) for the full reference.
 
 ### Graph Tools

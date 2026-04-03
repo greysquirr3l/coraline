@@ -216,6 +216,12 @@ pub fn create_default_registry(project_root: &std::path::Path) -> ToolRegistry {
         registry.register(Box::new(file_tools::SemanticSearchTool::new(
             project_root.to_path_buf(),
         )));
+    } else {
+        tracing::warn!(
+            "Semantic search disabled: no embedding model found in {}. \
+             Run `coraline model download` then `coraline embed` to enable it.",
+            model_dir.display()
+        );
     }
 
     registry
