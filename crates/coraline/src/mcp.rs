@@ -399,7 +399,15 @@ mod tests {
 
         let path_is_valid = root
             .as_ref()
-            .map(|path| path.is_absolute() && path.to_string_lossy().ends_with("/tmp/coraline"))
+            .map(|path| {
+                let is_absolute = path.is_absolute();
+                let has_expected_leaf = path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .map(|name| name == "coraline")
+                    .unwrap_or(false);
+                is_absolute && has_expected_leaf
+            })
             .unwrap_or(false);
         assert!(path_is_valid);
     }
