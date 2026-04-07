@@ -25,31 +25,37 @@ jobs:
             os: ubuntu-latest
             name: coraline-linux-x86_64
             use_cross: false
+            build_args: ""
           # Linux x86_64 (musl, fully static — works on older glibc)
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
             name: coraline-linux-x86_64-musl
             use_cross: true
+            build_args: "--no-default-features"
           # Linux ARM64
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
             name: coraline-linux-aarch64
             use_cross: true
+            build_args: ""
           # Linux ARM64 (musl, fully static — works on older glibc)
           - target: aarch64-unknown-linux-musl
             os: ubuntu-latest
             name: coraline-linux-aarch64-musl
             use_cross: true
+            build_args: "--no-default-features"
           # macOS ARM64
           - target: aarch64-apple-darwin
             os: macos-latest
             name: coraline-macos-aarch64
             use_cross: false
+            build_args: ""
           # Windows x86_64
           - target: x86_64-pc-windows-msvc
             os: windows-latest
             name: coraline-windows-x86_64.exe
             use_cross: false
+            build_args: ""
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -78,11 +84,11 @@ jobs:
 
       - name: Build release binary (native)
         if: matrix.use_cross == false
-        run: cargo build --release --bin coraline --target ${{ matrix.target }}
+        run: cargo build --release --bin coraline --target ${{ matrix.target }} ${{ matrix.build_args }}
 
       - name: Build release binary (cross)
         if: matrix.use_cross
-        run: cross build --release --bin coraline --target ${{ matrix.target }}
+        run: cross build --release --bin coraline --target ${{ matrix.target }} ${{ matrix.build_args }}
 
       - name: Strip binary (Linux and macOS)
         if: runner.os != 'Windows' && matrix.use_cross == false
