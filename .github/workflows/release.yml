@@ -31,19 +31,19 @@ jobs:
             os: ubuntu-latest
             name: coraline-linux-x86_64-musl
             use_cross: true
-            build_args: "--no-default-features"
+            build_args: "--no-default-features --features embeddings-dynamic"
           # Linux ARM64
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
             name: coraline-linux-aarch64
             use_cross: true
-            build_args: ""
+            build_args: "--no-default-features --features embeddings-dynamic"
           # Linux ARM64 (musl, fully static — works on older glibc)
           - target: aarch64-unknown-linux-musl
             os: ubuntu-latest
             name: coraline-linux-aarch64-musl
             use_cross: true
-            build_args: "--no-default-features"
+            build_args: "--no-default-features --features embeddings-dynamic"
           # macOS ARM64
           - target: aarch64-apple-darwin
             os: macos-latest
