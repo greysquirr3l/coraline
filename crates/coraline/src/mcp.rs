@@ -181,10 +181,14 @@ impl McpServer {
         if let Some(params) = params {
             if let Ok(parsed) = serde_json::from_value::<InitializeParams>(params.clone()) {
                 if let Some(root_uri) = parsed.root_uri {
-                    project_root = Some(PathBuf::from(strip_file_uri(&root_uri)));
+                    if let Some(root_path) = parse_project_root(&root_uri) {
+                        project_root = Some(root_path);
+                    }
                 } else if let Some(folders) = parsed.workspace_folders {
                     if let Some(folder) = folders.first() {
-                        project_root = Some(PathBuf::from(strip_file_uri(&folder.uri)));
+                        if let Some(root_path) = parse_project_root(&folder.uri) {
+                            project_root = Some(root_path);
+                        }
                     }
                 }
             }
@@ -214,6 +218,8 @@ impl McpServer {
     }
 
     fn handle_tools_list(&mut self, id: JsonRpcId) -> io::Result<()> {
+        self.ensure_tools_initialized();
+
         let tools = match &self.tool_registry {
             Some(registry) => registry.get_tool_metadata(),
             None => Vec::new(),
@@ -289,6 +295,20 @@ impl McpServer {
         self.tool_registry = Some(create_default_registry(&project_root));
     }
 
+    fn ensure_tools_initialized(&mut self) {
+        if self.tool_registry.is_some() {
+            return;
+        }
+
+        if self.project_root.is_none() {
+            self.project_root = std::env::current_dir().ok();
+        }
+
+        if let Some(project_root) = self.project_root.clone() {
+            self.initialize_tools(project_root);
+        }
+    }
+
     fn send_result(&self, id: JsonRpcId, result: Value) -> io::Result<()> {
         let response = serde_json::json!({
             "jsonrpc": "2.0",
@@ -323,6 +343,19 @@ fn strip_file_uri(uri: &str) -> String {
     uri.strip_prefix("file://").unwrap_or(uri).to_string()
 }
 
+fn parse_project_root(root: &str) -> Option<PathBuf> {
+    if root.starts_with("file://") {
+        return Some(PathBuf::from(strip_file_uri(root)));
+    }
+
+    let path = Path::new(root);
+    if path.is_absolute() {
+        return Some(path.to_path_buf());
+    }
+
+    None
+}
+
 fn is_initialized(project_root: &Path) -> bool {
     project_root.join(".coraline").is_dir()
 }
@@ -331,4 +364,43 @@ fn send_response(response: Value) -> io::Result<()> {
     let mut stdout = io::stdout();
     writeln!(stdout, "{}", response)?;
     stdout.flush()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{McpServer, parse_project_root};
+
+    #[test]
+    fn tools_are_initialized_without_explicit_path() {
+        let mut server = McpServer::new(None);
+        assert!(server.tool_registry.is_none());
+
+        server.ensure_tools_initialized();
+        assert!(server.tool_registry.is_some());
+
+        let metadata_is_non_empty = server
+            .tool_registry
+            .as_ref()
+            .map(|registry| !registry.get_tool_metadata().is_empty())
+            .unwrap_or(false);
+        assert!(metadata_is_non_empty);
+    }
+
+    #[test]
+    fn parse_project_root_rejects_non_file_uri() {
+        let root = parse_project_root("zed://workspace/foo");
+        assert!(root.is_none());
+    }
+
+    #[test]
+    fn parse_project_root_accepts_file_uri() {
+        let root = parse_project_root("file:///tmp/coraline");
+        assert!(root.is_some());
+
+        let path_is_valid = root
+            .as_ref()
+            .map(|path| path.is_absolute() && path.to_string_lossy().ends_with("/tmp/coraline"))
+            .unwrap_or(false);
+        assert!(path_is_valid);
+    }
 }
