@@ -253,9 +253,15 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    fn init_project_root(path: &Path) {
+        fs::create_dir_all(path.join(".coraline"))
+            .expect("Failed to initialize .coraline directory");
+    }
+
     #[test]
     fn test_memory_manager_write_and_read() {
         let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        init_project_root(temp_dir.path());
         let manager = MemoryManager::new(temp_dir.path()).expect("Failed to create MemoryManager");
 
         let result = manager
@@ -272,6 +278,7 @@ mod tests {
     #[test]
     fn test_memory_manager_handles_md_extension() {
         let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        init_project_root(temp_dir.path());
         let manager = MemoryManager::new(temp_dir.path()).expect("Failed to create MemoryManager");
 
         manager
@@ -289,6 +296,7 @@ mod tests {
     #[test]
     fn test_memory_manager_list() {
         let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        init_project_root(temp_dir.path());
         let manager = MemoryManager::new(temp_dir.path()).expect("Failed to create MemoryManager");
 
         manager
@@ -311,6 +319,7 @@ mod tests {
     #[test]
     fn test_memory_manager_delete() {
         let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        init_project_root(temp_dir.path());
         let manager = MemoryManager::new(temp_dir.path()).expect("Failed to create MemoryManager");
 
         manager
@@ -327,6 +336,7 @@ mod tests {
     #[test]
     fn test_memory_not_found() {
         let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        init_project_root(temp_dir.path());
         let manager = MemoryManager::new(temp_dir.path()).expect("Failed to create MemoryManager");
 
         let result = manager
@@ -338,6 +348,7 @@ mod tests {
     #[test]
     fn test_create_initial_memories() {
         let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        init_project_root(temp_dir.path());
         create_initial_memories(temp_dir.path(), "test_project")
             .expect("Failed to create initial memories");
 

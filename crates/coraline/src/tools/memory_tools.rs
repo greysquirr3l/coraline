@@ -324,12 +324,20 @@ mod tests {
     #![allow(clippy::expect_used)]
 
     use super::*;
+    use std::fs;
+    use std::path::Path;
     use tempfile::TempDir;
+
+    fn init_project_root(path: &Path) {
+        fs::create_dir_all(path.join(".coraline"))
+            .expect("Failed to initialize .coraline directory");
+    }
 
     #[test]
     fn test_write_and_read_memory_tool() {
         let temp_dir = TempDir::new().expect("Failed to create temp directory");
         let path_buf = temp_dir.path().to_path_buf();
+        init_project_root(&path_buf);
         let write_tool = WriteMemoryTool::new(&path_buf).expect("Failed to create WriteMemoryTool");
         let read_tool = ReadMemoryTool::new(&path_buf).expect("Failed to create ReadMemoryTool");
 
@@ -366,6 +374,7 @@ mod tests {
     fn test_list_memories_tool() {
         let temp_dir = TempDir::new().expect("Failed to create temp directory");
         let path_buf = temp_dir.path().to_path_buf();
+        init_project_root(&path_buf);
         let write_tool = WriteMemoryTool::new(&path_buf).expect("Failed to create WriteMemoryTool");
         let list_tool =
             ListMemoriesTool::new(&path_buf).expect("Failed to create ListMemoriesTool");
@@ -391,6 +400,7 @@ mod tests {
     fn test_delete_memory_tool() {
         let temp_dir = TempDir::new().expect("Failed to create temp directory");
         let path_buf = temp_dir.path().to_path_buf();
+        init_project_root(&path_buf);
         let write_tool = WriteMemoryTool::new(&path_buf).expect("Failed to create WriteMemoryTool");
         let delete_tool =
             DeleteMemoryTool::new(&path_buf).expect("Failed to create DeleteMemoryTool");
@@ -415,6 +425,7 @@ mod tests {
     fn test_edit_memory_tool_literal() {
         let temp_dir = TempDir::new().expect("Failed to create temp directory");
         let path_buf = temp_dir.path().to_path_buf();
+        init_project_root(&path_buf);
         let write_tool = WriteMemoryTool::new(&path_buf).expect("Failed to create WriteMemoryTool");
         let edit_tool = EditMemoryTool::new(&path_buf).expect("Failed to create EditMemoryTool");
         let read_tool = ReadMemoryTool::new(&path_buf).expect("Failed to create ReadMemoryTool");
@@ -448,6 +459,7 @@ mod tests {
     fn test_edit_memory_tool_regex() {
         let temp_dir = TempDir::new().expect("Failed to create temp directory");
         let path_buf = temp_dir.path().to_path_buf();
+        init_project_root(&path_buf);
         let write_tool = WriteMemoryTool::new(&path_buf).expect("Failed to create WriteMemoryTool");
         let edit_tool = EditMemoryTool::new(&path_buf).expect("Failed to create EditMemoryTool");
         let read_tool = ReadMemoryTool::new(&path_buf).expect("Failed to create ReadMemoryTool");
