@@ -126,7 +126,18 @@ coraline model status
 
 Models are stored per-project in `.coraline/models/`. If no model is present, `coraline_semantic_search` is simply not registered as an MCP tool — all other tools remain fully functional.
 
-> **Note:** Pre-built release binaries do **not** include the `embeddings` feature (to keep them statically linkable). Build from source for semantic search in pre-built environments.
+#### Pre-built Binary Feature Matrix
+
+| Build | Embeddings | ONNX Runtime |
+|-------|------------|--------------|
+| `coraline-linux-x86_64` | ✅ Full | Bundled |
+| `coraline-macos-aarch64` | ✅ Full | Bundled |
+| `coraline-windows-x86_64` | ✅ Full | Bundled |
+| `coraline-linux-aarch64` | ✅ Dynamic | Requires `libonnxruntime` |
+| `coraline-linux-x86_64-musl` | ✅ Dynamic | Requires `libonnxruntime` |
+| `coraline-linux-aarch64-musl` | ✅ Dynamic | Requires `libonnxruntime` |
+
+**Dynamic builds** compile full embedding support but load ONNX Runtime at runtime. Install `libonnxruntime` via your package manager or from [ONNX Runtime releases](https://github.com/microsoft/onnxruntime/releases). If the library is not found, embeddings gracefully degrade — all other tools remain functional.
 
 #### Older Linux / HPC systems (glibc issues)
 
@@ -138,7 +149,7 @@ cargo install coraline --no-default-features --features embeddings-dynamic
 
 You must have ONNX Runtime installed and on your library path (`LD_LIBRARY_PATH` or `/usr/local/lib`).
 
-Alternatively, download the **musl static binary** from the [Releases](https://github.com/greysquirr3l/coraline/releases) page — zero glibc dependency (embeddings not included).
+Alternatively, download a **musl static binary** from the [Releases](https://github.com/greysquirr3l/coraline/releases) page — zero glibc dependency (requires `libonnxruntime` for embeddings).
 
 ## 🚀 Quick Start
 
