@@ -329,15 +329,38 @@ fn run_model(args: ModelArgs) {
 
     match args.action {
         ModelAction::Download { variant, force } => {
-            if !args.quiet {
-                println!("Downloading {variant} into {} ...", model_dir.display());
+            #[cfg(feature = "embeddings")]
+            {
+                if !args.quiet {
+                    println!("Downloading {variant} into {} ...", model_dir.display());
+                }
+                if let Err(e) = vectors::download_model(&model_dir, &variant, !force, args.quiet) {
+                    eprintln!("Download failed: {e}");
+                    std::process::exit(1);
+                }
+                if !args.quiet {
+                    println!("Done. Run `coraline embed` to generate embeddings.");
+                }
             }
-            if let Err(e) = vectors::download_model(&model_dir, &variant, !force, args.quiet) {
-                eprintln!("Download failed: {e}");
+            #[cfg(not(feature = "embeddings"))]
+            {
+                let _ = (variant, force); // suppress unused warnings
+                eprintln!("Model download is not available in this build.");
+                eprintln!(
+                    "This binary was built with `embeddings-dynamic`, which loads ONNX Runtime at runtime."
+                );
+                eprintln!();
+                eprintln!("To use embeddings, manually download the model files:");
+                eprintln!(
+                    "  1. Download tokenizer.json from: {}",
+                    vectors::tokenizer_url()
+                );
+                eprintln!(
+                    "  2. Download model_int8.onnx from: {}",
+                    vectors::model_url("model_int8.onnx")
+                );
+                eprintln!("  3. Place both files in: {}", model_dir.display());
                 std::process::exit(1);
-            }
-            if !args.quiet {
-                println!("Done. Run `coraline embed` to generate embeddings.");
             }
         }
         ModelAction::Status => {
@@ -374,6 +397,7 @@ fn run_embed(args: EmbedArgs) {
     }
 
     // Auto-download model files if requested.
+    #[cfg(feature = "embeddings")]
     if args.download {
         let cfg = config::load_toml_config(&project_root).unwrap_or_default();
         let model_dir = cfg
@@ -391,6 +415,12 @@ fn run_embed(args: EmbedArgs) {
             eprintln!("Download failed: {e}");
             std::process::exit(1);
         }
+    }
+    #[cfg(not(feature = "embeddings"))]
+    if args.download {
+        eprintln!("Model download is not available in this build (embeddings-dynamic).");
+        eprintln!("Please download the model files manually. See: coraline model download --help");
+        std::process::exit(1);
     }
 
     if !args.quiet {
@@ -670,7 +700,7 @@ fn run_init(args: InitArgs) {
 /// After a fresh `init`, offer to download the embedding model when stdin is a
 /// terminal.  If the user declines (or is non-interactive), we print a hint and
 /// continue — all non-embedding tools remain fully functional.
-#[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
+#[cfg(feature = "embeddings")]
 fn maybe_prompt_model_download(project_root: &Path) {
     use std::io::Write as _;
 
@@ -714,6 +744,37 @@ fn maybe_prompt_model_download(project_root: &Path) {
     } else {
         println!("Skipped. Run `coraline model download` later to enable semantic search.");
     }
+}
+
+/// For embeddings-dynamic builds, we can't auto-download but we can point users
+/// to manual download instructions.
+#[cfg(all(feature = "embeddings-dynamic", not(feature = "embeddings")))]
+fn maybe_prompt_model_download(project_root: &Path) {
+    let cfg = config::load_toml_config(project_root).unwrap_or_default();
+    let model_dir = cfg
+        .vectors
+        .model_dir
+        .map_or_else(|| vectors::default_model_dir(project_root), PathBuf::from);
+
+    // Nothing to do if any model variant is already present.
+    if vectors::MODEL_PREFERENCE_ORDER
+        .iter()
+        .any(|name| model_dir.join(name).exists())
+    {
+        return;
+    }
+
+    eprintln!("Tip: To enable semantic search, download the model files manually:");
+    eprintln!(
+        "  1. Download tokenizer.json from: {}",
+        vectors::tokenizer_url()
+    );
+    eprintln!(
+        "  2. Download model_int8.onnx from: {}",
+        vectors::model_url("model_int8.onnx")
+    );
+    eprintln!("  3. Place both files in: {}", model_dir.display());
+    eprintln!("  4. Run `coraline embed` to generate embeddings.");
 }
 
 fn run_index(args: IndexArgs) {

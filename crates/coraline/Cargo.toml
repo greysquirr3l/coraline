@@ -33,7 +33,7 @@ rayon = "1"
 ndarray = { version = "0.17", optional = true }
 ort = { version = "=2.0.0-rc.11", features = ["ndarray"], optional = true }
 tokenizers = { version = "0.21", default-features = false, features = ["onig"], optional = true }
-ureq = "3"
+ureq = { version = "3", optional = true }
 
 # Tree-sitter core and parsers
 tree-sitter = "0.26.5"
@@ -78,7 +78,7 @@ tree-sitter-kotlin-ng = "1.1.0"  # Using -ng fork which is compatible with tree-
 
 [features]
 default = ["embeddings"]
-embeddings = ["dep:ort", "dep:tokenizers", "dep:ndarray", "ort/download-binaries"]
+embeddings = ["dep:ort", "dep:tokenizers", "dep:ndarray", "dep:ureq", "ort/download-binaries"]
 embeddings-dynamic = ["dep:ort", "dep:tokenizers", "dep:ndarray", "ort/load-dynamic"]
 
 [dev-dependencies]
