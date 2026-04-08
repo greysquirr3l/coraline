@@ -53,8 +53,8 @@ cargo test resolve_unresolved
 # Run a specific integration test file
 cargo test --test extraction_test
 
-# Lint (all warnings as errors)
-cargo clippy --all-features -- -D warnings
+# Lint (project default clippy baseline)
+cargo lint
 
 # Format
 cargo fmt
@@ -214,7 +214,7 @@ The `release.yml` workflow builds binaries for Linux x86_64, macOS x86_64/ARM64,
 ## Code Style
 
 - `#![forbid(unsafe_code)]` on all modules — no unsafe code
-- `cargo clippy --all-features -- -D warnings` must pass **before** committing
+- `cargo lint` must pass **before** committing
 - `cargo fmt` for formatting (rustfmt defaults)
 - Keep functions focused; prefer extracting helpers over long function bodies
 - Prefer `let Some(x) = opt else { return ...; }` over `.unwrap()` or `?` in non-Result contexts
@@ -248,5 +248,5 @@ printf '%s\n%s\n%s\n' \
 ### Check all tests pass after a change
 
 ```bash
-cargo clippy --all-features -- -D warnings && cargo test --all-features 2>&1 | grep "test result"
+cargo lint && cargo test --all-features 2>&1 | grep "test result"
 ```

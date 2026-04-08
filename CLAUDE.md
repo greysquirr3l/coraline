@@ -31,7 +31,7 @@ cargo test --all-features
 cargo bench --bench indexing
 
 # Lint
-cargo clippy --all-features -- -D warnings
+cargo lint
 
 # Format
 cargo fmt

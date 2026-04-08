@@ -29,7 +29,9 @@ release/
 *.sqlite3
 
 # Cargo
-.cargo/
+.cargo/*
+!.cargo/
+!.cargo/config.toml
 **/*.rs.bk
 .cargo-ok
 

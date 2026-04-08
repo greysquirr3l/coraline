@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-04-08
+
+### Added
+
+- **MCP protocol negotiation and compatibility fallback** — server now negotiates protocol version with clients, preferring `2025-11-25` while retaining compatibility with `2024-11-05`
+- **`tools/list` pagination support** — cursor-based pagination added via `cursor` request param and `nextCursor` response field
+
+### Changed
+
+- **MCP lifecycle enforcement tightened** — normal operations now require successful `initialize` followed by `notifications/initialized`
+- **Tool error semantics aligned with MCP expectations** — unknown tool calls return protocol errors; tool execution failures continue returning `isError: true` results
+- **Tool capability declaration expanded** — MCP initialize response now advertises `tools.listChanged` capability (currently `false`)
+- **Core dependencies refreshed for 0.5.0** — upgraded key libraries including `toml` (1.1), `rusqlite` (0.39), `sha2` (0.11), `tokenizers` (0.22), and multiple tree-sitter parser crates; validated with full workspace tests and clippy
+- **Workflow supply-chain hardening** — all CI and CodeQL GitHub Actions are now pinned to immutable commit SHAs to improve OSSF Scorecard `Pinned-Dependencies` posture
+- **Strict lint command is now standardized** — added tracked `.cargo/config.toml` alias so `cargo lint` consistently enforces the project clippy policy in local and CI runs
+
+### Fixed
+
+- **Tool result schema field casing** — MCP tool results now serialize as `isError` (camelCase) instead of `is_error`
+- **Clippy pedantic compliance in MCP server code** — removed no-effect underscore bindings and replaced potential panicking slice/index patterns with safe iterator/object mutation patterns
+
+### Documentation
+
+- **MCP documentation refreshed across README and docs book** — updated protocol/lifecycle notes, pagination behavior, and development examples to reflect current server behavior
+
 ## [0.4.4] - 2026-04-08
 
 ### Fixed
