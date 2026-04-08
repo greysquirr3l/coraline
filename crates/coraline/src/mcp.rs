@@ -339,13 +339,23 @@ impl McpServer {
     }
 }
 
-fn strip_file_uri(uri: &str) -> String {
-    uri.strip_prefix("file://").unwrap_or(uri).to_string()
-}
-
 fn parse_project_root(root: &str) -> Option<PathBuf> {
-    if root.starts_with("file://") {
-        return Some(PathBuf::from(strip_file_uri(root)));
+    if let Some(raw_path) = root.strip_prefix("file://") {
+        #[cfg(windows)]
+        {
+            // VS Code provides Windows file URIs as /C:/path. Strip the leading
+            // slash so PathBuf parses a drive-qualified absolute path.
+            let windows_path = match raw_path.as_bytes() {
+                [b'/', drive, b':', ..] if drive.is_ascii_alphabetic() => &raw_path[1..],
+                _ => raw_path,
+            };
+            return Some(PathBuf::from(windows_path));
+        }
+
+        #[cfg(not(windows))]
+        {
+            return Some(PathBuf::from(raw_path));
+        }
     }
 
     let path = Path::new(root);
@@ -394,19 +404,31 @@ mod tests {
 
     #[test]
     fn parse_project_root_accepts_file_uri() {
-        let root = parse_project_root("file:///tmp/coraline");
+        let uri = if cfg!(windows) {
+            "file:///C:/tmp/coraline"
+        } else {
+            "file:///tmp/coraline"
+        };
+
+        let root = parse_project_root(uri);
         assert!(root.is_some());
 
         let path_is_valid = root
             .as_ref()
             .map(|path| {
-                let is_absolute = path.is_absolute();
                 let has_expected_leaf = path
                     .file_name()
                     .and_then(|name| name.to_str())
                     .map(|name| name == "coraline")
                     .unwrap_or(false);
-                is_absolute && has_expected_leaf
+
+                let is_absolute_like = if cfg!(windows) {
+                    path.is_absolute() || path.has_root()
+                } else {
+                    path.is_absolute()
+                };
+
+                is_absolute_like && has_expected_leaf
             })
             .unwrap_or(false);
         assert!(path_is_valid);
