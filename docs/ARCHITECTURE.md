@@ -205,8 +205,8 @@ A `files` table tracks content hashes for incremental sync. An `unresolved_refs`
 The MCP server (`coraline serve --mcp`) communicates over `stdin`/`stdout` using JSON-RPC 2.0, conforming to the [Model Context Protocol specification](https://modelcontextprotocol.io/).
 
 Supported MCP methods:
-- `initialize` / `initialized`
-- `tools/list` — returns all 20 tool descriptors
+- `initialize` / `notifications/initialized`
+- `tools/list` — returns tool descriptors with cursor pagination (`cursor` / `nextCursor`)
 - `tools/call` — dispatches to `ToolRegistry`
 - `ping`
 

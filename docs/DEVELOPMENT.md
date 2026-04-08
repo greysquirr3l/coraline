@@ -155,9 +155,9 @@ Fixtures are small, self-contained codebases checked into the repo.
    }
    ```
 
-2. Register in `mcp.rs` `McpServer::register_tools()`:
+2. Register in `src/tools/mod.rs` inside `create_default_registry(...)`:
    ```rust
-   registry.register(Box::new(MyTool::new(root.clone())));
+   registry.register(Box::new(MyTool::new(project_root.to_path_buf())));
    ```
 
 3. Add unit tests in the same file or `src/tools/mod.rs`.
@@ -238,8 +238,11 @@ coraline context "how does reference resolution work"
 ### Test MCP roundtrip manually
 
 ```bash
-echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"0.0.1"}}}' \
-  | coraline serve --mcp
+printf '%s\n%s\n%s\n' \
+   '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"0.0.1"}}}' \
+   '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+   '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+   | coraline serve --mcp
 ```
 
 ### Check all tests pass after a change

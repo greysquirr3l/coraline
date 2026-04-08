@@ -3,6 +3,11 @@
 Coraline exposes **26 MCP tools** when running as an MCP server (`coraline serve --mcp`).
 All tool names are prefixed with `coraline_` to avoid collisions with other MCP servers.
 
+Protocol notes:
+- Negotiates MCP protocol version `2025-11-25` (with compatibility fallback to `2024-11-05`)
+- Expects `notifications/initialized` after `initialize` before normal requests
+- `tools/list` supports pagination via `cursor` and `nextCursor`
+
 `coraline_semantic_search` is available by default (the `embeddings` feature ships enabled) but only registered when an ONNX model is present in `.coraline/models/`. Run `coraline model download` then `coraline embed` to activate it. All other 25 tools are always available.
 
 ---

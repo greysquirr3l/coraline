@@ -182,6 +182,10 @@ Coraline will:
 
 Configure your MCP client to use Coraline:
 
+- MCP protocol: negotiates to `2025-11-25` (falls back to `2024-11-05` for older clients)
+- Lifecycle: clients should send `notifications/initialized` after `initialize` before normal requests
+- `tools/list` supports cursor pagination (`cursor` / `nextCursor`)
+
 **For Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_config.json`):**
 
 ```json

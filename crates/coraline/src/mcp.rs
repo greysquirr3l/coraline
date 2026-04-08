@@ -255,8 +255,8 @@ impl McpServer {
                 }
             }
 
-            let _client_capabilities = parsed.capabilities;
-            let _client_info = parsed.client_info;
+            let _ = parsed.capabilities;
+            let _ = parsed.client_info;
         } else {
             return self.send_error(
                 Some(id),
@@ -329,12 +329,19 @@ impl McpServer {
         }
 
         let end_index = (start_index + TOOLS_LIST_PAGE_SIZE).min(tools.len());
-        let page = tools[start_index..end_index].to_vec();
+        let page = tools
+            .iter()
+            .skip(start_index)
+            .take(end_index.saturating_sub(start_index))
+            .cloned()
+            .collect::<Vec<_>>();
         let next_cursor = (end_index < tools.len()).then(|| end_index.to_string());
 
         let mut result = serde_json::json!({ "tools": page });
         if let Some(cursor) = next_cursor {
-            result["nextCursor"] = Value::String(cursor);
+            if let Some(obj) = result.as_object_mut() {
+                obj.insert("nextCursor".to_string(), Value::String(cursor));
+            }
         }
 
         self.send_result(id, result)
