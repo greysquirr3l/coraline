@@ -35,6 +35,7 @@ pub struct McpServer {
     project_root: Option<PathBuf>,
     init_error: Option<String>,
     tool_registry: Option<ToolRegistry>,
+    client_initialized: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -63,10 +64,10 @@ struct ToolCallParams {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct ToolResult {
     content: Vec<ToolContent>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    is_error: Option<bool>,
+    is_error: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -96,6 +97,7 @@ impl McpServer {
             project_root,
             init_error: None,
             tool_registry: None,
+            client_initialized: false,
         };
         if let Some(ref root) = server.project_root {
             server.initialize_tools(root.clone());
@@ -155,6 +157,9 @@ impl McpServer {
                     self.handle_tools_call(id, message.get("params"))?;
                 }
             }
+            "notifications/initialized" => {
+                self.client_initialized = true;
+            }
             "ping" => {
                 if let Some(id) = id {
                     self.send_result(id, serde_json::json!({}))?;
@@ -204,6 +209,8 @@ impl McpServer {
         if let Some(root) = project_root {
             self.initialize_tools(root);
         }
+
+        self.client_initialized = false;
 
         let response = serde_json::json!({
             "protocolVersion": PROTOCOL_VERSION,
@@ -256,7 +263,7 @@ impl McpServer {
                         r#type: "text",
                         text: result.to_string(),
                     }],
-                    is_error: None,
+                    is_error: false,
                 };
                 self.send_result(id, serde_json::to_value(tool_result).unwrap_or_default())
             }
@@ -267,7 +274,7 @@ impl McpServer {
                         r#type: "text",
                         text: format!("Error: {}", err.message),
                     }],
-                    is_error: Some(true),
+                    is_error: true,
                 };
                 self.send_result(id, serde_json::to_value(tool_result).unwrap_or_default())
             }
@@ -378,7 +385,7 @@ fn send_response(response: Value) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{McpServer, parse_project_root};
+    use super::{McpServer, ToolContent, ToolResult, parse_project_root};
 
     #[test]
     fn tools_are_initialized_without_explicit_path() {
@@ -432,5 +439,20 @@ mod tests {
             })
             .unwrap_or(false);
         assert!(path_is_valid);
+    }
+
+    #[test]
+    fn tool_result_serializes_is_error_camel_case() {
+        let result = ToolResult {
+            content: vec![ToolContent {
+                r#type: "text",
+                text: "ok".to_string(),
+            }],
+            is_error: true,
+        };
+
+        let json = serde_json::to_value(result).unwrap_or_default();
+        assert!(json.get("isError").is_some());
+        assert!(json.get("is_error").is_none());
     }
 }
