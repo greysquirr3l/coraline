@@ -28,14 +28,18 @@ use tracing::{debug, info, warn};
 
 use crate::tools::{ToolRegistry, create_default_registry};
 
-const PROTOCOL_VERSION: &str = "2024-11-05";
+const LATEST_PROTOCOL_VERSION: &str = "2025-11-25";
+const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &[LATEST_PROTOCOL_VERSION, "2024-11-05"];
+const TOOLS_LIST_PAGE_SIZE: usize = 100;
 
 #[derive(Default)]
 pub struct McpServer {
     project_root: Option<PathBuf>,
     init_error: Option<String>,
     tool_registry: Option<ToolRegistry>,
+    initialize_completed: bool,
     client_initialized: bool,
+    negotiated_protocol_version: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -47,6 +51,9 @@ struct ServerInfo {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct InitializeParams {
+    protocol_version: Option<String>,
+    capabilities: Option<Value>,
+    client_info: Option<Value>,
     root_uri: Option<String>,
     workspace_folders: Option<Vec<WorkspaceFolder>>,
 }
@@ -61,6 +68,12 @@ struct ToolCallParams {
     name: String,
     #[serde(default)]
     arguments: HashMap<String, Value>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ToolsListParams {
+    cursor: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -97,7 +110,9 @@ impl McpServer {
             project_root,
             init_error: None,
             tool_registry: None,
+            initialize_completed: false,
             client_initialized: false,
+            negotiated_protocol_version: LATEST_PROTOCOL_VERSION.to_string(),
         };
         if let Some(ref root) = server.project_root {
             server.initialize_tools(root.clone());
@@ -141,6 +156,30 @@ impl McpServer {
         let method = message.get("method").and_then(|m| m.as_str()).unwrap_or("");
         let id = message.get("id").and_then(json_rpc_id_from_value);
 
+        if method != "initialize" && method != "ping" && !self.initialize_completed {
+            if let Some(id) = id {
+                return self.send_error(
+                    Some(id),
+                    -32002,
+                    "Server not initialized. Call initialize first.",
+                    None,
+                );
+            }
+            return Ok(());
+        }
+
+        if method != "initialize" && method != "ping" && method != "notifications/initialized" && !self.client_initialized {
+            if let Some(id) = id {
+                return self.send_error(
+                    Some(id),
+                    -32002,
+                    "Client not initialized. Send notifications/initialized before normal requests.",
+                    None,
+                );
+            }
+            return Ok(());
+        }
+
         match method {
             "initialize" => {
                 if let Some(id) = id {
@@ -149,7 +188,7 @@ impl McpServer {
             }
             "tools/list" => {
                 if let Some(id) = id {
-                    self.handle_tools_list(id)?;
+                    self.handle_tools_list(id, message.get("params"))?;
                 }
             }
             "tools/call" => {
@@ -181,22 +220,46 @@ impl McpServer {
     }
 
     fn handle_initialize(&mut self, id: JsonRpcId, params: Option<&Value>) -> io::Result<()> {
+        let negotiated_protocol_version;
         let mut project_root = self.project_root.clone();
 
-        if let Some(params) = params {
-            if let Ok(parsed) = serde_json::from_value::<InitializeParams>(params.clone()) {
-                if let Some(root_uri) = parsed.root_uri {
-                    if let Some(root_path) = parse_project_root(&root_uri) {
+        if let Some(params) = params.cloned() {
+            let Ok(parsed) = serde_json::from_value::<InitializeParams>(params) else {
+                return self.send_error(Some(id), -32602, "Invalid initialize params", None);
+            };
+
+            let Some(requested_version) = parsed.protocol_version.as_deref() else {
+                return self.send_error(
+                    Some(id),
+                    -32602,
+                    "Missing required initialize param: protocolVersion",
+                    Some(serde_json::json!({ "supported": SUPPORTED_PROTOCOL_VERSIONS })),
+                );
+            };
+
+            negotiated_protocol_version = negotiate_protocol_version(requested_version);
+
+            if let Some(root_uri) = parsed.root_uri {
+                if let Some(root_path) = parse_project_root(&root_uri) {
+                    project_root = Some(root_path);
+                }
+            } else if let Some(folders) = parsed.workspace_folders {
+                if let Some(folder) = folders.first() {
+                    if let Some(root_path) = parse_project_root(&folder.uri) {
                         project_root = Some(root_path);
-                    }
-                } else if let Some(folders) = parsed.workspace_folders {
-                    if let Some(folder) = folders.first() {
-                        if let Some(root_path) = parse_project_root(&folder.uri) {
-                            project_root = Some(root_path);
-                        }
                     }
                 }
             }
+
+            let _client_capabilities = parsed.capabilities;
+            let _client_info = parsed.client_info;
+        } else {
+            return self.send_error(
+                Some(id),
+                -32602,
+                "Missing required initialize params",
+                Some(serde_json::json!({ "supported": SUPPORTED_PROTOCOL_VERSIONS })),
+            );
         }
 
         if project_root.is_none() {
@@ -210,11 +273,13 @@ impl McpServer {
             self.initialize_tools(root);
         }
 
+        self.initialize_completed = true;
         self.client_initialized = false;
+        self.negotiated_protocol_version = negotiated_protocol_version;
 
         let response = serde_json::json!({
-            "protocolVersion": PROTOCOL_VERSION,
-            "capabilities": { "tools": {} },
+            "protocolVersion": self.negotiated_protocol_version,
+            "capabilities": { "tools": { "listChanged": false } },
             "serverInfo": ServerInfo {
                 name: "coraline",
                 version: env!("CARGO_PKG_VERSION"),
@@ -224,14 +289,51 @@ impl McpServer {
         self.send_result(id, response)
     }
 
-    fn handle_tools_list(&mut self, id: JsonRpcId) -> io::Result<()> {
+    fn handle_tools_list(&mut self, id: JsonRpcId, params: Option<&Value>) -> io::Result<()> {
         self.ensure_tools_initialized();
 
-        let tools = match &self.tool_registry {
+        let list_params = match params {
+            Some(value) => match serde_json::from_value::<ToolsListParams>(value.clone()) {
+                Ok(parsed) => parsed,
+                Err(_) => {
+                    return self.send_error(Some(id), -32602, "Invalid tools/list params", None);
+                }
+            },
+            None => ToolsListParams { cursor: None },
+        };
+
+        let start_index = match parse_tools_list_cursor(list_params.cursor.as_deref()) {
+            Ok(index) => index,
+            Err(message) => {
+                return self.send_error(Some(id), -32602, &message, None);
+            }
+        };
+
+        let mut tools = match &self.tool_registry {
             Some(registry) => registry.get_tool_metadata(),
             None => Vec::new(),
         };
-        self.send_result(id, serde_json::json!({ "tools": tools }))
+
+        tools.sort_by(|left, right| {
+            let left_name = left.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            let right_name = right.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            left_name.cmp(right_name)
+        });
+
+        if start_index > tools.len() {
+            return self.send_error(Some(id), -32602, "Invalid cursor", None);
+        }
+
+        let end_index = (start_index + TOOLS_LIST_PAGE_SIZE).min(tools.len());
+        let page = tools[start_index..end_index].to_vec();
+        let next_cursor = (end_index < tools.len()).then(|| end_index.to_string());
+
+        let mut result = serde_json::json!({ "tools": page });
+        if let Some(cursor) = next_cursor {
+            result["nextCursor"] = Value::String(cursor);
+        }
+
+        self.send_result(id, result)
     }
 
     fn handle_tools_call(&mut self, id: JsonRpcId, params: Option<&Value>) -> io::Result<()> {
@@ -268,6 +370,15 @@ impl McpServer {
                 self.send_result(id, serde_json::to_value(tool_result).unwrap_or_default())
             }
             Err(err) => {
+                if err.code == "not_found" {
+                    return self.send_error(
+                        Some(id),
+                        -32602,
+                        &format!("Unknown tool: {}", parsed.name),
+                        None,
+                    );
+                }
+
                 warn!(tool = %parsed.name, error = %err.message, "tool call failed");
                 let tool_result = ToolResult {
                     content: vec![ToolContent {
@@ -377,6 +488,23 @@ fn is_initialized(project_root: &Path) -> bool {
     project_root.join(".coraline").is_dir()
 }
 
+fn negotiate_protocol_version(requested: &str) -> String {
+    if SUPPORTED_PROTOCOL_VERSIONS.contains(&requested) {
+        return requested.to_string();
+    }
+
+    LATEST_PROTOCOL_VERSION.to_string()
+}
+
+fn parse_tools_list_cursor(cursor: Option<&str>) -> Result<usize, String> {
+    match cursor {
+        None => Ok(0),
+        Some(raw) => raw
+            .parse::<usize>()
+            .map_err(|_| "Invalid cursor".to_string()),
+    }
+}
+
 fn send_response(response: Value) -> io::Result<()> {
     let mut stdout = io::stdout();
     writeln!(stdout, "{}", response)?;
@@ -454,5 +582,29 @@ mod tests {
         let json = serde_json::to_value(result).unwrap_or_default();
         assert!(json.get("isError").is_some());
         assert!(json.get("is_error").is_none());
+    }
+
+    #[test]
+    fn negotiate_protocol_version_returns_requested_when_supported() {
+        let version = super::negotiate_protocol_version("2024-11-05");
+        assert_eq!(version, "2024-11-05");
+    }
+
+    #[test]
+    fn negotiate_protocol_version_falls_back_to_latest() {
+        let version = super::negotiate_protocol_version("2099-01-01");
+        assert_eq!(version, super::LATEST_PROTOCOL_VERSION);
+    }
+
+    #[test]
+    fn parse_tools_list_cursor_defaults_to_zero() {
+        let cursor = super::parse_tools_list_cursor(None);
+        assert!(matches!(cursor, Ok(0)));
+    }
+
+    #[test]
+    fn parse_tools_list_cursor_rejects_non_numeric_values() {
+        let cursor = super::parse_tools_list_cursor(Some("abc"));
+        assert!(cursor.is_err());
     }
 }
