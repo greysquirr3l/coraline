@@ -168,7 +168,11 @@ impl McpServer {
             return Ok(());
         }
 
-        if method != "initialize" && method != "ping" && method != "notifications/initialized" && !self.client_initialized {
+        if method != "initialize"
+            && method != "ping"
+            && method != "notifications/initialized"
+            && !self.client_initialized
+        {
             if let Some(id) = id {
                 return self.send_error(
                     Some(id),
