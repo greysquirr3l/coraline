@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.4] - 2026-04-08
+
+### Fixed
+
+- **Windows cross-platform CI test failure** — `parse_project_root_accepts_file_uri` unit test now handles Windows file URI format (`file:///C:/...`) correctly by normalizing the leading slash when present; test is now platform-aware and uses appropriate URIs for each platform
+
+## [0.4.3] - 2026-04-07
+
+### Fixed
+
+- **Cross-compilation builds failing on OpenSSL** — switched TLS backend from `native-tls` (OpenSSL) to `rustls` for all HTTP operations; musl and ARM cross-builds no longer require OpenSSL headers or linking
+- **Root cause**: `ort` dependency had default features enabled which pulled in `tls-native` → `ureq/native-tls` → `openssl-sys`; now uses `default-features = false` with explicit `tls-rustls`
+
+### Changed
+
+- **`embeddings` feature now uses rustls** — pure Rust TLS for model downloads, no system OpenSSL dependency
+- **`embeddings-dynamic` no longer includes any TLS stack** — users supply their own ONNX runtime, no HTTP downloads needed
+
+### Security
+
+- **Pinned all GitHub Actions to commit SHAs** — OSSF Scorecard `PinnedDependenciesID` compliance
+- **Added Dependabot configuration** — automated dependency updates for Cargo and GitHub Actions
+
 ## [0.4.2] - 2026-04-07
 
 ### Fixed
