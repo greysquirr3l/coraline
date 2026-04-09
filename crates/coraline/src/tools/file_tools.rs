@@ -567,7 +567,7 @@ impl SemanticSearchTool {
 
     fn maybe_refresh_index_and_embeddings(
         &self,
-        mut vm: Option<&mut crate::vectors::VectorManager>,
+        vm: Option<&mut crate::vectors::VectorManager>,
     ) -> Result<FreshnessUpdate, ToolError> {
         let now = Instant::now();
         let should_check = {
@@ -575,15 +575,8 @@ impl SemanticSearchTool {
                 .freshness_state
                 .lock()
                 .map_err(|_| ToolError::internal_error("freshness state lock poisoned"))?;
-            match state.last_checked_at {
-                Some(last)
-                    if now.saturating_duration_since(last)
-                        < Duration::from_secs(FRESHNESS_CHECK_INTERVAL_SECS) =>
-                {
-                    false
-                }
-                _ => true,
-            }
+            !matches!(state.last_checked_at, Some(last) if now.saturating_duration_since(last)
+                        < Duration::from_secs(FRESHNESS_CHECK_INTERVAL_SECS))
         };
 
         if !should_check {
@@ -624,7 +617,7 @@ impl SemanticSearchTool {
             .map_err(|e| ToolError::internal_error(format!("Embedding-state check failed: {e}")))?;
 
         if stale_count > 0 {
-            let refreshed = if let Some(vm) = vm.as_deref_mut() {
+            let refreshed = if let Some(vm) = vm {
                 refresh_stale_embeddings(&conn, vm).map_err(|e| {
                     ToolError::internal_error(format!("Embedding refresh failed: {e}"))
                 })?
@@ -696,13 +689,16 @@ fn stale_embedding_count(conn: &rusqlite::Connection) -> std::io::Result<usize> 
 }
 
 #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
+type StaleNodeRow = (String, String, String, Option<String>, Option<String>);
+
+#[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
 fn refresh_stale_embeddings(
     conn: &rusqlite::Connection,
     vm: &mut crate::vectors::VectorManager,
 ) -> std::io::Result<usize> {
     // Collect stale nodes into memory first so the statement borrow is released
     // before we open a transaction, allowing all stores to commit atomically.
-    let stale_nodes: Vec<(String, String, String, Option<String>, Option<String>)> = {
+    let stale_nodes: Vec<StaleNodeRow> = {
         let mut stmt = conn
             .prepare(
                 "SELECT n.id, n.name, n.qualified_name, n.docstring, n.signature
