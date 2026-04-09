@@ -1,6 +1,8 @@
 <div align="center">
 
-# 🧵 Coraline
+<img src="assets/img/coraline_logo.png" alt="Coraline Logo" />
+
+# Coraline
 
 ### Fast, Local Code Intelligence for AI Assistants
 
@@ -13,7 +15,7 @@
 
 ---
 
-## 🚀 What is Coraline?
+## What is Coraline?
 
 **Coraline** is a Rust implementation that combines the best ideas from two powerful coding tools:
 
@@ -21,13 +23,13 @@
 - **[Serena](https://github.com/oraios/serena)** - Symbol-level code understanding and editing tools
 
 Built from the ground up in Rust, Coraline provides:
-- ⚡ **Native performance** - Fast indexing and queries without Node.js overhead
-- 🧠 **Semantic search** - Find code by meaning using vector embeddings
-- 🔧 **Symbol-level tools** - IDE-like precision for AI assistants
-- 🔒 **100% local** - All processing happens on your machine
-- 🌐 **MCP integration** - Works with Claude Desktop, Claude Code, and other MCP clients
+- **Native performance** - Fast indexing and queries without Node.js overhead
+- **Semantic search** - Find code by meaning using vector embeddings
+- **Symbol-level tools** - IDE-like precision for AI assistants
+- **100% local** - All processing happens on your machine
+- **MCP integration** - Works with Claude Desktop, Claude Code, and other MCP clients
 
-## ✨ Key Features
+## Key Features
 
 ### From CodeGraph
 
@@ -45,7 +47,7 @@ Built from the ground up in Rust, Coraline provides:
 - **Project Memories** - Persistent knowledge storage for project context
 - **Smart Context Building** - Gather relevant code for AI assistants efficiently
 
-## 📦 Installation
+## Installation
 
 ### From crates.io (recommended)
 
@@ -133,12 +135,12 @@ Models are stored per-project in `.coraline/models/`. If no model is present, `c
 
 | Build | Embeddings | ONNX Runtime |
 |-------|------------|--------------|
-| `coraline-linux-x86_64` | ✅ Full | Bundled |
-| `coraline-macos-aarch64` | ✅ Full | Bundled |
-| `coraline-windows-x86_64` | ✅ Full | Bundled |
-| `coraline-linux-aarch64` | ✅ Dynamic | Requires `libonnxruntime` |
-| `coraline-linux-x86_64-musl` | ✅ Dynamic | Requires `libonnxruntime` |
-| `coraline-linux-aarch64-musl` | ✅ Dynamic | Requires `libonnxruntime` |
+| `coraline-linux-x86_64` | Full | Bundled |
+| `coraline-macos-aarch64` | Full | Bundled |
+| `coraline-windows-x86_64` | Full | Bundled |
+| `coraline-linux-aarch64` | Dynamic | Requires `libonnxruntime` |
+| `coraline-linux-x86_64-musl` | Dynamic | Requires `libonnxruntime` |
+| `coraline-linux-aarch64-musl` | Dynamic | Requires `libonnxruntime` |
 
 **Dynamic builds** compile full embedding support but load ONNX Runtime at runtime. Install `libonnxruntime` via your package manager or from [ONNX Runtime releases](https://github.com/microsoft/onnxruntime/releases). If the library is not found, embeddings gracefully degrade — all other tools remain functional.
 
@@ -154,7 +156,7 @@ You must have ONNX Runtime installed and on your library path (`LD_LIBRARY_PATH`
 
 Alternatively, download a **musl static binary** from the [Releases](https://github.com/greysquirr3l/coraline/releases) page — zero glibc dependency (requires `libonnxruntime` for embeddings).
 
-## 🚀 Quick Start
+## Quick Start
 
 ### 1. Initialize a Project
 
@@ -216,7 +218,7 @@ Configure your MCP client to use Coraline:
 }
 ```
 
-## 💻 CLI Usage
+## CLI Usage
 
 ```bash
 coraline init [path]              # Initialize project
@@ -234,12 +236,12 @@ coraline hooks install|remove     # Manage git post-commit hook
 coraline serve --mcp              # Start MCP server
 ```
 
-See [docs/CLI_REFERENCE.md](docs/CLI_REFERENCE.md) for full documentation.
+See the published CLI reference: <https://greysquirr3l.github.io/coraline/cli-reference.html>.
 
-## 🔌 MCP Tools
+## MCP Tools
 
 When running as an MCP server, Coraline exposes **26 tools** prefixed with `coraline_` (`coraline_semantic_search` requires the embedding model to be downloaded — see [Semantic Search](#semantic-search--llm-embeddings)).
-See [docs/MCP_TOOLS.md](docs/MCP_TOOLS.md) for the full reference.
+See the published MCP tools reference: <https://greysquirr3l.github.io/coraline/mcp-tools.html>.
 
 `coraline_semantic_search` also performs periodic freshness maintenance: it checks index staleness on an interval, auto-runs incremental sync when needed, and refreshes stale embeddings before returning results.
 
@@ -289,7 +291,7 @@ See [docs/MCP_TOOLS.md](docs/MCP_TOOLS.md) for the full reference.
 | `coraline_delete_memory` | Remove a memory |
 | `coraline_edit_memory` | Edit memory via literal or regex replace |
 
-## 🏗️ Architecture
+## Architecture
 
 ```asciidoc
 ┌─────────────────────────────────────────────────────────────────┐
@@ -324,57 +326,57 @@ See [docs/MCP_TOOLS.md](docs/MCP_TOOLS.md) for the full reference.
 5. **Query**: Graph traversal + vector similarity
 6. **Serve**: Results returned via MCP protocol
 
-## 🌐 Supported Languages
+## Supported Languages
 
 Coraline uses tree-sitter for fast, accurate code parsing. Current support:
 
-### ✅ Fully Implemented
+### Fully Implemented
 
 | Language | Parser | Status | Notes |
 | ---------- | -------- | -------- | ------- |
-| TypeScript | tree-sitter-typescript | ✅ Full | Functions, classes, methods, interfaces |
-| JavaScript | tree-sitter-javascript | ✅ Full | ES6+, JSX support |
-| Rust | tree-sitter-rust | ✅ Full | Full symbol extraction |
-| Python | tree-sitter-python | ✅ Full | Classes, functions, methods |
-| Go | tree-sitter-go | ✅ Full | Packages, functions, structs |
-| Java | tree-sitter-java | ✅ Full | Classes, methods, interfaces |
-| C | tree-sitter-c | ✅ Full | Functions, structs, typedefs |
-| C++ | tree-sitter-cpp | ✅ Full | Classes, templates, namespaces |
-| C# (.NET) | tree-sitter-c-sharp | ✅ Full | ASP.NET Core, Blazor, .razor files |
-| Ruby | tree-sitter-ruby | ✅ Full | Classes, modules, methods |
-| Bash | tree-sitter-bash | ✅ Full | Shell scripts, functions |
-| Dart | tree-sitter-dart | ✅ Full | Classes, functions, widgets |
-| Elixir | tree-sitter-elixir | ✅ Full | Modules, functions, macros |
-| Elm | tree-sitter-elm | ✅ Full | Functions, types, modules |
-| Erlang | tree-sitter-erlang | ✅ Full | Modules, functions |
-| Fortran | tree-sitter-fortran | ✅ Full | Subroutines, functions, modules |
-| Groovy | tree-sitter-groovy | ✅ Full | Classes, methods, closures |
-| Haskell | tree-sitter-haskell | ✅ Full | Functions, types, typeclasses |
-| Julia | tree-sitter-julia | ✅ Full | Functions, types, modules |
-| Kotlin | tree-sitter-kotlin-ng | ✅ Full | Classes, functions, objects |
-| Lua | tree-sitter-lua | ✅ Full | Functions, tables, modules |
-| Markdown | tree-sitter-markdown-fork | ✅ Full | Documents, headings, lists |
-| MATLAB | tree-sitter-matlab | ✅ Full | Functions, scripts |
-| Nix | tree-sitter-nix | ✅ Full | Derivations, functions |
-| Perl | tree-sitter-perl | ✅ Full | Packages, subroutines |
-| PHP | tree-sitter-php | ✅ Full | Classes, functions, methods |
-| PowerShell | tree-sitter-powershell | ✅ Full | Functions, cmdlets, scripts |
-| R | tree-sitter-r | ✅ Full | Functions, scripts |
-| Scala | tree-sitter-scala | ✅ Full | Classes, objects, traits |
-| Swift | tree-sitter-swift | ✅ Full | Classes, structs, functions |
-| TOML | tree-sitter-toml-ng | ✅ Full | Configuration, tables, keys |
-| YAML | tree-sitter-yaml | ✅ Full | Structure, mappings |
-| Zig | tree-sitter-zig | ✅ Full | Functions, structs |
+| TypeScript | tree-sitter-typescript | Full | Functions, classes, methods, interfaces |
+| JavaScript | tree-sitter-javascript | Full | ES6+, JSX support |
+| Rust | tree-sitter-rust | Full | Full symbol extraction |
+| Python | tree-sitter-python | Full | Classes, functions, methods |
+| Go | tree-sitter-go | Full | Packages, functions, structs |
+| Java | tree-sitter-java | Full | Classes, methods, interfaces |
+| C | tree-sitter-c | Full | Functions, structs, typedefs |
+| C++ | tree-sitter-cpp | Full | Classes, templates, namespaces |
+| C# (.NET) | tree-sitter-c-sharp | Full | ASP.NET Core, Blazor, .razor files |
+| Ruby | tree-sitter-ruby | Full | Classes, modules, methods |
+| Bash | tree-sitter-bash | Full | Shell scripts, functions |
+| Dart | tree-sitter-dart | Full | Classes, functions, widgets |
+| Elixir | tree-sitter-elixir | Full | Modules, functions, macros |
+| Elm | tree-sitter-elm | Full | Functions, types, modules |
+| Erlang | tree-sitter-erlang | Full | Modules, functions |
+| Fortran | tree-sitter-fortran | Full | Subroutines, functions, modules |
+| Groovy | tree-sitter-groovy | Full | Classes, methods, closures |
+| Haskell | tree-sitter-haskell | Full | Functions, types, typeclasses |
+| Julia | tree-sitter-julia | Full | Functions, types, modules |
+| Kotlin | tree-sitter-kotlin-ng | Full | Classes, functions, objects |
+| Lua | tree-sitter-lua | Full | Functions, tables, modules |
+| Markdown | tree-sitter-markdown-fork | Full | Documents, headings, lists |
+| MATLAB | tree-sitter-matlab | Full | Functions, scripts |
+| Nix | tree-sitter-nix | Full | Derivations, functions |
+| Perl | tree-sitter-perl | Full | Packages, subroutines |
+| PHP | tree-sitter-php | Full | Classes, functions, methods |
+| PowerShell | tree-sitter-powershell | Full | Functions, cmdlets, scripts |
+| R | tree-sitter-r | Full | Functions, scripts |
+| Scala | tree-sitter-scala | Full | Classes, objects, traits |
+| Swift | tree-sitter-swift | Full | Classes, structs, functions |
+| TOML | tree-sitter-toml-ng | Full | Configuration, tables, keys |
+| YAML | tree-sitter-yaml | Full | Structure, mappings |
+| Zig | tree-sitter-zig | Full | Functions, structs |
 
-### 🔄 In Progress
+### In Progress
 
 | Language | Status | Notes |
 | ---------- | -------- | ------- |
-| Liquid | ⏸️ Pending | Parser API compatibility issue |
+| Liquid | Pending | Parser API compatibility issue |
 
 > **Note**: Language support requires tree-sitter grammar integration. Some parsers require older tree-sitter versions and will be added when updated parsers are available.
 
-## ⚙️ Configuration
+## Configuration
 
 Configuration lives in `.coraline/config.toml`. A commented template is created by `coraline init`.
 
@@ -396,9 +398,9 @@ git_hooks_enabled = true
 enabled = false   # ONNX embedding support (pending stable ort 2.0)
 ```
 
-See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for the full reference.
+See the published configuration docs: <https://greysquirr3l.github.io/coraline/configuration.html>.
 
-## 📊 Testing
+## Testing
 
 ```bash
 # Run all tests
@@ -411,16 +413,18 @@ cargo test --all-features -- --nocapture
 cargo test --test context_test
 ```
 
-Current status: **38/38 tests passing**  
-See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for the full test structure.
+Current status: **38/38 tests passing**
+See the published development guide: <https://greysquirr3l.github.io/coraline/development.html>.
 
-## 📚 Documentation
+## Documentation
 
-Primary docs can be published as an mdBook on GitHub Pages:
+Primary docs are published on GitHub Pages:
+
+- Docs homepage: <https://greysquirr3l.github.io/coraline/>
 
 - Source: `docs/book/`
 - Workflow: `.github/workflows/docs-pages.yml`
-- Published URL: `https://greysquirr3l.github.io/coraline/`
+- Published URL: <https://greysquirr3l.github.io/coraline/>
 
 Build locally:
 
@@ -430,18 +434,18 @@ mdbook build docs/book
 
 | Document | Description |
 |---|---|
-| [docs/book/src/index.md](docs/book/src/index.md) | mdBook home and published docs navigation |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design and data model |
-| [docs/MCP_TOOLS.md](docs/MCP_TOOLS.md) | Complete MCP tools reference |
-| [docs/CLI_REFERENCE.md](docs/CLI_REFERENCE.md) | All CLI commands and flags |
-| [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | Configuration guide |
-| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Build, test, and contribute |
+| <https://greysquirr3l.github.io/coraline/> | mdBook home and navigation |
+| <https://greysquirr3l.github.io/coraline/architecture.html> | System design and data model |
+| <https://greysquirr3l.github.io/coraline/mcp-tools.html> | Complete MCP tools reference |
+| <https://greysquirr3l.github.io/coraline/cli-reference.html> | All CLI commands and flags |
+| <https://greysquirr3l.github.io/coraline/configuration.html> | Configuration guide |
+| <https://greysquirr3l.github.io/coraline/development.html> | Build, test, and contribute |
 
-## 🤝 Contributing
+## Contributing
 
-Contributions welcome! See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for build setup, coding style, and how to add new tools and language parsers.
+Contributions welcome! See <https://greysquirr3l.github.io/coraline/development.html> for build setup, coding style, and how to add new tools and language parsers.
 
-## 📄 License
+## License
 
 Licensed under either of:
 
@@ -450,7 +454,7 @@ Licensed under either of:
 
 at your option.
 
-## 🙏 Acknowledgements
+## Acknowledgements
 
 Coraline is inspired by and built upon ideas from:
 
@@ -458,7 +462,7 @@ Coraline is inspired by and built upon ideas from:
 - **[Serena](https://github.com/oraios/serena)** by Oraios AI - Symbol-level code intelligence
 - **[tree-sitter](https://tree-sitter.github.io/)** - Fast, incremental parsing library
 
-## 🔗 References
+## References
 
 - CodeGraph: <https://github.com/colbymchenry/codegraph>
 - Serena: <https://github.com/oraios/serena>
@@ -469,7 +473,7 @@ Coraline is inspired by and built upon ideas from:
 
 <div align="center">
 
-**Built with 🦀 Rust for the AI coding community**
+**Built with Rust for the AI coding community**
 
 [Report Bug](https://github.com/greysquirr3l/coraline/issues) · [Request Feature](https://github.com/greysquirr3l/coraline/issues)
 

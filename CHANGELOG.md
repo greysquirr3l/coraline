@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Repository logo asset** — added `assets/img/coraline_logo.png` and wired it into the README header for consistent project branding
+
+### Documentation
+
+- **README cleanup and docs-site routing** — removed emoji-heavy formatting, normalized the logo image tag, and updated primary documentation links to point to the published site at `https://greysquirr3l.github.io/coraline/`
+
 ## [0.6.0] - 2026-04-09
 
 ### Added
