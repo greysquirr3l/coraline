@@ -372,15 +372,24 @@ pub fn needs_sync(project_root: &Path, config: &CodeGraphConfig) -> std::io::Res
         }
 
         let full_path = project_root.join(&tracked.path);
-        let content = if let Ok(content) = fs::read_to_string(&full_path) {
-            content
-        } else {
-            // Unreadable tracked file is considered stale.
-            files_modified += 1;
-            continue;
-        };
-        if hash_sha256(&content) != tracked.content_hash {
-            files_modified += 1;
+        // Fast-path: compare mtime and size from filesystem metadata.
+        // Only fall back to content hashing when metadata differs.
+        match fs::metadata(&full_path) {
+            Err(_) => {
+                // Unreadable tracked file is considered stale.
+                files_modified += 1;
+            }
+            Ok(meta) => {
+                let mtime = meta
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map_or(0, |d| d.as_secs() as i64);
+                let size = meta.len();
+                if mtime != tracked.modified_at || size != tracked.size {
+                    files_modified += 1;
+                }
+            }
         }
     }
 

@@ -678,7 +678,7 @@ fn stale_embedding_count(conn: &rusqlite::Connection) -> std::io::Result<usize> 
         )
         .map_err(std::io::Error::other)?;
 
-    Ok(usize::try_from(count).unwrap_or(0))
+    usize::try_from(count).map_err(std::io::Error::other)
 }
 
 #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
