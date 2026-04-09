@@ -6,65 +6,9 @@ Coraline is a local-first code intelligence system that builds a semantic knowle
 
 ## High-Level Overview
 
-```mermaid
-flowchart TB
-    A[AI Assistant / MCP Client\nClaude Desktop, Claude Code, etc.] -->|MCP stdio| B[coraline serve --mcp]
+![Coraline high-level architecture](assets/architecture-overview.png)
 
-    subgraph S[MCP Server Runtime]
-        direction TB
-        B --> R[Tool Registry]
-
-        subgraph T[Registered Tools]
-            direction LR
-            TG[Graph Tools]
-            TF[File Tools]
-            TC[Context Tools]
-            TM[Memory Tools]
-        end
-
-        R --> TG
-        R --> TF
-        R --> TC
-        R --> TM
-
-        subgraph C[Core Engine]
-            direction LR
-            E[extraction\nparsers]
-            D[db\nSQLite + FTS]
-            G[graph\ntraversal]
-            X[context\nbuilder]
-            Z[resolution\nref-res]
-            V[vectors\nembeddings]
-            Y[sync\ngit hook]
-            M[memory\nmemories]
-        end
-
-        TG --> E
-        TG --> G
-        TC --> X
-        TM --> M
-        TF --> D
-        E --> D
-        E --> Z
-        Z --> D
-        V --> D
-        Y --> D
-    end
-
-    C --> P[.coraline/ project state\ncoraline.db, config.toml, memories/, logs/]
-
-    classDef client fill:#E8F1FF,stroke:#1D4ED8,stroke-width:2px,color:#0B1A3A;
-    classDef runtime fill:#EEF2FF,stroke:#4F46E5,stroke-width:2px,color:#1F1147;
-    classDef tool fill:#ECFDF5,stroke:#059669,stroke-width:2px,color:#042F1A;
-    classDef core fill:#FFF7ED,stroke:#EA580C,stroke-width:2px,color:#431407;
-    classDef state fill:#FEF3C7,stroke:#D97706,stroke-width:2px,color:#451A03;
-
-    class A client;
-    class B,R runtime;
-    class TG,TF,TC,TM tool;
-    class E,D,G,X,Z,V,Y,M core;
-    class P state;
-```
+Diagram source: `docs/diagrams/high-level-overview.mmd`
 
 ---
 
