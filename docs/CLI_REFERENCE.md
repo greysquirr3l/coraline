@@ -363,18 +363,22 @@ Logs are written to `.coraline/logs/coraline.log` (daily rotating) and to stderr
 
 Generate vector embeddings for all indexed nodes using the local ONNX model. Embeddings enable the `coraline_semantic_search` MCP tool.
 
+By default, `embed` performs a lightweight freshness check and runs incremental `sync` first when indexed state is stale. This keeps embeddings aligned with current source files without requiring a manual `coraline sync` step.
+
 **Options:**
 
 | Flag | Description |
 |---|---|
 | `--download` | Download the model automatically before embedding |
 | `--variant FILENAME` | ONNX variant to download (default: `model_int8.onnx`) |
+| `--skip-sync` | Skip automatic pre-embed sync check (embeddings may be stale) |
 | `--batch-size N` | Nodes per progress batch (default: `50`) |
 | `-q`, `--quiet` | Suppress progress output |
 
 **Examples:**
 ```bash
 coraline embed                        # Embed using already-downloaded model
+coraline embed --skip-sync            # Skip auto-sync and embed current index state
 coraline embed --download             # Download model_int8.onnx then embed
 coraline embed --download --variant model_fp16.onnx
 ```

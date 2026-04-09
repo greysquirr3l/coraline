@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`--skip-sync` for `coraline embed`** — allows explicitly bypassing the pre-embed sync check when you intentionally want to embed the current indexed state
+- **`SyncStatus` preflight API (`extraction::needs_sync`)** — lightweight sync-status check now returns detailed added/modified/removed counts for reuse by CLI and MCP flows
+
+### Changed
+
+- **`coraline embed` now preflights index freshness** — embed checks for stale index state and auto-runs incremental `sync` only when needed, with progress output that reports detected and applied changes
+- **`coraline_semantic_search` now performs periodic freshness maintenance** — MCP semantic search throttles freshness checks and, when stale, auto-syncs the graph and refreshes stale/missing node embeddings before serving results
+
+### Documentation
+
+- **CLI, MCP, and README docs updated** — documented `embed --skip-sync`, pre-embed auto-sync behavior, and MCP semantic-search freshness metadata
+
 ## [0.5.0] - 2026-04-08
 
 ### Added

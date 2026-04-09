@@ -117,6 +117,9 @@ coraline model download
 # Generate embeddings for the indexed project
 coraline embed
 
+# Skip automatic pre-embed sync check (advanced)
+coraline embed --skip-sync
+
 # Combine both steps
 coraline embed --download
 
@@ -237,6 +240,8 @@ See [docs/CLI_REFERENCE.md](docs/CLI_REFERENCE.md) for full documentation.
 
 When running as an MCP server, Coraline exposes **26 tools** prefixed with `coraline_` (`coraline_semantic_search` requires the embedding model to be downloaded — see [Semantic Search](#semantic-search--llm-embeddings)).
 See [docs/MCP_TOOLS.md](docs/MCP_TOOLS.md) for the full reference.
+
+`coraline_semantic_search` also performs periodic freshness maintenance: it checks index staleness on an interval, auto-runs incremental sync when needed, and refreshes stale embeddings before returning results.
 
 ### Graph Tools
 
