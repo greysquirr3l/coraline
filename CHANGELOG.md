@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-04-09
+
 ### Added
 
 - **`--skip-sync` for `coraline embed`** — allows explicitly bypassing the pre-embed sync check when you intentionally want to embed the current indexed state
@@ -21,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **CLI, MCP, and README docs updated** — documented `embed --skip-sync`, pre-embed auto-sync behavior, and MCP semantic-search freshness metadata
 - **mdBook docs site added** — introduced `docs/book/` and a GitHub Pages deployment workflow (`docs-pages.yml`) to publish documentation on the project GitHub Pages site
+- **Architecture docs visual refresh** — replaced ASCII overview with GitHub-native Mermaid diagrams for cleaner rendering and maintenance
 
 ## [0.5.0] - 2026-04-08
 
@@ -257,6 +260,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Git post-commit hook integration
 
 [0.2.0]: https://github.com/greysquirr3l/coraline/compare/v0.1.3...v0.2.0
+[Unreleased]: https://github.com/greysquirr3l/coraline/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/greysquirr3l/coraline/compare/v0.5.0...v0.6.0
+[0.5.0]: https://github.com/greysquirr3l/coraline/compare/v0.4.4...v0.5.0
 [0.4.2]: https://github.com/greysquirr3l/coraline/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/greysquirr3l/coraline/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/greysquirr3l/coraline/compare/v0.3.1...v0.4.0
