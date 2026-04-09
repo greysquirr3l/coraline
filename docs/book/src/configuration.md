@@ -1,0 +1,3 @@
+# Configuration
+
+{{#include ../../CONFIGURATION.md}}

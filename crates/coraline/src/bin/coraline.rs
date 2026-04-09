@@ -207,6 +207,9 @@ struct EmbedArgs {
     /// ONNX variant to download when using `--download` (default: `model_int8.onnx`).
     #[arg(long = "variant", default_value = "model_int8.onnx")]
     variant: String,
+    /// Skip the automatic sync check before embedding.
+    #[arg(long = "skip-sync")]
+    skip_sync: bool,
 }
 
 #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
@@ -312,7 +315,7 @@ fn main() {
             }
         }
         #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
-        Command::Embed(args) => run_embed(args),
+        Command::Embed(args) => run_embed(&args),
         #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
         Command::Model(args) => run_model(args),
     }
@@ -388,12 +391,21 @@ fn run_model(args: ModelArgs) {
 }
 
 #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
-fn run_embed(args: EmbedArgs) {
-    let project_root = resolve_project_root(args.path);
+fn run_embed(args: &EmbedArgs) {
+    let project_root = resolve_project_root(args.path.clone());
 
     if !is_initialized(&project_root) {
         eprintln!("Coraline not initialized in {}", project_root.display());
         std::process::exit(1);
+    }
+
+    // Auto-sync: ensure the index is up to date before embedding.
+    if args.skip_sync {
+        if !args.quiet {
+            eprintln!("Skipping sync (--skip-sync). Embeddings may be stale.");
+        }
+    } else {
+        auto_sync_before_embed(&project_root, args.quiet);
     }
 
     // Auto-download model files if requested.
@@ -436,7 +448,12 @@ fn run_embed(args: EmbedArgs) {
         std::process::exit(1);
     });
 
-    let conn = db::open_database(&project_root).unwrap_or_else(|err| {
+    embed_all_nodes(&project_root, args, &mut vm);
+}
+
+#[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
+fn embed_all_nodes(project_root: &Path, args: &EmbedArgs, vm: &mut vectors::VectorManager) {
+    let conn = db::open_database(project_root).unwrap_or_else(|err| {
         eprintln!("Failed to open database: {err}");
         std::process::exit(1);
     });
@@ -498,6 +515,67 @@ fn run_embed(args: EmbedArgs) {
 
     if !args.quiet {
         println!("\rEmbedded {ok}/{total} nodes ({skipped} skipped)");
+    }
+}
+
+/// Check whether the index is stale and run sync automatically before embedding.
+#[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
+fn auto_sync_before_embed(project_root: &Path, quiet: bool) {
+    let mut cfg = match config::load_config(project_root) {
+        Ok(cfg) => cfg,
+        Err(err) => {
+            eprintln!("Failed to load config: {err}");
+            std::process::exit(1);
+        }
+    };
+    if let Ok(toml_cfg) = config::load_toml_config(project_root) {
+        config::apply_toml_to_code_graph(&mut cfg, &toml_cfg);
+    }
+
+    if !quiet {
+        print!("Checking index freshness…");
+    }
+
+    let status = extraction::needs_sync(project_root, &cfg).unwrap_or_else(|err| {
+        eprintln!("\nFailed to check sync status: {err}");
+        std::process::exit(1);
+    });
+
+    if !status.is_stale() {
+        if !quiet {
+            println!(" up to date.");
+        }
+        return;
+    }
+
+    if !quiet {
+        let total_changes = status.files_added + status.files_modified + status.files_removed;
+        println!(" {total_changes} change(s) detected, syncing…");
+    }
+
+    let result = extraction::sync(
+        project_root,
+        &cfg,
+        if quiet { None } else { Some(&print_progress) },
+    )
+    .unwrap_or_else(|err| {
+        eprintln!("Auto-sync failed: {err}");
+        std::process::exit(1);
+    });
+
+    if !quiet {
+        clear_progress_line();
+        let total_changes = result.files_added + result.files_modified + result.files_removed;
+        println!("Synced {total_changes} files before embedding.");
+        if result.files_added > 0 {
+            println!("  Added: {}", result.files_added);
+        }
+        if result.files_modified > 0 {
+            println!("  Modified: {}", result.files_modified);
+        }
+        if result.files_removed > 0 {
+            println!("  Removed: {}", result.files_removed);
+        }
     }
 }
 

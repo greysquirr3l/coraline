@@ -66,7 +66,7 @@ Search for code symbols by name or pattern across the indexed codebase.
     {
       "node": {
         "id": "abc123",
-        "kind": "Function",
+        "kind": "function",
         "name": "resolve_unresolved",
         "qualified_name": "coraline::resolution::resolve_unresolved",
         "file_path": "/path/to/resolution/mod.rs",
@@ -101,7 +101,7 @@ Find all functions/methods that call a given symbol (incoming `calls` edges).
   "callers": [
     {
       "id": "def456",
-      "kind": "Function",
+      "kind": "function",
       "name": "index_all",
       "qualified_name": "coraline::extraction::index_all",
       "file_path": "/path/to/extraction.rs",
@@ -451,6 +451,8 @@ coraline model download   # download nomic-embed-text-v1.5 (~137 MB)
 coraline embed            # generate embeddings for all indexed nodes
 ```
 
+When this tool is used, Coraline periodically performs a throttled freshness check. If indexed state is stale it runs incremental sync automatically, then refreshes stale/missing embeddings before search.
+
 **Input:**
 
 | Parameter | Type | Required | Default | Description |
@@ -462,10 +464,33 @@ coraline embed            # generate embeddings for all indexed nodes
 **Output:**
 ```json
 {
+  "query": "how is sync staleness detected",
+  "freshness": {
+    "checked": true,
+    "stale_files_added": 0,
+    "stale_files_modified": 2,
+    "stale_files_removed": 0,
+    "synced": true,
+    "files_added": 0,
+    "files_modified": 2,
+    "files_removed": 0,
+    "embeddings_refreshed": true,
+    "embeddings_refreshed_count": 18,
+    "check_interval_seconds": 30
+  },
   "results": [
-    { "node_id": "abc123", "name": "resolve_unresolved", "similarity": 0.87, "file_path": "src/resolution/mod.rs" }
-  ],
-  "count": 1
+    {
+      "id": "abc123",
+      "name": "resolve_unresolved",
+      "qualified_name": "coraline::resolution::ReferenceResolver::resolve_unresolved",
+      "kind": "function",
+      "file_path": "src/resolution/mod.rs",
+      "start_line": 42,
+      "docstring": null,
+      "signature": "fn resolve_unresolved(...)",
+      "score": 0.87
+    }
+  ]
 }
 ```
 
