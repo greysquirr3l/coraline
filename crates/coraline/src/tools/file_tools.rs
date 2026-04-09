@@ -565,10 +565,13 @@ impl SemanticSearchTool {
         }
     }
 
-    fn maybe_refresh_index_and_embeddings(&self) -> Result<FreshnessUpdate, ToolError> {
+    fn maybe_refresh_index_and_embeddings(
+        &self,
+        mut vm: Option<&mut crate::vectors::VectorManager>,
+    ) -> Result<FreshnessUpdate, ToolError> {
         let now = Instant::now();
         let should_check = {
-            let mut state = self
+            let state = self
                 .freshness_state
                 .lock()
                 .map_err(|_| ToolError::internal_error("freshness state lock poisoned"))?;
@@ -579,10 +582,7 @@ impl SemanticSearchTool {
                 {
                     false
                 }
-                _ => {
-                    state.last_checked_at = Some(now);
-                    true
-                }
+                _ => true,
             }
         };
 
@@ -624,17 +624,29 @@ impl SemanticSearchTool {
             .map_err(|e| ToolError::internal_error(format!("Embedding-state check failed: {e}")))?;
 
         if stale_count > 0 {
-            let mut vm = crate::vectors::VectorManager::from_project(&self.project_root).map_err(|e| {
-                ToolError::internal_error(format!(
-                    "Could not load embedding model: {e}. Download the model and run 'coraline embed' first."
-                ))
-            })?;
-
-            let refreshed = refresh_stale_embeddings(&conn, &mut vm)
-                .map_err(|e| ToolError::internal_error(format!("Embedding refresh failed: {e}")))?;
+            let refreshed = if let Some(vm) = vm.as_deref_mut() {
+                refresh_stale_embeddings(&conn, vm)
+                    .map_err(|e| ToolError::internal_error(format!("Embedding refresh failed: {e}")))?
+            } else {
+                let mut vm = crate::vectors::VectorManager::from_project(&self.project_root).map_err(|e| {
+                    ToolError::internal_error(format!(
+                        "Could not load embedding model: {e}. Download the model and run 'coraline embed' first."
+                    ))
+                })?;
+                refresh_stale_embeddings(&conn, &mut vm)
+                    .map_err(|e| ToolError::internal_error(format!("Embedding refresh failed: {e}")))?
+            };
 
             update.embeddings_refreshed = true;
             update.embeddings_refreshed_count = refreshed;
+        }
+
+        {
+            let mut state = self
+                .freshness_state
+                .lock()
+                .map_err(|_| ToolError::internal_error("freshness state lock poisoned"))?;
+            state.last_checked_at = Some(now);
         }
 
         Ok(update)
@@ -768,8 +780,6 @@ impl Tool for SemanticSearchTool {
 
     #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
-        let freshness = self.maybe_refresh_index_and_embeddings()?;
-
         let query = params
             .get("query")
             .and_then(Value::as_str)
@@ -788,6 +798,8 @@ impl Tool for SemanticSearchTool {
                          Download the model and run 'coraline embed' first."
                 ))
             })?;
+
+        let freshness = self.maybe_refresh_index_and_embeddings(Some(&mut vm))?;
 
         let embedding = vm
             .embed(query)

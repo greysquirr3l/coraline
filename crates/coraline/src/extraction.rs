@@ -343,9 +343,10 @@ pub fn index_all(
 
 /// Lightweight check for whether the index is out of date.
 ///
-/// Scans the project directory and compares the current file set and content
-/// hashes against the indexed state, returning a detailed status of added,
-/// modified, and removed files.
+/// Scans the project directory and compares the current file set and tracked
+/// filesystem metadata (modification time and size) against indexed state.
+/// If metadata differs, it verifies content hash before marking a file as
+/// modified. Returns detailed status of added, modified, and removed files.
 pub fn needs_sync(project_root: &Path, config: &CodeGraphConfig) -> std::io::Result<SyncStatus> {
     let conn = db::open_database(project_root)?;
 
@@ -373,8 +374,7 @@ pub fn needs_sync(project_root: &Path, config: &CodeGraphConfig) -> std::io::Res
 
         let full_path = project_root.join(&tracked.path);
         // Fast-path: compare mtime (milliseconds) and size from filesystem metadata.
-        // Files with changed metadata are treated as modified — matches the
-        // millisecond-precision `modified_at` stored by the indexer.
+        // If metadata differs, confirm by hash to avoid timestamp-only false positives.
         match fs::metadata(&full_path) {
             Err(_) => {
                 // Unreadable tracked file is considered stale.
@@ -388,7 +388,16 @@ pub fn needs_sync(project_root: &Path, config: &CodeGraphConfig) -> std::io::Res
                     .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX));
                 let size = meta.len();
                 if mtime != tracked.modified_at || size != tracked.size {
-                    files_modified += 1;
+                    let content = if let Ok(content) = fs::read_to_string(&full_path) {
+                        content
+                    } else {
+                        // Unreadable tracked file is considered stale.
+                        files_modified += 1;
+                        continue;
+                    };
+                    if hash_sha256(&content) != tracked.content_hash {
+                        files_modified += 1;
+                    }
                 }
             }
         }
