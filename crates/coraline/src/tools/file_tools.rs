@@ -3,6 +3,10 @@
 //! File system tools for reading files and listing directory contents.
 
 use std::path::PathBuf;
+#[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
+use std::sync::Mutex;
+#[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
@@ -549,13 +553,177 @@ impl Tool for SyncTool {
 #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
 pub struct SemanticSearchTool {
     project_root: PathBuf,
+    freshness_state: Mutex<SemanticFreshnessState>,
 }
 
 #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
 impl SemanticSearchTool {
-    pub const fn new(project_root: PathBuf) -> Self {
-        Self { project_root }
+    pub fn new(project_root: PathBuf) -> Self {
+        Self {
+            project_root,
+            freshness_state: Mutex::new(SemanticFreshnessState::default()),
+        }
     }
+
+    fn maybe_refresh_index_and_embeddings(&self) -> Result<FreshnessUpdate, ToolError> {
+        let now = Instant::now();
+        let should_check = {
+            let mut state = self
+                .freshness_state
+                .lock()
+                .map_err(|_| ToolError::internal_error("freshness state lock poisoned"))?;
+            match state.last_checked_at {
+                Some(last)
+                    if now.saturating_duration_since(last)
+                        < Duration::from_secs(FRESHNESS_CHECK_INTERVAL_SECS) =>
+                {
+                    false
+                }
+                _ => {
+                    state.last_checked_at = Some(now);
+                    true
+                }
+            }
+        };
+
+        if !should_check {
+            return Ok(FreshnessUpdate::default());
+        }
+
+        let mut update = FreshnessUpdate {
+            checked: true,
+            ..FreshnessUpdate::default()
+        };
+
+        let mut cfg = crate::config::load_config(&self.project_root)
+            .map_err(|e| ToolError::internal_error(format!("Failed to load config: {e}")))?;
+        if let Ok(toml_cfg) = crate::config::load_toml_config(&self.project_root) {
+            crate::config::apply_toml_to_code_graph(&mut cfg, &toml_cfg);
+        }
+
+        let sync_status = crate::extraction::needs_sync(&self.project_root, &cfg)
+            .map_err(|e| ToolError::internal_error(format!("Sync-state check failed: {e}")))?;
+
+        update.stale_files_added = sync_status.files_added;
+        update.stale_files_modified = sync_status.files_modified;
+        update.stale_files_removed = sync_status.files_removed;
+
+        if sync_status.is_stale() {
+            let result = crate::extraction::sync(&self.project_root, &cfg, None)
+                .map_err(|e| ToolError::internal_error(format!("Auto-sync failed: {e}")))?;
+            update.synced = true;
+            update.files_added = result.files_added;
+            update.files_modified = result.files_modified;
+            update.files_removed = result.files_removed;
+        }
+
+        let conn = db::open_database(&self.project_root)
+            .map_err(|e| ToolError::internal_error(format!("DB error: {e}")))?;
+
+        let stale_count = stale_embedding_count(&conn)
+            .map_err(|e| ToolError::internal_error(format!("Embedding-state check failed: {e}")))?;
+
+        if stale_count > 0 {
+            let mut vm = crate::vectors::VectorManager::from_project(&self.project_root).map_err(|e| {
+                ToolError::internal_error(format!(
+                    "Could not load embedding model: {e}. Download the model and run 'coraline embed' first."
+                ))
+            })?;
+
+            let refreshed = refresh_stale_embeddings(&conn, &mut vm)
+                .map_err(|e| ToolError::internal_error(format!("Embedding refresh failed: {e}")))?;
+
+            update.embeddings_refreshed = true;
+            update.embeddings_refreshed_count = refreshed;
+        }
+
+        Ok(update)
+    }
+}
+
+#[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
+const FRESHNESS_CHECK_INTERVAL_SECS: u64 = 30;
+
+#[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
+#[derive(Default)]
+struct SemanticFreshnessState {
+    last_checked_at: Option<Instant>,
+}
+
+#[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
+#[derive(Default)]
+struct FreshnessUpdate {
+    checked: bool,
+    stale_files_added: usize,
+    stale_files_modified: usize,
+    stale_files_removed: usize,
+    synced: bool,
+    files_added: usize,
+    files_modified: usize,
+    files_removed: usize,
+    embeddings_refreshed: bool,
+    embeddings_refreshed_count: usize,
+}
+
+#[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
+fn stale_embedding_count(conn: &rusqlite::Connection) -> std::io::Result<usize> {
+    let count = conn
+        .query_row(
+            "SELECT COUNT(*)
+               FROM nodes n
+          LEFT JOIN vectors v ON v.node_id = n.id
+              WHERE v.created_at IS NULL OR n.updated_at > v.created_at",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .map_err(std::io::Error::other)?;
+
+    Ok(usize::try_from(count).unwrap_or(0))
+}
+
+#[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
+fn refresh_stale_embeddings(
+    conn: &rusqlite::Connection,
+    vm: &mut crate::vectors::VectorManager,
+) -> std::io::Result<usize> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT n.id, n.name, n.qualified_name, n.docstring, n.signature
+               FROM nodes n
+          LEFT JOIN vectors v ON v.node_id = n.id
+              WHERE v.created_at IS NULL OR n.updated_at > v.created_at",
+        )
+        .map_err(std::io::Error::other)?;
+
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, Option<String>>(4)?,
+            ))
+        })
+        .map_err(std::io::Error::other)?;
+
+    let mut refreshed = 0usize;
+    for row in rows {
+        let (id, name, qualified_name, docstring, signature) =
+            row.map_err(std::io::Error::other)?;
+        let text = crate::vectors::node_embed_text(
+            &name,
+            &qualified_name,
+            docstring.as_deref(),
+            signature.as_deref(),
+        );
+
+        let embedding = vm.embed(&text)?;
+        crate::vectors::store_embedding(conn, &id, &embedding, vm.model_name())?;
+        refreshed += 1;
+    }
+
+    Ok(refreshed)
 }
 
 #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
@@ -592,6 +760,8 @@ impl Tool for SemanticSearchTool {
 
     #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
+        let freshness = self.maybe_refresh_index_and_embeddings()?;
+
         let query = params
             .get("query")
             .and_then(Value::as_str)
@@ -638,6 +808,22 @@ impl Tool for SemanticSearchTool {
             })
             .collect();
 
-        Ok(json!({ "query": query, "results": items }))
+        Ok(json!({
+            "query": query,
+            "freshness": {
+                "checked": freshness.checked,
+                "stale_files_added": freshness.stale_files_added,
+                "stale_files_modified": freshness.stale_files_modified,
+                "stale_files_removed": freshness.stale_files_removed,
+                "synced": freshness.synced,
+                "files_added": freshness.files_added,
+                "files_modified": freshness.files_modified,
+                "files_removed": freshness.files_removed,
+                "embeddings_refreshed": freshness.embeddings_refreshed,
+                "embeddings_refreshed_count": freshness.embeddings_refreshed_count,
+                "check_interval_seconds": FRESHNESS_CHECK_INTERVAL_SECS,
+            },
+            "results": items
+        }))
     }
 }

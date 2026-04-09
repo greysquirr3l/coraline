@@ -73,6 +73,20 @@ pub struct SyncResult {
     pub duration_ms: u128,
 }
 
+#[derive(Debug, Clone)]
+pub struct SyncStatus {
+    pub files_checked: usize,
+    pub files_added: usize,
+    pub files_modified: usize,
+    pub files_removed: usize,
+}
+
+impl SyncStatus {
+    pub const fn is_stale(&self) -> bool {
+        self.files_added > 0 || self.files_modified > 0 || self.files_removed > 0
+    }
+}
+
 struct ParsedFile {
     file_record: FileRecord,
     nodes: Vec<Node>,
@@ -324,6 +338,57 @@ pub fn index_all(
         edges_created,
         errors,
         duration_ms: start.elapsed().as_millis(),
+    })
+}
+
+/// Lightweight check for whether the index is out of date.
+///
+/// Scans the project directory and compares the current file set and content
+/// hashes against the indexed state, returning a detailed status of added,
+/// modified, and removed files.
+pub fn needs_sync(project_root: &Path, config: &CodeGraphConfig) -> std::io::Result<SyncStatus> {
+    let conn = db::open_database(project_root)?;
+
+    let current_files: HashSet<String> = scan_directory(project_root, config, |_count, _file| {})
+        .into_iter()
+        .collect();
+    let tracked_files = db::list_files(&conn)?;
+
+    let tracked_paths: HashSet<&str> = tracked_files.iter().map(|f| f.path.as_str()).collect();
+
+    let mut files_added = 0usize;
+    for file in &current_files {
+        if !tracked_paths.contains(file.as_str()) {
+            files_added += 1;
+        }
+    }
+
+    let mut files_removed = 0usize;
+    let mut files_modified = 0usize;
+    for tracked in &tracked_files {
+        if !current_files.contains(&tracked.path) {
+            files_removed += 1;
+            continue;
+        }
+
+        let full_path = project_root.join(&tracked.path);
+        let content = if let Ok(content) = fs::read_to_string(&full_path) {
+            content
+        } else {
+            // Unreadable tracked file is considered stale.
+            files_modified += 1;
+            continue;
+        };
+        if hash_sha256(&content) != tracked.content_hash {
+            files_modified += 1;
+        }
+    }
+
+    Ok(SyncStatus {
+        files_checked: current_files.len(),
+        files_added,
+        files_modified,
+        files_removed,
     })
 }
 
