@@ -1,0 +1,30 @@
+flowchart TB
+    A[AI Assistant / MCP Client\nClaude, VS Code, etc.] --> B[Coraline MCP Server]
+
+    subgraph S[Coraline MCP Server]
+        direction TB
+        subgraph T[Tools]
+            direction LR
+            TG[Graph Tools]
+            TS[Symbol Tools]
+            TM[Memory Tools]
+        end
+
+        T --> C[Core Engine\nRust]
+        C --- C1[tree-sitter parser]
+        C --- C2[SQLite database]
+        C --- C3[Vector embeddings]
+        C --- C4[Reference resolver]
+    end
+
+    classDef client fill:#E8F1FF,stroke:#1D4ED8,stroke-width:2px,color:#0B1A3A;
+    classDef server fill:#EEF2FF,stroke:#4F46E5,stroke-width:2px,color:#1F1147;
+    classDef tools fill:#ECFDF5,stroke:#059669,stroke-width:2px,color:#042F1A;
+    classDef core fill:#FFF7ED,stroke:#EA580C,stroke-width:2px,color:#431407;
+    classDef details fill:#F8FAFC,stroke:#475569,stroke-width:1.5px,color:#0F172A;
+
+    class A client;
+    class B,S server;
+    class TG,TS,TM tools;
+    class C core;
+    class C1,C2,C3,C4 details;
