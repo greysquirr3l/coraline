@@ -625,16 +625,18 @@ impl SemanticSearchTool {
 
         if stale_count > 0 {
             let refreshed = if let Some(vm) = vm.as_deref_mut() {
-                refresh_stale_embeddings(&conn, vm)
-                    .map_err(|e| ToolError::internal_error(format!("Embedding refresh failed: {e}")))?
+                refresh_stale_embeddings(&conn, vm).map_err(|e| {
+                    ToolError::internal_error(format!("Embedding refresh failed: {e}"))
+                })?
             } else {
                 let mut vm = crate::vectors::VectorManager::from_project(&self.project_root).map_err(|e| {
                     ToolError::internal_error(format!(
                         "Could not load embedding model: {e}. Download the model and run 'coraline embed' first."
                     ))
                 })?;
-                refresh_stale_embeddings(&conn, &mut vm)
-                    .map_err(|e| ToolError::internal_error(format!("Embedding refresh failed: {e}")))?
+                refresh_stale_embeddings(&conn, &mut vm).map_err(|e| {
+                    ToolError::internal_error(format!("Embedding refresh failed: {e}"))
+                })?
             };
 
             update.embeddings_refreshed = true;
