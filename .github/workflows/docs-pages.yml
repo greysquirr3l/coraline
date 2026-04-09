@@ -4,7 +4,8 @@ on:
   push:
     branches: [main]
     paths:
-      - docs/book/**
+      - docs/book/src/**
+      - docs/book/book.toml
       - docs/**
       - CHANGELOG.md
       - README.md

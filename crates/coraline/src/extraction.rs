@@ -372,8 +372,9 @@ pub fn needs_sync(project_root: &Path, config: &CodeGraphConfig) -> std::io::Res
         }
 
         let full_path = project_root.join(&tracked.path);
-        // Fast-path: compare mtime and size from filesystem metadata.
-        // Only fall back to content hashing when metadata differs.
+        // Fast-path: compare mtime (milliseconds) and size from filesystem metadata.
+        // Files with changed metadata are treated as modified — matches the
+        // millisecond-precision `modified_at` stored by the indexer.
         match fs::metadata(&full_path) {
             Err(_) => {
                 // Unreadable tracked file is considered stale.
@@ -384,7 +385,7 @@ pub fn needs_sync(project_root: &Path, config: &CodeGraphConfig) -> std::io::Res
                     .modified()
                     .ok()
                     .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                    .map_or(0, |d| d.as_secs() as i64);
+                    .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX));
                 let size = meta.len();
                 if mtime != tracked.modified_at || size != tracked.size {
                     files_modified += 1;

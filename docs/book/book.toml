@@ -8,7 +8,7 @@ src = "src"
 default-theme = "rust"
 preferred-dark-theme = "navy"
 git-repository-url = "https://github.com/greysquirr3l/coraline"
-edit-url-template = "https://github.com/greysquirr3l/coraline/edit/main/{path}"
+edit-url-template = "https://github.com/greysquirr3l/coraline/edit/main/docs/book/{path}"
 site-url = "/coraline/"
 
 [output.html.fold]

@@ -686,17 +686,19 @@ fn refresh_stale_embeddings(
     conn: &rusqlite::Connection,
     vm: &mut crate::vectors::VectorManager,
 ) -> std::io::Result<usize> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT n.id, n.name, n.qualified_name, n.docstring, n.signature
-               FROM nodes n
-          LEFT JOIN vectors v ON v.node_id = n.id
-              WHERE v.created_at IS NULL OR n.updated_at > v.created_at",
-        )
-        .map_err(std::io::Error::other)?;
+    // Collect stale nodes into memory first so the statement borrow is released
+    // before we open a transaction, allowing all stores to commit atomically.
+    let stale_nodes: Vec<(String, String, String, Option<String>, Option<String>)> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT n.id, n.name, n.qualified_name, n.docstring, n.signature
+                   FROM nodes n
+              LEFT JOIN vectors v ON v.node_id = n.id
+                  WHERE v.created_at IS NULL OR n.updated_at > v.created_at",
+            )
+            .map_err(std::io::Error::other)?;
 
-    let rows = stmt
-        .query_map([], |row| {
+        stmt.query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
@@ -705,12 +707,17 @@ fn refresh_stale_embeddings(
                 row.get::<_, Option<String>>(4)?,
             ))
         })
+        .map_err(std::io::Error::other)?
+        .collect::<Result<_, _>>()
+        .map_err(std::io::Error::other)?
+    }; // stmt dropped here — borrow on conn released
+
+    let tx = conn
+        .unchecked_transaction()
         .map_err(std::io::Error::other)?;
 
     let mut refreshed = 0usize;
-    for row in rows {
-        let (id, name, qualified_name, docstring, signature) =
-            row.map_err(std::io::Error::other)?;
+    for (id, name, qualified_name, docstring, signature) in stale_nodes {
         let text = crate::vectors::node_embed_text(
             &name,
             &qualified_name,
@@ -719,10 +726,11 @@ fn refresh_stale_embeddings(
         );
 
         let embedding = vm.embed(&text)?;
-        crate::vectors::store_embedding(conn, &id, &embedding, vm.model_name())?;
+        crate::vectors::store_embedding(&tx, &id, &embedding, vm.model_name())?;
         refreshed += 1;
     }
 
+    tx.commit().map_err(std::io::Error::other)?;
     Ok(refreshed)
 }
 

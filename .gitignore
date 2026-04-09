@@ -118,3 +118,4 @@ coverage/
 *.gcno
 *.gcov
 *.onnx
+docs/book/book/
