@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Documentation
 
 - **CLI, MCP, and README docs updated** — documented `embed --skip-sync`, pre-embed auto-sync behavior, and MCP semantic-search freshness metadata
+- **mdBook docs site added** — introduced `docs/book/` and a GitHub Pages deployment workflow (`docs-pages.yml`) to publish documentation on the project GitHub Pages site
 
 ## [0.5.0] - 2026-04-08
 

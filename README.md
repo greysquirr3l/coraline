@@ -416,8 +416,21 @@ See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for the full test structure.
 
 ## 📚 Documentation
 
+Primary docs can be published as an mdBook on GitHub Pages:
+
+- Source: `docs/book/`
+- Workflow: `.github/workflows/docs-pages.yml`
+- Published URL: `https://greysquirr3l.github.io/coraline/`
+
+Build locally:
+
+```bash
+mdbook build docs/book
+```
+
 | Document | Description |
 |---|---|
+| [docs/book/src/index.md](docs/book/src/index.md) | mdBook home and published docs navigation |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design and data model |
 | [docs/MCP_TOOLS.md](docs/MCP_TOOLS.md) | Complete MCP tools reference |
 | [docs/CLI_REFERENCE.md](docs/CLI_REFERENCE.md) | All CLI commands and flags |

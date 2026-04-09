@@ -1,0 +1,16 @@
+[book]
+title = "Coraline Documentation"
+authors = ["Coraline Contributors"]
+language = "en"
+src = "src"
+
+[output.html]
+default-theme = "rust"
+preferred-dark-theme = "navy"
+git-repository-url = "https://github.com/greysquirr3l/coraline"
+edit-url-template = "https://github.com/greysquirr3l/coraline/edit/main/{path}"
+site-url = "/coraline/"
+
+[output.html.fold]
+enable = true
+level = 1

@@ -1,0 +1,2227 @@
+<!DOCTYPE HTML>
+<html lang="en" class="rust sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Coraline Documentation</title>
+        <meta name="robots" content="noindex">
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon-de23e50b.svg">
+        <link rel="shortcut icon" href="favicon-8114d1fc.png">
+        <link rel="stylesheet" href="css/variables-8adf115d.css">
+        <link rel="stylesheet" href="css/general-2459343d.css">
+        <link rel="stylesheet" href="css/chrome-ae938929.css">
+        <link rel="stylesheet" href="css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "";
+            const default_light_theme = "rust";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "searchindex-33576e81.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="toc-4db0d6db.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('rust')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Coraline Documentation</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/greysquirr3l/coraline" title="Git repository" aria-label="Git repository">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <h1 id="coraline-documentation"><a class="header" href="#coraline-documentation">Coraline Documentation</a></h1>
+<p>Coraline is a local-first code intelligence engine that builds a semantic graph of your codebase and exposes high-precision tools over CLI and MCP.</p>
+<p>This book is published from the repository and combines practical guides with full reference docs.</p>
+<h2 id="what-you-can-do-with-coraline"><a class="header" href="#what-you-can-do-with-coraline">What You Can Do With Coraline</a></h2>
+<ul>
+<li>Index and incrementally sync large codebases.</li>
+<li>Query symbols, call graphs, and impact radius.</li>
+<li>Build context for AI workflows.</li>
+<li>Use semantic search with local embeddings.</li>
+<li>Integrate with MCP clients.</li>
+</ul>
+<h2 id="read-next"><a class="header" href="#read-next">Read Next</a></h2>
+<p>Start with <a href="#getting-started">Getting Started</a>, then move to the <a href="#cli-reference">CLI Reference</a> and <a href="#mcp-tools">MCP Tools</a>.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="getting-started"><a class="header" href="#getting-started">Getting Started</a></h1>
+<h2 id="install"><a class="header" href="#install">Install</a></h2>
+<p>Install from crates.io:</p>
+<pre><code class="language-bash">cargo install coraline
+</code></pre>
+<h2 id="initialize-and-index"><a class="header" href="#initialize-and-index">Initialize and Index</a></h2>
+<pre><code class="language-bash">coraline init
+coraline index
+</code></pre>
+<h2 id="optional-semantic-search-model"><a class="header" href="#optional-semantic-search-model">Optional: Semantic Search Model</a></h2>
+<pre><code class="language-bash">coraline model download
+coraline embed
+</code></pre>
+<p>By default, embedding runs a freshness check and auto-syncs stale indexed state before generating embeddings.</p>
+<h2 id="start-mcp-server"><a class="header" href="#start-mcp-server">Start MCP Server</a></h2>
+<pre><code class="language-bash">coraline serve --mcp
+</code></pre>
+<h2 id="next-steps"><a class="header" href="#next-steps">Next Steps</a></h2>
+<ul>
+<li><a href="#cli-reference">CLI Reference</a></li>
+<li><a href="#mcp-tools">MCP Tools</a></li>
+<li><a href="#configuration">Configuration</a></li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="cli-reference"><a class="header" href="#cli-reference">CLI Reference</a></h1>
+<h1 id="coraline-cli-reference"><a class="header" href="#coraline-cli-reference">Coraline CLI Reference</a></h1>
+<p>Coraline is invoked as <code>coraline [COMMAND] [OPTIONS] [PATH]</code>.</p>
+<p>When <code>[PATH]</code> is omitted, the current working directory is used as the project root.</p>
+<hr>
+<h2 id="commands-at-a-glance"><a class="header" href="#commands-at-a-glance">Commands at a Glance</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Command</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>init</code></td><td>Initialize a new project</td></tr>
+<tr><td><code>index</code></td><td>Full reindex of the project</td></tr>
+<tr><td><code>sync</code></td><td>Incremental update (git-diff based)</td></tr>
+<tr><td><code>status</code></td><td>Show project status and paths</td></tr>
+<tr><td><code>stats</code></td><td>Show index statistics</td></tr>
+<tr><td><code>query</code></td><td>Search symbols by name</td></tr>
+<tr><td><code>context</code></td><td>Build AI context for a task</td></tr>
+<tr><td><code>callers</code></td><td>Find what calls a node</td></tr>
+<tr><td><code>callees</code></td><td>Find what a node calls</td></tr>
+<tr><td><code>impact</code></td><td>Analyze change impact radius</td></tr>
+<tr><td><code>config</code></td><td>Read or update configuration</td></tr>
+<tr><td><code>hooks</code></td><td>Manage git hooks</td></tr>
+<tr><td><code>serve</code></td><td>Start the MCP server</td></tr>
+<tr><td><code>embed</code></td><td>Generate vector embeddings for indexed nodes</td></tr>
+<tr><td><code>model</code></td><td>Manage the ONNX embedding model</td></tr>
+</tbody>
+</table>
+</div>
+<hr>
+<h2 id="coraline-init-path"><a class="header" href="#coraline-init-path"><code>coraline init [PATH]</code></a></h2>
+<p>Initialize Coraline in a project directory. Creates <code>.coraline/</code> with a SQLite database, default <code>config.toml</code>, and initial memory templates.</p>
+<p>When stdin is a TTY, prompts to download the embedding model (~137 MB) after initialization. Decline to skip — all non-embedding tools remain fully functional and you can download later with <code>coraline model download</code>.</p>
+<p>If <code>.coraline/</code> already exists and <code>--index</code> is passed <strong>without</strong> <code>--force</code>, <code>init</code> skips the overwrite and runs indexing directly on the existing project.</p>
+<p><strong>Options:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Flag</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>-i</code>, <code>--index</code></td><td>Run a full index immediately after initialization</td></tr>
+<tr><td><code>-f</code>, <code>--force</code></td><td>Overwrite an existing <code>.coraline/</code> directory without prompting</td></tr>
+<tr><td><code>--no-hooks</code></td><td>Skip automatic git hook installation</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Examples:</strong></p>
+<pre><code class="language-bash">coraline init                    # Initialize current directory
+coraline init /path/to/my-app   # Initialize a specific path
+coraline init -i                 # Initialize, prompt for model, then index
+coraline init -i --no-hooks      # Initialize and index, skip git hooks
+coraline init --force            # Wipe and reinitialize existing project
+</code></pre>
+<p><strong>On success, creates:</strong></p>
+<ul>
+<li><code>.coraline/coraline.db</code> — SQLite knowledge graph</li>
+<li><code>.coraline/config.toml</code> — Annotated config template</li>
+<li><code>.coraline/memories/</code> — Initial memory files</li>
+<li><code>.coraline/.gitignore</code> — Excludes local data files from git</li>
+<li><code>.git/hooks/post-commit</code> — Auto-sync hook (unless <code>--no-hooks</code>)</li>
+</ul>
+<hr>
+<h2 id="coraline-index-path"><a class="header" href="#coraline-index-path"><code>coraline index [PATH]</code></a></h2>
+<p>Perform a full reindex of the project. Parses all matching source files, extracts symbols and edges, resolves cross-file references, and stores results in the knowledge graph.</p>
+<p><strong>Options:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Flag</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>-f</code>, <code>--force</code></td><td>Force re-parse all files, even unchanged ones</td></tr>
+<tr><td><code>-q</code>, <code>--quiet</code></td><td>Suppress progress output</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Examples:</strong></p>
+<pre><code class="language-bash">coraline index                   # Index current directory
+coraline index /path/to/project  # Index a specific path
+coraline index -f                # Force full re-parse
+coraline index -q                # Silent (useful in scripts)
+</code></pre>
+<hr>
+<h2 id="coraline-sync-path"><a class="header" href="#coraline-sync-path"><code>coraline sync [PATH]</code></a></h2>
+<p>Perform an incremental update using git-diff to identify changed files. Faster than a full <code>index</code> for routine updates.</p>
+<p><strong>Options:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Flag</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>-q</code>, <code>--quiet</code></td><td>Suppress progress output</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Examples:</strong></p>
+<pre><code class="language-bash">coraline sync                    # Sync current directory
+coraline sync -q                 # Silent sync (used by git hook)
+</code></pre>
+<hr>
+<h2 id="coraline-status-path"><a class="header" href="#coraline-status-path"><code>coraline status [PATH]</code></a></h2>
+<p>Show the current project status: initialization state, paths to config and database, database size, and git hook status.</p>
+<p><strong>Examples:</strong></p>
+<pre><code class="language-bash">coraline status
+</code></pre>
+<p><strong>Sample output:</strong></p>
+<pre><code>Coraline Status
+
+Project: /home/user/my-app
+Config:  /home/user/my-app/.coraline/config.toml
+Database: /home/user/my-app/.coraline/coraline.db (1048576 bytes)
+Git hooks: installed
+</code></pre>
+<hr>
+<h2 id="coraline-stats-path"><a class="header" href="#coraline-stats-path"><code>coraline stats [PATH]</code></a></h2>
+<p>Show index statistics: file count, node count, edge count, and unresolved reference count.</p>
+<p><strong>Options:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Flag</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>-j</code>, <code>--json</code></td><td>Output as JSON</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Examples:</strong></p>
+<pre><code class="language-bash">coraline stats
+coraline stats --json
+</code></pre>
+<p><strong>Sample output:</strong></p>
+<pre><code>Coraline Statistics
+
+Files:     128
+Nodes:     4201
+Edges:     9872
+Unresolved refs: 153
+</code></pre>
+<hr>
+<h2 id="coraline-query-search-path"><a class="header" href="#coraline-query-search-path"><code>coraline query &lt;SEARCH&gt; [PATH]</code></a></h2>
+<p>Search for symbols in the knowledge graph by name. Uses SQLite full-text search (FTS5) for fast, fuzzy matching.</p>
+<p><strong>Arguments:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Argument</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>SEARCH</code></td><td>Symbol name or search pattern</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Options:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Flag</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>-p</code>, <code>--path PATH</code></td><td>Project root path</td></tr>
+<tr><td><code>-l</code>, <code>--limit N</code></td><td>Maximum results (default: <code>10</code>)</td></tr>
+<tr><td><code>-k</code>, <code>--kind KIND</code></td><td>Filter by node kind (see below)</td></tr>
+<tr><td><code>-j</code>, <code>--json</code></td><td>Output as JSON</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Valid <code>KIND</code> values:</strong>
+<code>file</code>, <code>module</code>, <code>class</code>, <code>struct</code>, <code>interface</code>, <code>trait</code>, <code>protocol</code>, <code>function</code>, <code>method</code>, <code>property</code>, <code>field</code>, <code>variable</code>, <code>constant</code>, <code>enum</code>, <code>enum_member</code>, <code>type_alias</code>, <code>namespace</code>, <code>parameter</code>, <code>import</code>, <code>export</code>, <code>route</code>, <code>component</code></p>
+<p><strong>Examples:</strong></p>
+<pre><code class="language-bash">coraline query resolve_unresolved
+coraline query "index" --kind function --limit 5
+coraline query Auth --json
+</code></pre>
+<hr>
+<h2 id="coraline-context-task-path"><a class="header" href="#coraline-context-task-path"><code>coraline context &lt;TASK&gt; [PATH]</code></a></h2>
+<p>Build structured context for an AI task description. Searches the graph, traverses relationships, and returns relevant code snippets.</p>
+<p><strong>Arguments:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Argument</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>TASK</code></td><td>Natural language task description</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Options:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Flag</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>-p</code>, <code>--path PATH</code></td><td>Project root path</td></tr>
+<tr><td><code>-n</code>, <code>--max-nodes N</code></td><td>Max graph nodes (default: <code>50</code>)</td></tr>
+<tr><td><code>-c</code>, <code>--max-code N</code></td><td>Max code blocks (default: <code>10</code>)</td></tr>
+<tr><td><code>--no-code</code></td><td>Omit source code snippets</td></tr>
+<tr><td><code>-f</code>, <code>--format FMT</code></td><td><code>markdown</code> (default) or <code>json</code></td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Examples:</strong></p>
+<pre><code class="language-bash">coraline context "add authentication middleware"
+coraline context "how does indexing work" --format json
+coraline context "refactor database layer" --max-nodes 30 --max-code 5
+</code></pre>
+<hr>
+<h2 id="coraline-callers-node_id-path"><a class="header" href="#coraline-callers-node_id-path"><code>coraline callers &lt;NODE_ID&gt; [PATH]</code></a></h2>
+<p>Find all nodes that call the specified node (incoming <code>calls</code> edges).</p>
+<p><strong>Arguments:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Argument</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>NODE_ID</code></td><td>Node ID (from <code>query</code> or <code>stats --json</code> output)</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Options:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Flag</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>-p</code>, <code>--path PATH</code></td><td>Project root path</td></tr>
+<tr><td><code>-l</code>, <code>--limit N</code></td><td>Maximum results (default: <code>20</code>)</td></tr>
+<tr><td><code>-j</code>, <code>--json</code></td><td>Output as JSON</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Examples:</strong></p>
+<pre><code class="language-bash">coraline callers abc123
+coraline callers abc123 --limit 50 --json
+</code></pre>
+<hr>
+<h2 id="coraline-callees-node_id-path"><a class="header" href="#coraline-callees-node_id-path"><code>coraline callees &lt;NODE_ID&gt; [PATH]</code></a></h2>
+<p>Find all nodes that the specified node calls (outgoing <code>calls</code> edges).</p>
+<p>Same flags as <code>callers</code>.</p>
+<hr>
+<h2 id="coraline-impact-node_id-path"><a class="header" href="#coraline-impact-node_id-path"><code>coraline impact &lt;NODE_ID&gt; [PATH]</code></a></h2>
+<p>Analyze the impact radius of a symbol — what would be affected if it changed. Performs a BFS over incoming edges up to <code>--depth</code> hops.</p>
+<p><strong>Arguments:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Argument</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>NODE_ID</code></td><td>Node ID to analyze</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Options:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Flag</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>-p</code>, <code>--path PATH</code></td><td>Project root path</td></tr>
+<tr><td><code>-d</code>, <code>--depth N</code></td><td>BFS depth (default: <code>3</code>)</td></tr>
+<tr><td><code>-j</code>, <code>--json</code></td><td>Output as JSON</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Examples:</strong></p>
+<pre><code class="language-bash">coraline impact abc123
+coraline impact abc123 --depth 5 --json
+</code></pre>
+<hr>
+<h2 id="coraline-config-path"><a class="header" href="#coraline-config-path"><code>coraline config [PATH]</code></a></h2>
+<p>Read or update the project configuration at <code>.coraline/config.toml</code>.</p>
+<p><strong>Options:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Flag</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>-p</code>, <code>--path PATH</code></td><td>Project root path</td></tr>
+<tr><td><code>-j</code>, <code>--json</code></td><td>Print config as JSON</td></tr>
+<tr><td><code>-s</code>, <code>--section SEC</code></td><td>Print only a section (<code>indexing</code>, <code>context</code>, <code>sync</code>, <code>vectors</code>)</td></tr>
+<tr><td><code>--set KEY=VALUE</code></td><td>Set a value: <code>section.key=value</code></td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Examples:</strong></p>
+<pre><code class="language-bash">coraline config                                 # Print full config (TOML)
+coraline config --section context               # Print one section
+coraline config --json                          # Print as JSON
+coraline config --set context.max_nodes=30      # Update a value
+coraline config --set indexing.batch_size=50
+coraline config --set vectors.enabled=true
+</code></pre>
+<hr>
+<h2 id="coraline-hooks-action-path"><a class="header" href="#coraline-hooks-action-path"><code>coraline hooks &lt;ACTION&gt; [PATH]</code></a></h2>
+<p>Manage the git <code>post-commit</code> hook that runs <code>coraline sync</code> automatically after each commit.</p>
+<p><strong>Actions:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Action</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>install</code></td><td>Install the hook (backs up existing hook)</td></tr>
+<tr><td><code>remove</code></td><td>Remove the hook (restores backup if present)</td></tr>
+<tr><td><code>status</code></td><td>Show whether the hook is installed</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Options:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Flag</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>-p</code>, <code>--path PATH</code></td><td>Project root path</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Examples:</strong></p>
+<pre><code class="language-bash">coraline hooks install
+coraline hooks status
+coraline hooks remove
+</code></pre>
+<hr>
+<h2 id="coraline-serve-path"><a class="header" href="#coraline-serve-path"><code>coraline serve [PATH]</code></a></h2>
+<p>Start the MCP server. With <code>--mcp</code>, communicates over stdio using the Model Context Protocol.</p>
+<p><strong>Options:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Flag</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>-p</code>, <code>--path PATH</code></td><td>Project root path</td></tr>
+<tr><td><code>--mcp</code></td><td>Start MCP stdio server (required)</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Examples:</strong></p>
+<pre><code class="language-bash">coraline serve --mcp
+coraline serve --mcp --path /path/to/project
+</code></pre>
+<p>Typically invoked by an MCP client (Claude Desktop, Claude Code, etc.) rather than directly.</p>
+<hr>
+<h2 id="environment-variables"><a class="header" href="#environment-variables">Environment Variables</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Variable</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>CORALINE_LOG</code></td><td>Log level filter (default: <code>coraline=info</code>). Examples: <code>debug</code>, <code>coraline=trace</code>, <code>warn</code></td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Examples:</strong></p>
+<pre><code class="language-bash">CORALINE_LOG=debug coraline index
+CORALINE_LOG=coraline=trace coraline serve --mcp
+</code></pre>
+<p>Logs are written to <code>.coraline/logs/coraline.log</code> (daily rotating) and to stderr at the configured level.</p>
+<hr>
+<h2 id="coraline-embed-path"><a class="header" href="#coraline-embed-path"><code>coraline embed [PATH]</code></a></h2>
+<p>Generate vector embeddings for all indexed nodes using the local ONNX model. Embeddings enable the <code>coraline_semantic_search</code> MCP tool.</p>
+<p>By default, <code>embed</code> performs a lightweight freshness check and runs incremental <code>sync</code> first when indexed state is stale. This keeps embeddings aligned with current source files without requiring a manual <code>coraline sync</code> step.</p>
+<p><strong>Options:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Flag</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>--download</code></td><td>Download the model automatically before embedding</td></tr>
+<tr><td><code>--variant FILENAME</code></td><td>ONNX variant to download (default: <code>model_int8.onnx</code>)</td></tr>
+<tr><td><code>--skip-sync</code></td><td>Skip automatic pre-embed sync check (embeddings may be stale)</td></tr>
+<tr><td><code>--batch-size N</code></td><td>Nodes per progress batch (default: <code>50</code>)</td></tr>
+<tr><td><code>-q</code>, <code>--quiet</code></td><td>Suppress progress output</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Examples:</strong></p>
+<pre><code class="language-bash">coraline embed                        # Embed using already-downloaded model
+coraline embed --skip-sync            # Skip auto-sync and embed current index state
+coraline embed --download             # Download model_int8.onnx then embed
+coraline embed --download --variant model_fp16.onnx
+</code></pre>
+<p>Run <code>coraline index</code> first. Models are stored in <code>.coraline/models/nomic-embed-text-v1.5/</code>.</p>
+<hr>
+<h2 id="coraline-model-path"><a class="header" href="#coraline-model-path"><code>coraline model [PATH]</code></a></h2>
+<p>Manage the ONNX embedding model files.</p>
+<h3 id="coraline-model-download"><a class="header" href="#coraline-model-download"><code>coraline model download</code></a></h3>
+<p>Download model files from HuggingFace (<code>nomic-ai/nomic-embed-text-v1.5</code>).</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Flag</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>--variant FILENAME</code></td><td>ONNX variant to download (default: <code>model_int8.onnx</code>)</td></tr>
+<tr><td><code>-f</code>, <code>--force</code></td><td>Re-download even if files already exist</td></tr>
+<tr><td><code>-q</code>, <code>--quiet</code></td><td>Suppress progress output</td></tr>
+</tbody>
+</table>
+</div>
+<p>Downloads <code>tokenizer.json</code>, <code>tokenizer_config.json</code>, and the chosen ONNX weights into <code>.coraline/models/nomic-embed-text-v1.5/</code>.</p>
+<p><strong>Available variants (smallest to largest):</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Variant</th><th>Size</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>model_q4f16.onnx</code></td><td>~111 MB</td><td>Q4 + fp16 mixed (smallest)</td></tr>
+<tr><td><code>model_int8.onnx</code></td><td>~137 MB</td><td>int8 quantized (recommended)</td></tr>
+<tr><td><code>model_fp16.onnx</code></td><td>~274 MB</td><td>fp16</td></tr>
+<tr><td><code>model.onnx</code></td><td>~547 MB</td><td>full f32</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="coraline-model-status"><a class="header" href="#coraline-model-status"><code>coraline model status</code></a></h3>
+<p>Show which model files are present in the model directory.</p>
+<pre><code class="language-bash">coraline model status
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="mcp-tools"><a class="header" href="#mcp-tools">MCP Tools</a></h1>
+<h1 id="coraline-mcp-tools-reference"><a class="header" href="#coraline-mcp-tools-reference">Coraline MCP Tools Reference</a></h1>
+<p>Coraline exposes <strong>26 MCP tools</strong> when running as an MCP server (<code>coraline serve --mcp</code>).
+All tool names are prefixed with <code>coraline_</code> to avoid collisions with other MCP servers.</p>
+<p>Protocol notes:</p>
+<ul>
+<li>Negotiates MCP protocol version <code>2025-11-25</code> (with compatibility fallback to <code>2024-11-05</code>)</li>
+<li>Expects <code>notifications/initialized</code> after <code>initialize</code> before normal requests</li>
+<li><code>tools/list</code> supports pagination via <code>cursor</code> and <code>nextCursor</code></li>
+</ul>
+<p><code>coraline_semantic_search</code> is available by default (the <code>embeddings</code> feature ships enabled) but only registered when an ONNX model is present in <code>.coraline/models/</code>. Run <code>coraline model download</code> then <code>coraline embed</code> to activate it. All other 25 tools are always available.</p>
+<hr>
+<h2 id="quick-reference"><a class="header" href="#quick-reference">Quick Reference</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Category</th><th>Tool</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>Graph</strong></td><td><code>coraline_search</code></td><td>Find symbols by name or pattern</td></tr>
+<tr><td></td><td><code>coraline_callers</code></td><td>Find what calls a symbol</td></tr>
+<tr><td></td><td><code>coraline_callees</code></td><td>Find what a symbol calls</td></tr>
+<tr><td></td><td><code>coraline_impact</code></td><td>Analyze change impact radius</td></tr>
+<tr><td></td><td><code>coraline_dependencies</code></td><td>Outgoing dependency graph from a node</td></tr>
+<tr><td></td><td><code>coraline_dependents</code></td><td>Incoming dependency graph (what depends on a node)</td></tr>
+<tr><td></td><td><code>coraline_path</code></td><td>Find a path between two nodes</td></tr>
+<tr><td></td><td><code>coraline_stats</code></td><td>Detailed graph statistics by language/kind/edge</td></tr>
+<tr><td></td><td><code>coraline_find_symbol</code></td><td>Find symbols with rich metadata + optional body</td></tr>
+<tr><td></td><td><code>coraline_get_symbols_overview</code></td><td>List all symbols in a file</td></tr>
+<tr><td></td><td><code>coraline_find_references</code></td><td>Find all references to a symbol</td></tr>
+<tr><td></td><td><code>coraline_node</code></td><td>Get full node details and source code</td></tr>
+<tr><td><strong>Context</strong></td><td><code>coraline_context</code></td><td>Build structured context for an AI task</td></tr>
+<tr><td><strong>File</strong></td><td><code>coraline_read_file</code></td><td>Read file contents</td></tr>
+<tr><td></td><td><code>coraline_list_dir</code></td><td>List directory contents</td></tr>
+<tr><td></td><td><code>coraline_get_file_nodes</code></td><td>Get all indexed nodes in a file</td></tr>
+<tr><td></td><td><code>coraline_status</code></td><td>Show project index statistics</td></tr>
+<tr><td></td><td><code>coraline_sync</code></td><td>Trigger incremental index sync</td></tr>
+<tr><td></td><td><code>coraline_get_config</code></td><td>Read project configuration</td></tr>
+<tr><td></td><td><code>coraline_update_config</code></td><td>Update a config value</td></tr>
+<tr><td></td><td><code>coraline_semantic_search</code></td><td>Vector similarity search (requires model download — see below)</td></tr>
+<tr><td><strong>Memory</strong></td><td><code>coraline_write_memory</code></td><td>Write or update a project memory</td></tr>
+<tr><td></td><td><code>coraline_read_memory</code></td><td>Read a project memory</td></tr>
+<tr><td></td><td><code>coraline_list_memories</code></td><td>List all memories</td></tr>
+<tr><td></td><td><code>coraline_delete_memory</code></td><td>Delete a memory</td></tr>
+<tr><td></td><td><code>coraline_edit_memory</code></td><td>Edit memory via literal or regex replace</td></tr>
+</tbody>
+</table>
+</div>
+<hr>
+<h2 id="graph-tools"><a class="header" href="#graph-tools">Graph Tools</a></h2>
+<h3 id="coraline_search"><a class="header" href="#coraline_search"><code>coraline_search</code></a></h3>
+<p>Search for code symbols by name or pattern across the indexed codebase.</p>
+<p><strong>Input:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Parameter</th><th>Type</th><th>Required</th><th>Default</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>query</code></td><td>string</td><td>✅</td><td>—</td><td>Symbol name or FTS pattern</td></tr>
+<tr><td><code>kind</code></td><td>string</td><td></td><td>—</td><td>Filter: <code>function</code>, <code>method</code>, <code>class</code>, <code>struct</code>, <code>interface</code>, <code>trait</code>, <code>module</code></td></tr>
+<tr><td><code>limit</code></td><td>number</td><td></td><td><code>10</code></td><td>Maximum results</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Output:</strong></p>
+<pre><code class="language-json">{
+  "results": [
+    {
+      "node": {
+        "id": "abc123",
+        "kind": "Function",
+        "name": "resolve_unresolved",
+        "qualified_name": "coraline::resolution::resolve_unresolved",
+        "file_path": "/path/to/resolution/mod.rs",
+        "start_line": 42,
+        "end_line": 95,
+        "language": "Rust",
+        "signature": "fn resolve_unresolved(conn: &amp;mut Connection, ...)"
+      },
+      "score": 0.92
+    }
+  ],
+  "count": 1
+}
+</code></pre>
+<hr>
+<h3 id="coraline_callers"><a class="header" href="#coraline_callers"><code>coraline_callers</code></a></h3>
+<p>Find all functions/methods that call a given symbol (incoming <code>calls</code> edges).</p>
+<p><strong>Input:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Parameter</th><th>Type</th><th>Required</th><th>Default</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>node_id</code></td><td>string</td><td>✅</td><td>—</td><td>ID of the target node</td></tr>
+<tr><td><code>limit</code></td><td>number</td><td></td><td><code>20</code></td><td>Maximum callers to return</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Output:</strong></p>
+<pre><code class="language-json">{
+  "callers": [
+    {
+      "id": "def456",
+      "kind": "Function",
+      "name": "index_all",
+      "qualified_name": "coraline::extraction::index_all",
+      "file_path": "/path/to/extraction.rs",
+      "start_line": 120,
+      "line": 158
+    }
+  ],
+  "count": 1
+}
+</code></pre>
+<hr>
+<h3 id="coraline_callees"><a class="header" href="#coraline_callees"><code>coraline_callees</code></a></h3>
+<p>Find all functions/methods that a given symbol calls (outgoing <code>calls</code> edges).</p>
+<p><strong>Input:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Parameter</th><th>Type</th><th>Required</th><th>Default</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>node_id</code></td><td>string</td><td>✅</td><td>—</td><td>ID of the source node</td></tr>
+<tr><td><code>limit</code></td><td>number</td><td></td><td><code>20</code></td><td>Maximum callees to return</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Output:</strong> Same shape as <code>coraline_callers</code> but field is <code>callees</code>.</p>
+<hr>
+<h3 id="coraline_impact"><a class="header" href="#coraline_impact"><code>coraline_impact</code></a></h3>
+<p>Analyze the impact radius of changing a symbol — finds everything that directly or transitively depends on it, via BFS over incoming <code>calls</code> and <code>references</code> edges.</p>
+<p><strong>Input:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Parameter</th><th>Type</th><th>Required</th><th>Default</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>node_id</code></td><td>string</td><td>✅</td><td>—</td><td>ID of the node to analyze</td></tr>
+<tr><td><code>max_depth</code></td><td>number</td><td></td><td><code>2</code></td><td>BFS traversal depth</td></tr>
+<tr><td><code>max_nodes</code></td><td>number</td><td></td><td><code>50</code></td><td>Cap on returned nodes</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Output:</strong></p>
+<pre><code class="language-json">{
+  "nodes": [ ... ],
+  "edges": [ ... ],
+  "stats": {
+    "node_count": 12,
+    "edge_count": 15,
+    "file_count": 4,
+    "max_depth": 2
+  }
+}
+</code></pre>
+<hr>
+<h3 id="coraline_dependencies"><a class="header" href="#coraline_dependencies"><code>coraline_dependencies</code></a></h3>
+<p>Get the outgoing dependency graph from a node — what does this symbol import, call, or reference, recursively up to a configurable depth?</p>
+<p><strong>Input:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Parameter</th><th>Type</th><th>Required</th><th>Default</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>node_id</code></td><td>string</td><td>✅</td><td>—</td><td>ID of the source node</td></tr>
+<tr><td><code>max_depth</code></td><td>number</td><td></td><td><code>2</code></td><td>BFS traversal depth</td></tr>
+<tr><td><code>max_nodes</code></td><td>number</td><td></td><td><code>50</code></td><td>Cap on returned nodes</td></tr>
+<tr><td><code>edge_kinds</code></td><td>string[]</td><td></td><td>all</td><td>Edge kinds to follow (e.g. <code>["calls", "imports"]</code>)</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Output:</strong></p>
+<pre><code class="language-json">{
+  "root_id": "abc123",
+  "nodes": [ ... ],
+  "edges": [ ... ],
+  "stats": { "node_count": 8, "edge_count": 10, "file_count": 3, "max_depth": 2 }
+}
+</code></pre>
+<hr>
+<h3 id="coraline_dependents"><a class="header" href="#coraline_dependents"><code>coraline_dependents</code></a></h3>
+<p>Get the incoming dependency graph — what symbols depend on (call, import, or reference) this node, recursively?</p>
+<p><strong>Input:</strong> Same as <code>coraline_dependencies</code>.</p>
+<p><strong>Output:</strong> Same shape as <code>coraline_dependencies</code> but traversal follows edges in reverse.</p>
+<hr>
+<h3 id="coraline_path"><a class="header" href="#coraline_path"><code>coraline_path</code></a></h3>
+<p>Find a path between two nodes in the graph, using BFS over all edge kinds.</p>
+<p><strong>Input:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>from_id</code></td><td>string</td><td>✅</td><td>Starting node ID</td></tr>
+<tr><td><code>to_id</code></td><td>string</td><td>✅</td><td>Target node ID</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Output:</strong></p>
+<pre><code class="language-json">{
+  "from_id": "abc123",
+  "to_id": "def456",
+  "path_found": true,
+  "path": ["abc123", "mid789", "def456"],
+  "length": 3
+}
+</code></pre>
+<p>Returns <code>{ "path_found": false }</code> if no path exists.</p>
+<hr>
+<h3 id="coraline_stats"><a class="header" href="#coraline_stats"><code>coraline_stats</code></a></h3>
+<p>Return detailed graph statistics: total counts, per-language file breakdown, node kind breakdown, and edge kind breakdown.</p>
+<p><strong>Input:</strong> None.</p>
+<p><strong>Output:</strong></p>
+<pre><code class="language-json">{
+  "totals": {
+    "nodes": 1842,
+    "edges": 4201,
+    "files": 47,
+    "unresolved_references": 123,
+    "vectors": 0
+  },
+  "files_by_language": { "rust": 28, "typescript": 14, "toml": 5 },
+  "nodes_by_kind":     { "function": 412, "method": 287, "import": 201, "struct": 88 },
+  "edges_by_kind":     { "contains": 1842, "calls": 987, "imports": 201, "exports": 178 }
+}
+</code></pre>
+<hr>
+<h3 id="coraline_find_symbol"><a class="header" href="#coraline_find_symbol"><code>coraline_find_symbol</code></a></h3>
+<p>Find symbols by name pattern with richer metadata than <code>coraline_search</code>, including optional source code body. Good for <code>Foo/__init__</code>-style path patterns.</p>
+<p><strong>Input:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Parameter</th><th>Type</th><th>Required</th><th>Default</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>name_pattern</code></td><td>string</td><td>✅</td><td>—</td><td>Symbol name or substring</td></tr>
+<tr><td><code>kind</code></td><td>string</td><td></td><td>—</td><td>Same kind filter as <code>coraline_search</code></td></tr>
+<tr><td><code>include_body</code></td><td>boolean</td><td></td><td><code>false</code></td><td>Attach source code body</td></tr>
+<tr><td><code>limit</code></td><td>number</td><td></td><td><code>10</code></td><td>Maximum results</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Output:</strong> <code>{ "symbols": [...], "count": N }</code> — each symbol includes <code>docstring</code>, <code>is_exported</code>, <code>is_async</code>, <code>is_static</code>, <code>score</code>, and optionally <code>body</code>.</p>
+<hr>
+<h3 id="coraline_get_symbols_overview"><a class="header" href="#coraline_get_symbols_overview"><code>coraline_get_symbols_overview</code></a></h3>
+<p>Get an overview of all symbols in a file, grouped by kind and ordered by line number.</p>
+<p><strong>Input:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>file_path</code></td><td>string</td><td>✅</td><td>Path to file (relative to project root or absolute)</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Output:</strong></p>
+<pre><code class="language-json">{
+  "file_path": "src/lib.rs",
+  "symbol_count": 14,
+  "by_kind": {
+    "function": [ ... ],
+    "struct": [ ... ]
+  },
+  "symbols": [ ... ]
+}
+</code></pre>
+<hr>
+<h3 id="coraline_find_references"><a class="header" href="#coraline_find_references"><code>coraline_find_references</code></a></h3>
+<p>Find all nodes that reference (call, import, extend, implement, etc.) a given symbol.</p>
+<p><strong>Input:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Parameter</th><th>Type</th><th>Required</th><th>Default</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>node_id</code></td><td>string</td><td>✅</td><td>—</td><td>ID of the target node</td></tr>
+<tr><td><code>edge_kind</code></td><td>string</td><td></td><td>all</td><td>Filter: <code>calls</code>, <code>imports</code>, <code>extends</code>, <code>implements</code>, <code>references</code></td></tr>
+<tr><td><code>limit</code></td><td>number</td><td></td><td><code>50</code></td><td>Maximum references</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Output:</strong> <code>{ "node_id": "...", "references": [...], "count": N }</code> — each reference includes its <code>edge_kind</code> and the line number of the edge.</p>
+<hr>
+<h3 id="coraline_node"><a class="header" href="#coraline_node"><code>coraline_node</code></a></h3>
+<p>Get complete details for a specific node by ID, including its source code body read from disk.</p>
+<p><strong>Input:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Parameter</th><th>Type</th><th>Required</th><th>Default</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>node_id</code></td><td>string</td><td>✅</td><td>—</td><td>The node ID</td></tr>
+<tr><td><code>include_edges</code></td><td>boolean</td><td></td><td><code>false</code></td><td>Also return incoming/outgoing edge counts</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Output:</strong> Full node record including <code>body</code> (source lines), <code>visibility</code>, <code>decorators</code>, <code>type_parameters</code>, <code>is_async</code>, <code>is_static</code>, <code>is_abstract</code>, and optionally <code>incoming_edge_count</code> / <code>outgoing_edge_count</code>.</p>
+<hr>
+<h2 id="context-tool"><a class="header" href="#context-tool">Context Tool</a></h2>
+<h3 id="coraline_context"><a class="header" href="#coraline_context"><code>coraline_context</code></a></h3>
+<p>Build structured context for an AI task description. Searches the graph, traverses relationships, and returns relevant code snippets in Markdown or JSON format.</p>
+<p><strong>Input:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Parameter</th><th>Type</th><th>Required</th><th>Default</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>task</code></td><td>string</td><td>✅</td><td>—</td><td>Natural language task description</td></tr>
+<tr><td><code>max_nodes</code></td><td>number</td><td></td><td><code>20</code></td><td>Max graph nodes to include</td></tr>
+<tr><td><code>max_code_blocks</code></td><td>number</td><td></td><td><code>5</code></td><td>Max code block attachments</td></tr>
+<tr><td><code>max_code_block_size</code></td><td>number</td><td></td><td><code>1500</code></td><td>Max chars per code block</td></tr>
+<tr><td><code>include_code</code></td><td>boolean</td><td></td><td><code>true</code></td><td>Attach source code snippets</td></tr>
+<tr><td><code>traversal_depth</code></td><td>number</td><td></td><td><code>1</code></td><td>Graph traversal depth</td></tr>
+<tr><td><code>format</code></td><td>string</td><td></td><td><code>"markdown"</code></td><td><code>"markdown"</code> or <code>"json"</code></td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Output:</strong> A Markdown or JSON document containing relevant symbols and code, ready to paste as context for an LLM.</p>
+<hr>
+<h2 id="file-tools"><a class="header" href="#file-tools">File Tools</a></h2>
+<h3 id="coraline_read_file"><a class="header" href="#coraline_read_file"><code>coraline_read_file</code></a></h3>
+<p>Read the contents of a file within the project.</p>
+<p><strong>Input:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Parameter</th><th>Type</th><th>Required</th><th>Default</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>file_path</code></td><td>string</td><td>✅</td><td>—</td><td>File path (relative or absolute)</td></tr>
+<tr><td><code>start_line</code></td><td>number</td><td></td><td>—</td><td>Start line (1-based, inclusive)</td></tr>
+<tr><td><code>end_line</code></td><td>number</td><td></td><td>—</td><td>End line (1-based, inclusive)</td></tr>
+</tbody>
+</table>
+</div>
+<hr>
+<h3 id="coraline_list_dir"><a class="header" href="#coraline_list_dir"><code>coraline_list_dir</code></a></h3>
+<p>List the contents of a directory within the project.</p>
+<p><strong>Input:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Parameter</th><th>Type</th><th>Required</th><th>Default</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>path</code></td><td>string</td><td></td><td><code>.</code></td><td>Directory path (relative or absolute)</td></tr>
+<tr><td><code>recursive</code></td><td>boolean</td><td></td><td><code>false</code></td><td>Recurse into subdirectories</td></tr>
+</tbody>
+</table>
+</div>
+<hr>
+<h3 id="coraline_get_file_nodes"><a class="header" href="#coraline_get_file_nodes"><code>coraline_get_file_nodes</code></a></h3>
+<p>Get all indexed symbols (nodes) for a specific file.</p>
+<p><strong>Input:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>file_path</code></td><td>string</td><td>✅</td><td>File path (relative or absolute)</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Output:</strong> <code>{ "file_path": "...", "nodes": [...], "count": N }</code></p>
+<hr>
+<h3 id="coraline_status"><a class="header" href="#coraline_status"><code>coraline_status</code></a></h3>
+<p>Show project statistics: total files, nodes, edges, and unresolved reference counts.</p>
+<p><strong>Input:</strong> None.</p>
+<p><strong>Output:</strong></p>
+<pre><code class="language-json">{
+  "files": 128,
+  "nodes": 4201,
+  "edges": 9872,
+  "unresolved": 153,
+  "db_size_bytes": 2097152
+}
+</code></pre>
+<hr>
+<h3 id="coraline_get_config"><a class="header" href="#coraline_get_config"><code>coraline_get_config</code></a></h3>
+<p>Read the current project configuration from <code>.coraline/config.toml</code>.</p>
+<p><strong>Input:</strong> None.</p>
+<p><strong>Output:</strong> Full <code>CoralineConfig</code> as JSON with all four sections (<code>indexing</code>, <code>context</code>, <code>sync</code>, <code>vectors</code>).</p>
+<hr>
+<h3 id="coraline_update_config"><a class="header" href="#coraline_update_config"><code>coraline_update_config</code></a></h3>
+<p>Update a single configuration value using dot-notation path.</p>
+<p><strong>Input:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>key</code></td><td>string</td><td>✅</td><td>Dot-notation path, e.g. <code>context.max_nodes</code></td></tr>
+<tr><td><code>value</code></td><td>any</td><td>✅</td><td>New value (type must match the field)</td></tr>
+</tbody>
+</table>
+</div>
+<hr>
+<h3 id="coraline_sync"><a class="header" href="#coraline_sync"><code>coraline_sync</code></a></h3>
+<p>Trigger an incremental sync of the index. Detects files added, modified, or removed since the last index run and updates only what changed. Run after editing source files to keep the graph current.</p>
+<p><strong>Input:</strong> None.</p>
+<p><strong>Output:</strong></p>
+<pre><code class="language-json">{
+  "files_checked": 42,
+  "files_added": 1,
+  "files_modified": 3,
+  "files_removed": 0,
+  "nodes_updated": 47,
+  "duration_ms": 380
+}
+</code></pre>
+<hr>
+<h3 id="coraline_semantic_search"><a class="header" href="#coraline_semantic_search"><code>coraline_semantic_search</code></a></h3>
+<p>Search indexed nodes using natural-language vector similarity. Included in the default build; only registered as an MCP tool once an ONNX model is present in <code>.coraline/models/</code>. To activate:</p>
+<pre><code class="language-bash">coraline model download   # download nomic-embed-text-v1.5 (~137 MB)
+coraline embed            # generate embeddings for all indexed nodes
+</code></pre>
+<p>When this tool is used, Coraline periodically performs a throttled freshness check. If indexed state is stale it runs incremental sync automatically, then refreshes stale/missing embeddings before search.</p>
+<p><strong>Input:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Parameter</th><th>Type</th><th>Required</th><th>Default</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>query</code></td><td>string</td><td>✅</td><td>—</td><td>Natural-language description of what you’re looking for</td></tr>
+<tr><td><code>limit</code></td><td>number</td><td></td><td><code>10</code></td><td>Max results</td></tr>
+<tr><td><code>min_similarity</code></td><td>number</td><td></td><td><code>0.3</code></td><td>Minimum cosine similarity threshold (0–1)</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Output:</strong></p>
+<pre><code class="language-json">{
+  "query": "how is sync staleness detected",
+  "freshness": {
+    "checked": true,
+    "stale_files_added": 0,
+    "stale_files_modified": 2,
+    "stale_files_removed": 0,
+    "synced": true,
+    "files_added": 0,
+    "files_modified": 2,
+    "files_removed": 0,
+    "embeddings_refreshed": true,
+    "embeddings_refreshed_count": 18,
+    "check_interval_seconds": 30
+  },
+  "results": [
+    {
+      "id": "abc123",
+      "name": "resolve_unresolved",
+      "qualified_name": "coraline::resolution::ReferenceResolver::resolve_unresolved",
+      "kind": "Function",
+      "file_path": "src/resolution/mod.rs",
+      "start_line": 42,
+      "docstring": null,
+      "signature": "fn resolve_unresolved(...)",
+      "score": 0.87
+    }
+  ]
+}
+</code></pre>
+<hr>
+<h2 id="memory-tools"><a class="header" href="#memory-tools">Memory Tools</a></h2>
+<p>Project memories are Markdown files stored in <code>.coraline/memories/</code>. They persist across sessions and help AI assistants maintain project context.</p>
+<h3 id="coraline_write_memory"><a class="header" href="#coraline_write_memory"><code>coraline_write_memory</code></a></h3>
+<p>Write or update a project memory.</p>
+<p><strong>Input:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>name</code></td><td>string</td><td>✅</td><td>Memory name (without <code>.md</code>). E.g. <code>project_overview</code></td></tr>
+<tr><td><code>content</code></td><td>string</td><td>✅</td><td>Memory content in Markdown format</td></tr>
+</tbody>
+</table>
+</div>
+<hr>
+<h3 id="coraline_read_memory"><a class="header" href="#coraline_read_memory"><code>coraline_read_memory</code></a></h3>
+<p>Read a project memory by name.</p>
+<p><strong>Input:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>name</code></td><td>string</td><td>✅</td><td>Memory name (without <code>.md</code>)</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Output:</strong> <code>{ "name": "...", "content": "..." }</code></p>
+<hr>
+<h3 id="coraline_list_memories"><a class="header" href="#coraline_list_memories"><code>coraline_list_memories</code></a></h3>
+<p>List all available memories for the project.</p>
+<p><strong>Input:</strong> None.</p>
+<p><strong>Output:</strong> <code>{ "memories": ["project_overview", "architecture_notes", ...], "count": N }</code></p>
+<hr>
+<h3 id="coraline_delete_memory"><a class="header" href="#coraline_delete_memory"><code>coraline_delete_memory</code></a></h3>
+<p>Delete a project memory.</p>
+<p><strong>Input:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>name</code></td><td>string</td><td>✅</td><td>Memory name to delete</td></tr>
+</tbody>
+</table>
+</div>
+<hr>
+<h3 id="coraline_edit_memory"><a class="header" href="#coraline_edit_memory"><code>coraline_edit_memory</code></a></h3>
+<p>Edit a memory file by replacing text — either as a literal string match or a regex pattern.</p>
+<p><strong>Input:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Parameter</th><th>Type</th><th>Required</th><th>Default</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>name</code></td><td>string</td><td>✅</td><td>—</td><td>Memory name (without <code>.md</code>)</td></tr>
+<tr><td><code>pattern</code></td><td>string</td><td>✅</td><td>—</td><td>Text to find</td></tr>
+<tr><td><code>replacement</code></td><td>string</td><td>✅</td><td>—</td><td>Replacement text</td></tr>
+<tr><td><code>mode</code></td><td>string</td><td></td><td><code>"literal"</code></td><td><code>"literal"</code> or <code>"regex"</code></td></tr>
+</tbody>
+</table>
+</div>
+<hr>
+<h2 id="mcp-client-configuration"><a class="header" href="#mcp-client-configuration">MCP Client Configuration</a></h2>
+<h3 id="claude-desktop"><a class="header" href="#claude-desktop">Claude Desktop</a></h3>
+<p>Add to <code>~/Library/Application Support/Claude/claude_desktop_config.json</code> (macOS):</p>
+<pre><code class="language-json">{
+  "mcpServers": {
+    "coraline": {
+      "command": "/path/to/coraline",
+      "args": ["serve", "--mcp", "--path", "/path/to/your/project"]
+    }
+  }
+}
+</code></pre>
+<h3 id="claude-code"><a class="header" href="#claude-code">Claude Code</a></h3>
+<p>Add to <code>.claude/mcp.json</code> in your project workspace:</p>
+<pre><code class="language-json">{
+  "mcpServers": {
+    "coraline": {
+      "command": "coraline",
+      "args": ["serve", "--mcp"]
+    }
+  }
+}
+</code></pre>
+<p>When <code>--path</code> is omitted, the working directory is used as the project root.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="configuration"><a class="header" href="#configuration">Configuration</a></h1>
+<h1 id="coraline-configuration-reference"><a class="header" href="#coraline-configuration-reference">Coraline Configuration Reference</a></h1>
+<p>Coraline stores its configuration in <code>.coraline/config.toml</code> within each project. All settings are optional — a missing or empty file uses sensible defaults.</p>
+<hr>
+<h2 id="file-locations"><a class="header" href="#file-locations">File Locations</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>File</th><th>Purpose</th></tr>
+</thead>
+<tbody>
+<tr><td><code>.coraline/config.toml</code></td><td>Main user-editable configuration</td></tr>
+<tr><td><code>.coraline/config.json</code></td><td>Internal runtime config (auto-generated, do not edit)</td></tr>
+<tr><td><code>.coraline/coraline.db</code></td><td>SQLite knowledge graph (do not edit)</td></tr>
+<tr><td><code>.coraline/memories/</code></td><td>Project memory files (Markdown)</td></tr>
+<tr><td><code>.coraline/logs/</code></td><td>Daily-rotating log files</td></tr>
+</tbody>
+</table>
+</div>
+<hr>
+<h2 id="full-default-configuration"><a class="header" href="#full-default-configuration">Full Default Configuration</a></h2>
+<pre><code class="language-toml"># Coraline project configuration
+# All settings are optional — defaults are shown below.
+
+[indexing]
+max_file_size = 1048576   # 1 MB — skip files larger than this
+batch_size    = 100       # Files processed per batch
+include_patterns = [
+  "**/*.rs", "**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx",
+  "**/*.py", "**/*.go", "**/*.java", "**/*.cs", "**/*.cpp",
+  "**/*.c", "**/*.h", "**/*.rb", "**/*.php", "**/*.swift",
+  "**/*.kt", "**/*.razor",
+]
+exclude_patterns = [
+  "**/.git/**", "**/target/**", "**/node_modules/**",
+  "**/dist/**", "**/build/**", "**/.coraline/**",
+]
+
+[context]
+max_nodes          = 20    # Max graph nodes in context output
+max_code_blocks    = 5     # Max code snippets to attach
+max_code_block_size = 1500 # Max chars per code block
+traversal_depth    = 1     # Graph hops from entry nodes
+
+[sync]
+git_hooks_enabled = true   # Auto-sync on git commit
+watch_mode        = false  # Watch for file changes (not yet implemented)
+debounce_ms       = 500    # Watch mode debounce delay
+
+[vectors]
+enabled    = false                  # Requires ONNX model (see below)
+model      = "nomic-embed-text-v1.5"
+dimension  = 384
+batch_size = 32
+</code></pre>
+<hr>
+<h2 id="indexing-section"><a class="header" href="#indexing-section"><code>[indexing]</code> Section</a></h2>
+<p>Controls which files are indexed and how.</p>
+<h3 id="max_file_size"><a class="header" href="#max_file_size"><code>max_file_size</code></a></h3>
+<p>Files larger than this are skipped during indexing.</p>
+<ul>
+<li><strong>Type:</strong> integer (bytes)</li>
+<li><strong>Default:</strong> <code>1048576</code> (1 MB)</li>
+</ul>
+<pre><code class="language-toml">[indexing]
+max_file_size = 524288   # 512 KB
+</code></pre>
+<h3 id="batch_size"><a class="header" href="#batch_size"><code>batch_size</code></a></h3>
+<p>Number of files processed per indexing batch.</p>
+<ul>
+<li><strong>Type:</strong> integer</li>
+<li><strong>Default:</strong> <code>100</code></li>
+</ul>
+<h3 id="include_patterns"><a class="header" href="#include_patterns"><code>include_patterns</code></a></h3>
+<p>Glob patterns for files to include. Uses <code>**</code> for recursive matching.</p>
+<ul>
+<li><strong>Type:</strong> array of strings</li>
+<li><strong>Default:</strong> Common source file extensions for 18+ languages</li>
+</ul>
+<pre><code class="language-toml">[indexing]
+include_patterns = [
+  "**/*.rs",
+  "**/*.ts",
+  "**/*.tsx",
+  "src/**/*.js",
+]
+</code></pre>
+<h3 id="exclude_patterns"><a class="header" href="#exclude_patterns"><code>exclude_patterns</code></a></h3>
+<p>Glob patterns for paths to exclude. Matched against the full relative file path.</p>
+<ul>
+<li><strong>Type:</strong> array of strings</li>
+<li><strong>Default:</strong> Build artifacts, package caches, generated files, IDE directories</li>
+</ul>
+<pre><code class="language-toml">[indexing]
+exclude_patterns = [
+  "**/.git/**",
+  "**/node_modules/**",
+  "**/target/**",
+  "**/dist/**",
+  "tests/fixtures/**",  # custom exclusion
+]
+</code></pre>
+<blockquote>
+<p><strong>Tip:</strong> The default exclusion list is extensive. You typically only need to add project-specific paths.</p>
+<p><strong>Python virtualenvs:</strong> The defaults cover <code>.venv/</code>, <code>venv/</code>, <code>env/</code>, and named venvs matching <code>*_venv/</code> or <code>*-venv/</code> (e.g. <code>cluster_venv/</code>, <code>memory_venv/</code>). If you use a different naming convention, add it explicitly:</p>
+<pre><code class="language-toml">exclude_patterns = ["**/my_custom_env/**"]
+</code></pre>
+</blockquote>
+<hr>
+<h2 id="context-section"><a class="header" href="#context-section"><code>[context]</code> Section</a></h2>
+<p>Controls the output of <code>coraline context</code> (CLI) and <code>coraline_context</code> (MCP).</p>
+<h3 id="max_nodes"><a class="header" href="#max_nodes"><code>max_nodes</code></a></h3>
+<p>Maximum number of graph nodes to include in a context response.</p>
+<ul>
+<li><strong>Type:</strong> integer</li>
+<li><strong>Default:</strong> <code>20</code></li>
+</ul>
+<h3 id="max_code_blocks"><a class="header" href="#max_code_blocks"><code>max_code_blocks</code></a></h3>
+<p>Maximum number of source code snippets to attach.</p>
+<ul>
+<li><strong>Type:</strong> integer</li>
+<li><strong>Default:</strong> <code>5</code></li>
+</ul>
+<h3 id="max_code_block_size"><a class="header" href="#max_code_block_size"><code>max_code_block_size</code></a></h3>
+<p>Maximum characters per code block. Larger bodies are truncated.</p>
+<ul>
+<li><strong>Type:</strong> integer</li>
+<li><strong>Default:</strong> <code>1500</code></li>
+</ul>
+<h3 id="traversal_depth"><a class="header" href="#traversal_depth"><code>traversal_depth</code></a></h3>
+<p>How many graph hops to follow from the initial matching nodes.</p>
+<ul>
+<li><strong>Type:</strong> integer</li>
+<li><strong>Default:</strong> <code>1</code></li>
+</ul>
+<pre><code class="language-toml">[context]
+max_nodes          = 40
+max_code_blocks    = 10
+max_code_block_size = 2000
+traversal_depth    = 2
+</code></pre>
+<hr>
+<h2 id="sync-section"><a class="header" href="#sync-section"><code>[sync]</code> Section</a></h2>
+<p>Controls incremental sync behavior and git hook integration.</p>
+<h3 id="git_hooks_enabled"><a class="header" href="#git_hooks_enabled"><code>git_hooks_enabled</code></a></h3>
+<p>Whether <code>coraline init</code> installs a <code>post-commit</code> hook that automatically runs <code>coraline sync</code> after each commit.</p>
+<ul>
+<li><strong>Type:</strong> boolean</li>
+<li><strong>Default:</strong> <code>true</code></li>
+</ul>
+<blockquote>
+<p><strong>Note:</strong> This only determines whether <code>coraline init</code> auto-installs the hook. To manage the hook manually, use <code>coraline hooks install|remove|status</code>.</p>
+</blockquote>
+<h3 id="watch_mode"><a class="header" href="#watch_mode"><code>watch_mode</code></a></h3>
+<p>Enable file-system watch mode (re-index on changes). Not yet implemented.</p>
+<ul>
+<li><strong>Type:</strong> boolean</li>
+<li><strong>Default:</strong> <code>false</code></li>
+</ul>
+<h3 id="debounce_ms"><a class="header" href="#debounce_ms"><code>debounce_ms</code></a></h3>
+<p>Debounce delay for watch mode in milliseconds.</p>
+<ul>
+<li><strong>Type:</strong> integer</li>
+<li><strong>Default:</strong> <code>500</code></li>
+</ul>
+<hr>
+<h2 id="vectors-section"><a class="header" href="#vectors-section"><code>[vectors]</code> Section</a></h2>
+<p>Controls vector embedding generation for semantic search.</p>
+<blockquote>
+<p><strong>Status:</strong> Infrastructure is in place. Full semantic search with ONNX model embeddings is pending availability of a stable <code>ort</code> 2.0 API. Setting <code>enabled = true</code> currently has no effect.</p>
+</blockquote>
+<h3 id="enabled"><a class="header" href="#enabled"><code>enabled</code></a></h3>
+<p>Enable vector embedding generation.</p>
+<ul>
+<li><strong>Type:</strong> boolean</li>
+<li><strong>Default:</strong> <code>false</code></li>
+</ul>
+<h3 id="model"><a class="header" href="#model"><code>model</code></a></h3>
+<p>Embedding model identifier.</p>
+<ul>
+<li><strong>Type:</strong> string</li>
+<li><strong>Default:</strong> <code>"nomic-embed-text-v1.5"</code></li>
+</ul>
+<h3 id="dimension"><a class="header" href="#dimension"><code>dimension</code></a></h3>
+<p>Embedding vector dimension. Must match the selected model.</p>
+<ul>
+<li><strong>Type:</strong> integer</li>
+<li><strong>Default:</strong> <code>384</code></li>
+</ul>
+<h3 id="batch_size-1"><a class="header" href="#batch_size-1"><code>batch_size</code></a></h3>
+<p>Number of symbols embedded per batch.</p>
+<ul>
+<li><strong>Type:</strong> integer</li>
+<li><strong>Default:</strong> <code>32</code></li>
+</ul>
+<hr>
+<h2 id="cli-configuration-commands"><a class="header" href="#cli-configuration-commands">CLI Configuration Commands</a></h2>
+<p>Read the full config:</p>
+<pre><code class="language-bash">coraline config
+</code></pre>
+<p>Read a specific section:</p>
+<pre><code class="language-bash">coraline config --section context
+coraline config --section indexing
+</code></pre>
+<p>Output as JSON:</p>
+<pre><code class="language-bash">coraline config --json
+</code></pre>
+<p>Update a value:</p>
+<pre><code class="language-bash">coraline config --set context.max_nodes=30
+coraline config --set indexing.batch_size=50
+coraline config --set indexing.max_file_size=524288
+coraline config --set vectors.enabled=true
+</code></pre>
+<p>The <code>--set</code> flag accepts <code>section.key=value</code> syntax. Values are parsed as JSON when possible (for booleans, numbers, and arrays), otherwise treated as strings.</p>
+<hr>
+<h2 id="mcp-configuration-tools"><a class="header" href="#mcp-configuration-tools">MCP Configuration Tools</a></h2>
+<p>The same operations are available via MCP:</p>
+<pre><code>coraline_get_config          → returns full config as JSON
+coraline_update_config       → updates a single key
+  key: "context.max_nodes"
+  value: 30
+</code></pre>
+<hr>
+<h2 id="example-focused-typescript-project"><a class="header" href="#example-focused-typescript-project">Example: Focused TypeScript Project</a></h2>
+<pre><code class="language-toml">[indexing]
+include_patterns = [
+  "src/**/*.ts",
+  "src/**/*.tsx",
+  "tests/**/*.ts",
+]
+exclude_patterns = [
+  "**/node_modules/**",
+  "**/dist/**",
+  "**/.next/**",
+  "src/**/*.d.ts",
+]
+
+[context]
+max_nodes = 30
+max_code_blocks = 8
+traversal_depth = 2
+</code></pre>
+<h2 id="example-large-rust-workspace"><a class="header" href="#example-large-rust-workspace">Example: Large Rust Workspace</a></h2>
+<pre><code class="language-toml">[indexing]
+max_file_size = 2097152   # 2 MB for generated code
+batch_size = 200
+include_patterns = [
+  "crates/**/*.rs",
+]
+exclude_patterns = [
+  "**/target/**",
+  "**/.git/**",
+]
+
+[context]
+max_nodes = 50
+traversal_depth = 3
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="architecture"><a class="header" href="#architecture">Architecture</a></h1>
+<h1 id="coraline-architecture"><a class="header" href="#coraline-architecture">Coraline Architecture</a></h1>
+<p>Coraline is a local-first code intelligence system that builds a semantic knowledge graph from any codebase. It uses tree-sitter for deterministic AST-based parsing, SQLite for storage and full-text search, and exposes its capabilities via both a CLI and an MCP server.</p>
+<hr>
+<h2 id="high-level-overview"><a class="header" href="#high-level-overview">High-Level Overview</a></h2>
+<pre><code>┌─────────────────────────────────────────────────────────────────┐
+│                    AI Assistant (MCP Client)                     │
+│              (Claude Desktop, Claude Code, etc.)                 │
+└────────────────────────────┬────────────────────────────────────┘
+                             │ MCP (stdio)
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     coraline serve --mcp                         │
+│                                                                  │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │                     Tool Registry                         │   │
+│  │  ┌────────────┐  ┌──────────────┐  ┌───────────────┐    │   │
+│  │  │ Graph Tools│  │Context Tools │  │  Memory Tools │    │   │
+│  │  │ File Tools │  │              │  │               │    │   │
+│  │  └─────┬──────┘  └──────┬───────┘  └───────┬───────┘    │   │
+│  └────────┼────────────────┼──────────────────┼────────────┘   │
+│           └────────────────┼──────────────────┘                 │
+│                            ▼                                     │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │                    Core Engine                           │    │
+│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────┐  │    │
+│  │  │extraction│  │   db     │  │  graph   │  │context │  │    │
+│  │  │(parsers) │  │(SQLite)  │  │(traversal│  │(builder│  │    │
+│  │  └────┬─────┘  └────┬─────┘  └──────────┘  └────────┘  │    │
+│  │       │             │                                    │    │
+│  │  ┌────▼─────┐  ┌────▼─────────────────────────────┐     │    │
+│  │  │resolution│  │  vectors   │  sync   │  memory   │     │    │
+│  │  │(ref-res) │  │(embeddings)│(git hook│(memories) │     │    │
+│  │  └──────────┘  └────────────┴─────────┴───────────┘     │    │
+│  └─────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────┘
+                             │
+                             ▼
+                    .coraline/ (per project)
+                    ├── coraline.db
+                    ├── config.toml
+                    ├── memories/
+                    └── logs/
+</code></pre>
+<hr>
+<h2 id="source-layout"><a class="header" href="#source-layout">Source Layout</a></h2>
+<pre><code>crates/coraline/src/
+├── bin/coraline.rs     # CLI entry point (clap)
+├── lib.rs              # Public API surface
+├── types.rs            # NodeKind, EdgeKind, all shared types
+├── db.rs               # SQLite layer + schema + FTS
+├── extraction.rs       # Tree-sitter parsing + indexing pipeline
+├── graph.rs            # Graph traversal and subgraph queries
+├── resolution/         # Cross-file reference resolution
+│   ├── mod.rs          # Core resolver + framework fallback
+│   └── frameworks/     # Language/framework-specific resolvers
+│       ├── mod.rs      # FrameworkResolver trait + registry
+│       ├── rust.rs     # crate::, super::, self:: resolution
+│       ├── react.rs    # ./Foo imports, @/ aliases, components
+│       ├── blazor.rs   # .razor file discovery, .NET types
+│       └── laravel.rs  # PSR-4, blade views, facades
+├── context.rs          # Context builder (Markdown/JSON output)
+├── vectors.rs          # Vector storage + cosine similarity
+├── memory.rs           # Project memory CRUD
+├── config.rs           # TOML + JSON configuration loading
+├── sync.rs             # Incremental sync + git hook management
+├── logging.rs          # Structured logging (tracing)
+├── mcp.rs              # MCP server (JSON-RPC over stdio)
+├── utils.rs            # Shared utilities
+└── tools/
+    ├── mod.rs          # Tool trait + ToolRegistry
+    ├── graph_tools.rs  # search, callers, callees, impact, find_symbol, ...
+    ├── context_tools.rs# coraline_context
+    ├── file_tools.rs   # read_file, list_dir, status, config
+    └── memory_tools.rs # write/read/list/delete/edit memory
+</code></pre>
+<hr>
+<h2 id="data-model"><a class="header" href="#data-model">Data Model</a></h2>
+<h3 id="nodes"><a class="header" href="#nodes">Nodes</a></h3>
+<p>Every extracted symbol is a <code>Node</code>:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct Node {
+    pub id: String,              // SHA-based deterministic ID
+    pub kind: NodeKind,          // function, class, method, struct, ...
+    pub name: String,            // unqualified symbol name
+    pub qualified_name: Option&lt;String&gt;,
+    pub file_path: String,       // absolute path
+    pub language: String,
+    pub start_line: i64,
+    pub end_line: i64,
+    pub start_column: i64,
+    pub end_column: i64,
+    pub signature: Option&lt;String&gt;,
+    pub docstring: Option&lt;String&gt;,
+    pub visibility: Option&lt;String&gt;,
+    pub is_exported: bool,
+    pub is_async: bool,
+    pub is_static: bool,
+    pub is_abstract: bool,
+    pub decorators: Vec&lt;String&gt;,
+    pub type_parameters: Vec&lt;String&gt;,
+}
+<span class="boring">}</span></code></pre>
+<p><strong>NodeKind values:</strong> <code>file</code>, <code>module</code>, <code>class</code>, <code>struct</code>, <code>interface</code>, <code>trait</code>, <code>protocol</code>, <code>function</code>, <code>method</code>, <code>property</code>, <code>field</code>, <code>variable</code>, <code>constant</code>, <code>enum</code>, <code>enum_member</code>, <code>type_alias</code>, <code>namespace</code>, <code>parameter</code>, <code>import</code>, <code>export</code>, <code>route</code>, <code>component</code></p>
+<h3 id="edges"><a class="header" href="#edges">Edges</a></h3>
+<p>Relationships between nodes are <code>Edge</code> records:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct Edge {
+    pub id: String,
+    pub source: String,          // source node ID
+    pub target: String,          // target node ID
+    pub kind: EdgeKind,
+    pub line: Option&lt;i64&gt;,       // line where the relationship occurs
+    pub metadata: Option&lt;String&gt;,
+}
+<span class="boring">}</span></code></pre>
+<p><strong>EdgeKind values:</strong> <code>contains</code>, <code>calls</code>, <code>imports</code>, <code>exports</code>, <code>extends</code>, <code>implements</code>, <code>references</code>, <code>type_of</code>, <code>returns</code>, <code>instantiates</code></p>
+<hr>
+<h2 id="indexing-pipeline"><a class="header" href="#indexing-pipeline">Indexing Pipeline</a></h2>
+<ol>
+<li><strong>Scan</strong> — Glob the project tree using <code>include_patterns</code>/<code>exclude_patterns</code>.</li>
+<li><strong>Parse</strong> — For each file, spawn the appropriate tree-sitter grammar and walk the AST.</li>
+<li><strong>Extract</strong> — Emit <code>Node</code> and <code>Edge</code> records from the AST visitor.</li>
+<li><strong>Store</strong> — Upsert nodes and edges into SQLite. A file content hash prevents re-parsing unchanged files.</li>
+<li><strong>Resolve</strong> — Walk <code>unresolved</code> reference edges, attempt name-based resolution in the DB; fall back to framework-specific resolvers for zero-candidate references.</li>
+</ol>
+<h3 id="incremental-sync"><a class="header" href="#incremental-sync">Incremental Sync</a></h3>
+<p><code>coraline sync</code> (and the git post-commit hook) uses <code>git diff --name-only HEAD~1</code> to find changed files, then re-parses only those files. Deleted files have their nodes pruned from the graph.</p>
+<hr>
+<h2 id="reference-resolution"><a class="header" href="#reference-resolution">Reference Resolution</a></h2>
+<p>Resolution happens in two passes:</p>
+<ol>
+<li>
+<p><strong>Name-based</strong>: The <code>resolution::resolve_unresolved</code> function looks up reference names in the DB using ranked candidate scoring (file proximity, name similarity, kind match).</p>
+</li>
+<li>
+<p><strong>Framework fallback</strong>: When no candidates score above threshold, <code>framework_fallback</code> is called. The registered <code>FrameworkResolver</code> implementations detect the active framework (by checking for <code>Cargo.toml</code>, <code>package.json</code>, <code>artisan</code>, <code>.csproj</code>, etc.) and return candidate file paths. Nodes from those files are then loaded and filtered by the referenced symbol name.</p>
+</li>
+</ol>
+<p>Current framework resolvers:</p>
+<ul>
+<li><strong>RustResolver</strong> — <code>crate::</code>, <code>super::</code>, <code>self::</code> qualified paths → <code>.rs</code> file mapping</li>
+<li><strong>ReactResolver</strong> — <code>./Foo</code> relative imports, <code>@/</code> path aliases, PascalCase component search</li>
+<li><strong>BlazorResolver</strong> — PascalCase component → <code>.razor</code> file, dot-qualified .NET types</li>
+<li><strong>LaravelResolver</strong> — PSR-4 FQN → PHP file, dot-notation views → blade templates</li>
+</ul>
+<hr>
+<h2 id="tool-architecture"><a class="header" href="#tool-architecture">Tool Architecture</a></h2>
+<p>All MCP tools implement the <code>Tool</code> trait:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub trait Tool: Send + Sync {
+    fn name(&amp;self) -&gt; &amp;'static str;
+    fn description(&amp;self) -&gt; &amp;'static str;
+    fn input_schema(&amp;self) -&gt; Value;
+    fn execute(&amp;self, params: Value) -&gt; ToolResult;
+}
+<span class="boring">}</span></code></pre>
+<p>Tools are registered in a <code>ToolRegistry</code>, which:</p>
+<ul>
+<li>Dispatches <code>tools/call</code> MCP requests by name</li>
+<li>Automatically generates <code>tools/list</code> responses from registered metadata</li>
+<li>Can be used outside MCP (CLI, library API, tests)</li>
+</ul>
+<hr>
+<h2 id="database-schema"><a class="header" href="#database-schema">Database Schema</a></h2>
+<p>The SQLite database (<code>.coraline/coraline.db</code>) has three main tables:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Table</th><th>Purpose</th></tr>
+</thead>
+<tbody>
+<tr><td><code>nodes</code></td><td>All indexed symbols with full metadata</td></tr>
+<tr><td><code>edges</code></td><td>Directed relationships between nodes</td></tr>
+<tr><td><code>nodes_fts</code></td><td>FTS5 virtual table for fast name search</td></tr>
+</tbody>
+</table>
+</div>
+<p>A <code>files</code> table tracks content hashes for incremental sync. An <code>unresolved_refs</code> table holds references that couldn’t be resolved during extraction, to be retried on full resolution passes.</p>
+<hr>
+<h2 id="mcp-protocol"><a class="header" href="#mcp-protocol">MCP Protocol</a></h2>
+<p>The MCP server (<code>coraline serve --mcp</code>) communicates over <code>stdin</code>/<code>stdout</code> using JSON-RPC 2.0, conforming to the <a href="https://modelcontextprotocol.io/">Model Context Protocol specification</a>.</p>
+<p>Supported MCP methods:</p>
+<ul>
+<li><code>initialize</code> / <code>notifications/initialized</code></li>
+<li><code>tools/list</code> — returns tool descriptors with cursor pagination (<code>cursor</code> / <code>nextCursor</code>)</li>
+<li><code>tools/call</code> — dispatches to <code>ToolRegistry</code></li>
+<li><code>ping</code></li>
+</ul>
+<p>The server is single-threaded and synchronous; each request is fully processed before the next is read.</p>
+<hr>
+<h2 id="logging"><a class="header" href="#logging">Logging</a></h2>
+<p>Structured logs use the <code>tracing</code> crate:</p>
+<ul>
+<li><strong>Console</strong>: stderr at the level set by <code>CORALINE_LOG</code> (default: <code>info</code>)</li>
+<li><strong>File</strong>: <code>.coraline/logs/coraline.log</code> with daily rotation (kept 7 days)</li>
+</ul>
+<pre><code class="language-bash">CORALINE_LOG=debug coraline index      # verbose
+CORALINE_LOG=warn coraline serve --mcp # quiet
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="development"><a class="header" href="#development">Development</a></h1>
+<h1 id="coraline-development-guide"><a class="header" href="#coraline-development-guide">Coraline Development Guide</a></h1>
+<p>This document covers building, testing, and contributing to Coraline.</p>
+<hr>
+<h2 id="prerequisites"><a class="header" href="#prerequisites">Prerequisites</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Tool</th><th>Version</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td>Rust</td><td>≥ 1.85</td><td>MSRV — install via <a href="https://rustup.rs/">rustup</a></td></tr>
+<tr><td>Git</td><td>any</td><td>Required for sync and hooks</td></tr>
+<tr><td>SQLite</td><td>bundled</td><td>Included via <code>rusqlite</code> — no separate install needed</td></tr>
+</tbody>
+</table>
+</div>
+<hr>
+<h2 id="getting-started-1"><a class="header" href="#getting-started-1">Getting Started</a></h2>
+<pre><code class="language-bash">git clone https://github.com/greysquirr3l/coraline.git
+cd coraline
+
+# Build (debug)
+cargo build --all-features
+
+# Build and install to ~/.cargo/bin
+cargo install --path crates/coraline --force
+
+# Verify
+coraline --version
+</code></pre>
+<hr>
+<h2 id="common-commands"><a class="header" href="#common-commands">Common Commands</a></h2>
+<pre><code class="language-bash"># Development build
+cargo build --all-features
+
+# Release build
+cargo build --release --all-features
+
+# Run all tests
+cargo test --all-features
+
+# Run tests with output
+cargo test --all-features -- --nocapture
+
+# Run a specific test by name
+cargo test resolve_unresolved
+
+# Run a specific integration test file
+cargo test --test extraction_test
+
+# Lint (project default clippy baseline)
+cargo lint
+
+# Format
+cargo fmt
+
+# Check formatting without modifying
+cargo fmt -- --check
+</code></pre>
+<hr>
+<h2 id="project-structure"><a class="header" href="#project-structure">Project Structure</a></h2>
+<pre><code>coraline/
+├── Cargo.toml                     # Workspace manifest
+├── deny.toml                      # cargo-deny license/audit policy
+├── crates/
+│   ├── coraline/                  # Main crate
+│   │   ├── Cargo.toml
+│   │   └── src/
+│   │       ├── bin/coraline.rs    # CLI binary
+│   │       └── ...                # Library modules
+│   └── tree-sitter-blazor/        # Custom Blazor grammar
+├── docs/                          # Documentation
+├── reference_projects/            # Reference implementations (not built)
+└── .github/workflows/             # CI/CD pipelines
+</code></pre>
+<hr>
+<h2 id="tests"><a class="header" href="#tests">Tests</a></h2>
+<h3 id="test-overview"><a class="header" href="#test-overview">Test Overview</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Location</th><th>Count</th><th>Type</th></tr>
+</thead>
+<tbody>
+<tr><td><code>src/tools/mod.rs</code></td><td>3</td><td>Unit: <code>ToolRegistry</code></td></tr>
+<tr><td><code>src/tools/memory_tools.rs</code></td><td>5</td><td>Unit: MCP memory tools</td></tr>
+<tr><td><code>src/memory.rs</code></td><td>11</td><td>Unit: memory CRUD</td></tr>
+<tr><td><code>src/vectors.rs</code></td><td>5</td><td>Unit: cosine similarity</td></tr>
+<tr><td><code>tests/extraction_test.rs</code></td><td>4 (1 ignored)</td><td>Integration: AST parsing</td></tr>
+<tr><td><code>tests/graph_test.rs</code></td><td>4</td><td>Integration: graph traversal</td></tr>
+<tr><td><code>tests/context_test.rs</code></td><td>5</td><td>Integration: context building</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Current status:</strong> 37/37 passing, 1 ignored (<code>test_cross_file_references</code> — import edge extraction not yet implemented).</p>
+<h3 id="running-tests"><a class="header" href="#running-tests">Running Tests</a></h3>
+<pre><code class="language-bash"># All tests
+cargo test --all-features 2&gt;&amp;1 | grep "test result"
+
+# Single integration file
+cargo test --test graph_test
+
+# Single unit test
+cargo test memory::tests::test_write_read
+
+# With output (for debugging)
+cargo test test_name -- --nocapture
+</code></pre>
+<h3 id="test-fixtures"><a class="header" href="#test-fixtures">Test Fixtures</a></h3>
+<p>Integration tests use fixtures in <code>crates/coraline/tests/fixtures/</code>:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Fixture</th><th>Purpose</th></tr>
+</thead>
+<tbody>
+<tr><td><code>simple-project/</code></td><td>Basic TypeScript + Rust extraction</td></tr>
+<tr><td><code>blazor-app/</code></td><td>Blazor/Razor component parsing</td></tr>
+<tr><td><code>mixed-language/</code></td><td>Multi-language extraction</td></tr>
+</tbody>
+</table>
+</div>
+<p>Fixtures are small, self-contained codebases checked into the repo.</p>
+<hr>
+<h2 id="adding-a-new-tree-sitter-language"><a class="header" href="#adding-a-new-tree-sitter-language">Adding a New Tree-Sitter Language</a></h2>
+<ol>
+<li>Add the tree-sitter crate to <code>crates/coraline/Cargo.toml</code>.</li>
+<li>Add the language variant to <code>Language</code> enum in <code>types.rs</code>.</li>
+<li>Add the file extension mapping in <code>extraction.rs</code> (<code>language_from_path</code>).</li>
+<li>Add an extraction branch in <code>extraction.rs</code> (<code>extract_nodes_from_ast</code>).</li>
+<li>Add to the <code>is_language_supported</code> list in <code>config.rs</code>.</li>
+<li>Add at least one fixture file and a test case in <code>tests/extraction_test.rs</code>.</li>
+</ol>
+<hr>
+<h2 id="adding-a-new-mcp-tool"><a class="header" href="#adding-a-new-mcp-tool">Adding a New MCP Tool</a></h2>
+<ol>
+<li>
+<p>Implement the <code>Tool</code> trait in the appropriate <code>src/tools/*.rs</code> file:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct MyTool { project_root: PathBuf }
+impl Tool for MyTool {
+    fn name(&amp;self) -&gt; &amp;'static str { "coraline_my_tool" }
+    fn description(&amp;self) -&gt; &amp;'static str { "..." }
+    fn input_schema(&amp;self) -&gt; Value { json!({ ... }) }
+    fn execute(&amp;self, params: Value) -&gt; ToolResult { ... }
+}
+<span class="boring">}</span></code></pre>
+</li>
+<li>
+<p>Register in <code>src/tools/mod.rs</code> inside <code>create_default_registry(...)</code>:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>registry.register(Box::new(MyTool::new(project_root.to_path_buf())));
+<span class="boring">}</span></code></pre>
+</li>
+<li>
+<p>Add unit tests in the same file or <code>src/tools/mod.rs</code>.</p>
+</li>
+<li>
+<p>Document in <code>docs/MCP_TOOLS.md</code>.</p>
+</li>
+</ol>
+<hr>
+<h2 id="adding-a-framework-resolver"><a class="header" href="#adding-a-framework-resolver">Adding a Framework Resolver</a></h2>
+<ol>
+<li>
+<p>Create <code>src/resolution/frameworks/my_lang.rs</code> implementing <code>FrameworkResolver</code>:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct MyLangResolver;
+impl FrameworkResolver for MyLangResolver {
+    fn name(&amp;self) -&gt; &amp;'static str { "my_lang" }
+    fn detect(&amp;self, project_root: &amp;Path) -&gt; bool { ... }
+    fn resolve_to_paths(&amp;self, ctx: &amp;ResolveContext&lt;'_&gt;) -&gt; Vec&lt;PathBuf&gt; { ... }
+}
+<span class="boring">}</span></code></pre>
+</li>
+<li>
+<p>Add to <code>default_resolvers()</code> in <code>src/resolution/frameworks/mod.rs</code>.</p>
+</li>
+<li>
+<p>Add <code>pub mod my_lang;</code> in <code>src/resolution/frameworks/mod.rs</code>.</p>
+</li>
+</ol>
+<hr>
+<h2 id="cicd"><a class="header" href="#cicd">CI/CD</a></h2>
+<p>GitHub Actions workflows run on every push and pull request:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Workflow</th><th>Triggers</th><th>What it does</th></tr>
+</thead>
+<tbody>
+<tr><td><code>ci.yml</code></td><td>push, PR</td><td>build, test, clippy, fmt, docs; multi-platform (Linux/macOS/Windows); MSRV check</td></tr>
+<tr><td><code>release.yml</code></td><td><code>v*</code> tags</td><td>Cross-platform binary builds + GitHub release</td></tr>
+<tr><td><code>security.yml</code></td><td>daily + dep changes</td><td><code>cargo-audit</code> (vulnerabilities) + <code>cargo-deny</code> (licenses)</td></tr>
+<tr><td><code>codeql.yml</code></td><td>weekly</td><td>CodeQL analysis</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="creating-a-release"><a class="header" href="#creating-a-release">Creating a Release</a></h3>
+<pre><code class="language-bash"># Bump version in crates/coraline/Cargo.toml and crates/tree-sitter-blazor/Cargo.toml
+# Update CHANGELOG.md
+
+git add -A
+git commit -m "chore: release v0.2.0"
+git tag v0.2.0
+git push origin main --tags
+</code></pre>
+<p>The <code>release.yml</code> workflow builds binaries for Linux x86_64, macOS x86_64/ARM64, and Windows x86_64, then creates a GitHub release with the CHANGELOG content attached.</p>
+<hr>
+<h2 id="code-style"><a class="header" href="#code-style">Code Style</a></h2>
+<ul>
+<li><code>#![forbid(unsafe_code)]</code> on all modules — no unsafe code</li>
+<li><code>cargo lint</code> must pass <strong>before</strong> committing</li>
+<li><code>cargo fmt</code> for formatting (rustfmt defaults)</li>
+<li>Keep functions focused; prefer extracting helpers over long function bodies</li>
+<li>Prefer <code>let Some(x) = opt else { return ...; }</code> over <code>.unwrap()</code> or <code>?</code> in non-Result contexts</li>
+<li>Use <code>tracing::{debug, info, warn, error}</code> for log output — no bare <code>println!</code> in library code</li>
+</ul>
+<p>See <code>.coraline/memories/style_conventions.md</code> in your project for project-specific conventions.</p>
+<hr>
+<h2 id="useful-dev-workflows"><a class="header" href="#useful-dev-workflows">Useful Dev Workflows</a></h2>
+<h3 id="dogfood-coraline-on-itself"><a class="header" href="#dogfood-coraline-on-itself">Dogfood Coraline on itself</a></h3>
+<pre><code class="language-bash">cd /path/to/coraline
+coraline init -i   # index itself
+coraline query "resolve_unresolved"
+coraline context "how does reference resolution work"
+</code></pre>
+<h3 id="test-mcp-roundtrip-manually"><a class="header" href="#test-mcp-roundtrip-manually">Test MCP roundtrip manually</a></h3>
+<pre><code class="language-bash">printf '%s\n%s\n%s\n' \
+   '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"0.0.1"}}}' \
+   '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+   '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+   | coraline serve --mcp
+</code></pre>
+<h3 id="check-all-tests-pass-after-a-change"><a class="header" href="#check-all-tests-pass-after-a-change">Check all tests pass after a change</a></h3>
+<pre><code class="language-bash">cargo lint &amp;&amp; cargo test --all-features 2&gt;&amp;1 | grep "test result"
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="changelog"><a class="header" href="#changelog">Changelog</a></h1>
+<h1 id="changelog-1"><a class="header" href="#changelog-1">Changelog</a></h1>
+<p>All notable changes to this project will be documented in this file.</p>
+<p>The format is based on <a href="https://keepachangelog.com/en/1.0.0/">Keep a Changelog</a>,
+and this project adheres to <a href="https://semver.org/spec/v2.0.0.html">Semantic Versioning</a>.</p>
+<h2 id="unreleased"><a class="header" href="#unreleased">[Unreleased]</a></h2>
+<h3 id="added"><a class="header" href="#added">Added</a></h3>
+<ul>
+<li><strong><code>--skip-sync</code> for <code>coraline embed</code></strong> — allows explicitly bypassing the pre-embed sync check when you intentionally want to embed the current indexed state</li>
+<li><strong><code>SyncStatus</code> preflight API (<code>extraction::needs_sync</code>)</strong> — lightweight sync-status check now returns detailed added/modified/removed counts for reuse by CLI and MCP flows</li>
+</ul>
+<h3 id="changed"><a class="header" href="#changed">Changed</a></h3>
+<ul>
+<li><strong><code>coraline embed</code> now preflights index freshness</strong> — embed checks for stale index state and auto-runs incremental <code>sync</code> only when needed, with progress output that reports detected and applied changes</li>
+<li><strong><code>coraline_semantic_search</code> now performs periodic freshness maintenance</strong> — MCP semantic search throttles freshness checks and, when stale, auto-syncs the graph and refreshes stale/missing node embeddings before serving results</li>
+</ul>
+<h3 id="documentation"><a class="header" href="#documentation">Documentation</a></h3>
+<ul>
+<li><strong>CLI, MCP, and README docs updated</strong> — documented <code>embed --skip-sync</code>, pre-embed auto-sync behavior, and MCP semantic-search freshness metadata</li>
+<li><strong>mdBook docs site added</strong> — introduced <code>docs/book/</code> and a GitHub Pages deployment workflow (<code>docs-pages.yml</code>) to publish documentation on the project GitHub Pages site</li>
+</ul>
+<h2 id="050---2026-04-08"><a class="header" href="#050---2026-04-08">[0.5.0] - 2026-04-08</a></h2>
+<h3 id="added-1"><a class="header" href="#added-1">Added</a></h3>
+<ul>
+<li><strong>MCP protocol negotiation and compatibility fallback</strong> — server now negotiates protocol version with clients, preferring <code>2025-11-25</code> while retaining compatibility with <code>2024-11-05</code></li>
+<li><strong><code>tools/list</code> pagination support</strong> — cursor-based pagination added via <code>cursor</code> request param and <code>nextCursor</code> response field</li>
+</ul>
+<h3 id="changed-1"><a class="header" href="#changed-1">Changed</a></h3>
+<ul>
+<li><strong>MCP lifecycle enforcement tightened</strong> — normal operations now require successful <code>initialize</code> followed by <code>notifications/initialized</code></li>
+<li><strong>Tool error semantics aligned with MCP expectations</strong> — unknown tool calls return protocol errors; tool execution failures continue returning <code>isError: true</code> results</li>
+<li><strong>Tool capability declaration expanded</strong> — MCP initialize response now advertises <code>tools.listChanged</code> capability (currently <code>false</code>)</li>
+<li><strong>Core dependencies refreshed for 0.5.0</strong> — upgraded key libraries including <code>toml</code> (1.1), <code>rusqlite</code> (0.39), <code>sha2</code> (0.11), <code>tokenizers</code> (0.22), and multiple tree-sitter parser crates; validated with full workspace tests and clippy</li>
+<li><strong>Workflow supply-chain hardening</strong> — all CI and CodeQL GitHub Actions are now pinned to immutable commit SHAs to improve OSSF Scorecard <code>Pinned-Dependencies</code> posture</li>
+<li><strong>Strict lint command is now standardized</strong> — added tracked <code>.cargo/config.toml</code> alias so <code>cargo lint</code> consistently enforces the project clippy policy in local and CI runs</li>
+</ul>
+<h3 id="fixed"><a class="header" href="#fixed">Fixed</a></h3>
+<ul>
+<li><strong>Tool result schema field casing</strong> — MCP tool results now serialize as <code>isError</code> (camelCase) instead of <code>is_error</code></li>
+<li><strong>Clippy pedantic compliance in MCP server code</strong> — removed no-effect underscore bindings and replaced potential panicking slice/index patterns with safe iterator/object mutation patterns</li>
+</ul>
+<h3 id="documentation-1"><a class="header" href="#documentation-1">Documentation</a></h3>
+<ul>
+<li><strong>MCP documentation refreshed across README and docs book</strong> — updated protocol/lifecycle notes, pagination behavior, and development examples to reflect current server behavior</li>
+</ul>
+<h2 id="044---2026-04-08"><a class="header" href="#044---2026-04-08">[0.4.4] - 2026-04-08</a></h2>
+<h3 id="fixed-1"><a class="header" href="#fixed-1">Fixed</a></h3>
+<ul>
+<li><strong>Windows cross-platform CI test failure</strong> — <code>parse_project_root_accepts_file_uri</code> unit test now handles Windows file URI format (<code>file:///C:/...</code>) correctly by normalizing the leading slash when present; test is now platform-aware and uses appropriate URIs for each platform</li>
+</ul>
+<h2 id="043---2026-04-07"><a class="header" href="#043---2026-04-07">[0.4.3] - 2026-04-07</a></h2>
+<h3 id="fixed-2"><a class="header" href="#fixed-2">Fixed</a></h3>
+<ul>
+<li><strong>Cross-compilation builds failing on OpenSSL</strong> — switched TLS backend from <code>native-tls</code> (OpenSSL) to <code>rustls</code> for all HTTP operations; musl and ARM cross-builds no longer require OpenSSL headers or linking</li>
+<li><strong>Root cause</strong>: <code>ort</code> dependency had default features enabled which pulled in <code>tls-native</code> → <code>ureq/native-tls</code> → <code>openssl-sys</code>; now uses <code>default-features = false</code> with explicit <code>tls-rustls</code></li>
+</ul>
+<h3 id="changed-2"><a class="header" href="#changed-2">Changed</a></h3>
+<ul>
+<li><strong><code>embeddings</code> feature now uses rustls</strong> — pure Rust TLS for model downloads, no system OpenSSL dependency</li>
+<li><strong><code>embeddings-dynamic</code> no longer includes any TLS stack</strong> — users supply their own ONNX runtime, no HTTP downloads needed</li>
+</ul>
+<h3 id="security"><a class="header" href="#security">Security</a></h3>
+<ul>
+<li><strong>Pinned all GitHub Actions to commit SHAs</strong> — OSSF Scorecard <code>PinnedDependenciesID</code> compliance</li>
+<li><strong>Added Dependabot configuration</strong> — automated dependency updates for Cargo and GitHub Actions</li>
+</ul>
+<h2 id="042---2026-04-07"><a class="header" href="#042---2026-04-07"><a href="https://github.com/greysquirr3l/coraline/compare/v0.4.1...v0.4.2">0.4.2</a> - 2026-04-07</a></h2>
+<h3 id="fixed-3"><a class="header" href="#fixed-3">Fixed</a></h3>
+<ul>
+<li><strong>MCP tools discovery without explicit <code>--path</code></strong> — <code>tools/list</code> now lazily initializes the tool registry when clients call it before <code>initialize</code>, so tools are returned even when <code>coraline serve --mcp</code> starts without <code>-p</code></li>
+<li><strong>Safer MCP project-root URI parsing</strong> — non-<code>file://</code> URIs (for example, remote client scheme URIs) are no longer treated as filesystem paths during <code>initialize</code>; server falls back to an actual local path when needed</li>
+<li><strong>Regression coverage for MCP startup flow</strong> — added tests for pre-initialize <code>tools/list</code> behavior and URI parsing guards to prevent regressions</li>
+</ul>
+<h2 id="041---2026-04-03"><a class="header" href="#041---2026-04-03"><a href="https://github.com/greysquirr3l/coraline/compare/v0.4.0...v0.4.1">0.4.1</a> - 2026-04-03</a></h2>
+<h3 id="added-2"><a class="header" href="#added-2">Added</a></h3>
+<ul>
+<li><strong>Embedding model prompt on <code>coraline init</code></strong> — when stdin is a TTY, <code>init</code> now offers to download the embedding model (~137 MB) immediately after initialization; declined or non-interactive runs print a tip and continue normally with full graph functionality</li>
+<li><strong><code>embeddings</code> is now the default feature</strong> — <code>cargo install coraline</code> includes ONNX/semantic search support out of the box; no <code>--features</code> flag required for most users</li>
+</ul>
+<h3 id="fixed-4"><a class="header" href="#fixed-4">Fixed</a></h3>
+<ul>
+<li><strong>MCP server no longer ghost-creates <code>.coraline/</code></strong> — <code>MemoryManager</code> previously called <code>create_dir_all(.coraline/memories/)</code> eagerly on every MCP startup, leaving a stub directory that blocked <code>coraline init</code> from running cleanly; it now returns an error if <code>.coraline/</code> doesn’t exist, which the MCP tool registry handles gracefully</li>
+<li><strong><code>coraline init -i</code> on an already-initialized project no longer prompts to overwrite</strong> — when <code>--index</code> is present without <code>--force</code>, init detects the existing directory, skips the destructive overwrite, and runs indexing directly; use <code>--force</code> to explicitly wipe and reinitialize</li>
+<li><strong><code>coraline_semantic_search</code> MCP tool degrades gracefully without a model</strong> — when no ONNX model file is present the tool is not registered (all other tools remain available) and a warning is emitted to the project log</li>
+</ul>
+<hr>
+<h2 id="040---2026-03-20"><a class="header" href="#040---2026-03-20"><a href="https://github.com/greysquirr3l/coraline/compare/v0.3.1...v0.4.0">0.4.0</a> - 2026-03-20</a></h2>
+<h3 id="added-3"><a class="header" href="#added-3">Added</a></h3>
+<ul>
+<li><strong>Full multi-language symbol extraction coverage</strong> across all supported languages, including previously missing Python internals and broad AST node-kind mappings.</li>
+<li><strong>Expanded import/export resolution across languages</strong> for stronger cross-file graph relationships and MCP traversal behavior.</li>
+<li><strong>Broader call-expression detection and callee extraction</strong> across language grammars to improve call graph completeness.</li>
+</ul>
+<h3 id="changed-3"><a class="header" href="#changed-3">Changed</a></h3>
+<ul>
+<li><strong>Cross-language resolution quality</strong> improved for callers/callees/impact tooling due to richer import/export and call mapping.</li>
+</ul>
+<h3 id="internal"><a class="header" href="#internal">Internal</a></h3>
+<ul>
+<li>Strict lint compliance restored after expansion (<code>cargo clippy --all-features -- -D warnings</code>).</li>
+<li>Release validated with build + full test suite.</li>
+</ul>
+<hr>
+<h2 id="031---2026-03-18"><a class="header" href="#031---2026-03-18"><a href="https://github.com/greysquirr3l/coraline/compare/v0.3.0...v0.3.1">0.3.1</a> - 2026-03-18</a></h2>
+<h3 id="added-4"><a class="header" href="#added-4">Added</a></h3>
+<ul>
+<li><strong><code>embeddings-dynamic</code> feature flag</strong> — alternative to <code>embeddings</code> that uses <code>ort/load-dynamic</code> instead of <code>ort/download-binaries</code>, allowing users on systems with older glibc (e.g., Rocky Linux, HPC nodes) to supply their own <code>libonnxruntime.so</code> built against their local glibc (<a href="https://github.com/greysquirr3l/coraline/issues/8">#8</a>)</li>
+<li><strong>musl static binaries in releases</strong> — <code>x86_64-unknown-linux-musl</code> and <code>aarch64-unknown-linux-musl</code> targets added to the release CI matrix, producing fully static binaries with zero glibc dependency</li>
+</ul>
+<hr>
+<h2 id="030---2026-03-07"><a class="header" href="#030---2026-03-07"><a href="https://github.com/greysquirr3l/coraline/compare/v0.2.3...v0.3.0">0.3.0</a> - 2026-03-07</a></h2>
+<h3 id="added-5"><a class="header" href="#added-5">Added</a></h3>
+<ul>
+<li><strong>Vector math optimizations</strong> — cosine similarity and L2 normalization now use fused multiply-add for improved numerical stability</li>
+</ul>
+<h3 id="changed-4"><a class="header" href="#changed-4">Changed</a></h3>
+<ul>
+<li><strong>Dependencies updated</strong> — refreshed core dependencies and applied transitive updates for security and compatibility (tree-sitter, clap, tempfile, syn, and 16+ transitive deps)</li>
+</ul>
+<h3 id="internal-1"><a class="header" href="#internal-1">Internal</a></h3>
+<ul>
+<li>All tests validated (37/37 passing); property tests ensure numerical accuracy</li>
+</ul>
+<hr>
+<h2 id="023---2026-03-01"><a class="header" href="#023---2026-03-01"><a href="https://github.com/greysquirr3l/coraline/compare/v0.2.2...v0.2.3">0.2.3</a> - 2026-03-01</a></h2>
+<h3 id="fixed-5"><a class="header" href="#fixed-5">Fixed</a></h3>
+<ul>
+<li><strong><code>coraline init -i</code> on an already-initialized project</strong> — instead of hard-failing, the CLI now prompts “Overwrite? [y/N]” when stdin is a TTY, or prints a clear error with <code>--force</code> guidance in non-interactive contexts; <code>--force</code> / <code>-f</code> flag added to <code>init</code> to skip the prompt</li>
+<li><strong>UNIQUE constraint failures on minified/single-line files</strong> — node IDs now incorporate <code>start_column</code> in addition to <code>start_line</code>, preventing hash collisions for multiple symbols on the same line</li>
+<li><strong>Garbled progress output during <code>index</code>/<code>sync</code></strong> — progress lines now use <code>\r\x1B[K</code> (erase-to-end-of-line) instead of bare <code>\r</code>, and <code>stdout</code> is flushed after each update to prevent interleaving with log output</li>
+</ul>
+<h3 id="internal-2"><a class="header" href="#internal-2">Internal</a></h3>
+<ul>
+<li>OSSF Scorecard CI workflow added</li>
+<li>Security audit workflow now also triggers on <code>deny.toml</code> changes</li>
+<li><code>cargo fmt</code> style pass across <code>config.rs</code> and <code>resolution/mod.rs</code></li>
+</ul>
+<hr>
+<h2 id="022---2026-02-21"><a class="header" href="#022---2026-02-21"><a href="https://github.com/greysquirr3l/coraline/compare/v0.2.1...v0.2.2">0.2.2</a> - 2026-02-21</a></h2>
+<h3 id="fixed-6"><a class="header" href="#fixed-6">Fixed</a></h3>
+<ul>
+<li><strong>Release pipeline: binary builds failing on <code>ort-sys</code></strong> — <code>ort</code>, <code>tokenizers</code>, and <code>ndarray</code> are now optional, gated behind an <code>embeddings</code> feature flag; default builds no longer require ONNX Runtime prebuilt binaries</li>
+<li><strong>Release pipeline: <code>coraline publish</code> failing when version already on crates.io</strong> — publish steps for both <code>tree-sitter-blazor</code> and <code>coraline</code> now skip gracefully if the version already exists</li>
+<li><strong>Release pipeline: build matrix cancelling all jobs on first failure</strong> — added <code>fail-fast: false</code> so platform builds run independently</li>
+<li><strong>Dropped <code>x86_64-apple-darwin</code> release binary</strong> — Intel Mac is not a supported target; ONNX Runtime provides no prebuilt binaries for it</li>
+</ul>
+<hr>
+<h2 id="021---2026-02-21"><a class="header" href="#021---2026-02-21"><a href="https://github.com/greysquirr3l/coraline/compare/v0.2.0...v0.2.1">0.2.1</a> - 2026-02-21</a></h2>
+<h3 id="fixed-7"><a class="header" href="#fixed-7">Fixed</a></h3>
+<ul>
+<li><strong><code>coraline init</code> blocked by log directory</strong> — <code>logging::init()</code> eagerly created <code>.coraline/logs/</code> before <code>is_initialized()</code> ran, making every re-init attempt report “already initialized”</li>
+<li><strong><code>sync</code> crash on UNIQUE constraint</strong> — incremental sync now catches per-file store errors (warn + continue) instead of aborting the entire sync, consistent with <code>index_all</code></li>
+<li><strong><code>callers</code>/<code>callees</code> CLI showing incorrect results</strong> — CLI was passing no edge-kind filter, surfacing <code>contains</code> edges as false callers; now filters to <code>calls</code> edges only, consistent with MCP tools</li>
+<li><strong>CI <code>actions/checkout@v6</code></strong> — updated all workflow steps to the current stable <code>v4</code></li>
+</ul>
+<hr>
+<h2 id="020---2026-02-20"><a class="header" href="#020---2026-02-20"><a href="https://github.com/greysquirr3l/coraline/compare/v0.1.3...v0.2.0">0.2.0</a> - 2026-02-20</a></h2>
+<h3 id="added-6"><a class="header" href="#added-6">Added</a></h3>
+<ul>
+<li><strong>Vector embeddings</strong> — full ONNX pipeline using <code>ort 2.0.0-rc.11</code> and nomic-embed-text-v1.5 (384-dim). <code>coraline embed</code> CLI command and <code>coraline_semantic_search</code> MCP tool</li>
+<li><strong>25 MCP tools</strong> (26 with embeddings) — complete symbol, graph, file, memory, config, stats, and sync toolset</li>
+<li><strong><code>coraline_stats</code></strong> — detailed graph statistics grouped by language, node kind, and edge kind</li>
+<li><strong><code>coraline_dependencies</code> / <code>coraline_dependents</code></strong> — traversal tools for outgoing/incoming dependencies</li>
+<li><strong><code>coraline_path</code></strong> — find shortest paths between any two nodes</li>
+<li><strong><code>coraline_sync</code></strong> MCP tool — trigger incremental sync from an MCP client</li>
+<li><strong><code>coraline_semantic_search</code></strong> — semantic similarity search over indexed symbols</li>
+<li><strong><code>coraline_find_symbol</code> / <code>coraline_get_symbols_overview</code> / <code>coraline_node</code> / <code>coraline_find_references</code></strong> — symbol-level tools matching Serena’s precision</li>
+<li><strong><code>coraline_read_file</code> / <code>coraline_list_dir</code> / <code>coraline_get_file_nodes</code></strong> — file exploration tools</li>
+<li><strong><code>coraline_get_config</code> / <code>coraline_update_config</code></strong> — TOML config management via MCP</li>
+<li><strong>Memory tools</strong> — <code>coraline_write_memory</code>, <code>coraline_read_memory</code>, <code>coraline_list_memories</code>, <code>coraline_delete_memory</code>, <code>coraline_edit_memory</code> (regex + literal modes)</li>
+<li><strong>TOML configuration</strong> — <code>.coraline/config.toml</code> with sections for indexing, context, sync, and vectors; written as a commented template on <code>coraline init</code></li>
+<li><strong>Structured logging</strong> — <code>tracing</code> with daily-rotating file appender to <code>.coraline/logs/coraline.log</code>; level via <code>CORALINE_LOG</code> env var</li>
+<li><strong>Framework-specific resolvers</strong> — Rust, React, Blazor, Laravel</li>
+<li><strong>CLI commands</strong> — <code>callers</code>, <code>callees</code>, <code>impact</code>, <code>config</code>, <code>stats</code>, <code>embed</code>; <code>--json</code> flag on all query commands</li>
+<li><strong>Criterion benchmark suite</strong> — 9 benchmarks across indexing, search, graph traversal, and context building groups (<code>cargo bench --bench indexing</code>)</li>
+<li><strong>CI/CD</strong> — GitHub Actions for multiplatform builds (Linux x86_64/ARM64, macOS x86_64/ARM64, Windows x86_64), crates.io publishing, CodeQL scanning, daily dependency auditing</li>
+<li><strong>28+ language support</strong> via tree-sitter: Rust, TypeScript, JavaScript, TSX, JSX, Python, Go, Java, C, C++, C#, PHP, Ruby, Swift, Kotlin, Bash, Dart, Elixir, Elm, Erlang, Fortran, Groovy, Haskell, Julia, Lua, Markdown, MATLAB, Nix, Perl, PowerShell, R, Scala, TOML, YAML, Zig, Blazor</li>
+</ul>
+<h3 id="fixed-8"><a class="header" href="#fixed-8">Fixed</a></h3>
+<ul>
+<li>TypeScript import extraction: <code>import_statement</code> was wrongly mapped as <code>import_declaration</code> in tree-sitter AST</li>
+<li><code>import_clause</code> lookup: switched from <code>child_by_field_name</code> (always <code>None</code>) to child iteration</li>
+<li>Cross-file import edges test: <code>SELECT *</code> placed integer <code>id</code> at column 0; changed to explicit <code>SELECT source, target</code></li>
+<li>FTS multi-word search: now uses <code>OR</code> logic so partial matches are found</li>
+<li>Glob pattern matching: completely rewritten using <code>globset</code> crate; prior regex implementation was non-functional</li>
+<li>Parallel indexing: CPU-bound parse phase separated from sequential DB writes; SQLite PRAGMA tuning (<code>synchronous=NORMAL</code>, 64 MB cache, 256 MB mmap)</li>
+</ul>
+<h3 id="changed-5"><a class="header" href="#changed-5">Changed</a></h3>
+<ul>
+<li>Database filename: <code>codegraph.db</code> → <code>coraline.db</code></li>
+<li>Project directory: <code>.codegraph/</code> → <code>.coraline/</code></li>
+<li>Post-commit git hook updated to check <code>.coraline/</code> directory</li>
+</ul>
+<h2 id="013---2026-02-15"><a class="header" href="#013---2026-02-15"><a href="https://github.com/greysquirr3l/coraline/compare/v0.1.2...v0.1.3">0.1.3</a> - 2026-02-15</a></h2>
+<h3 id="added-7"><a class="header" href="#added-7">Added</a></h3>
+<ul>
+<li><code>coraline_stats</code> MCP tool — graph statistics by language, node kind, and edge kind</li>
+<li>TypeScript import extraction fix</li>
+</ul>
+<h3 id="fixed-9"><a class="header" href="#fixed-9">Fixed</a></h3>
+<ul>
+<li>Cross-file import edge detection</li>
+</ul>
+<h2 id="012---2026-02-13"><a class="header" href="#012---2026-02-13"><a href="https://github.com/greysquirr3l/coraline/compare/v0.1.1...v0.1.2">0.1.2</a> - 2026-02-13</a></h2>
+<h3 id="added-8"><a class="header" href="#added-8">Added</a></h3>
+<ul>
+<li>PHP, Swift, Kotlin, Markdown, TOML parser support</li>
+<li>CI/CD infrastructure (GitHub Actions)</li>
+<li><code>.coraline/</code> directory rename from <code>.codegraph/</code></li>
+</ul>
+<h3 id="fixed-10"><a class="header" href="#fixed-10">Fixed</a></h3>
+<ul>
+<li>Critical glob pattern matching bug (rewritten with <code>globset</code>)</li>
+</ul>
+<h2 id="011---2026-02-10"><a class="header" href="#011---2026-02-10"><a href="https://github.com/greysquirr3l/coraline/compare/v0.1.0...v0.1.1">0.1.1</a> - 2026-02-10</a></h2>
+<h3 id="added-9"><a class="header" href="#added-9">Added</a></h3>
+<ul>
+<li>Memory system with 5 MCP tools</li>
+<li>Tool abstraction layer and registry</li>
+<li>Integration test suite</li>
+</ul>
+<h2 id="010---2026-02-07"><a class="header" href="#010---2026-02-07"><a href="https://github.com/greysquirr3l/coraline/releases/tag/v0.1.0">0.1.0</a> - 2026-02-07</a></h2>
+<h3 id="added-10"><a class="header" href="#added-10">Added</a></h3>
+<ul>
+<li>Initial release</li>
+<li>Tree-sitter based AST extraction for Rust, TypeScript, JavaScript, Python, Go, Java, C, C++, C#, Ruby</li>
+<li>SQLite graph storage</li>
+<li>MCP server (<code>coraline serve --mcp</code>)</li>
+<li>Basic CLI: <code>init</code>, <code>index</code>, <code>sync</code>, <code>status</code>, <code>query</code>, <code>context</code></li>
+<li><code>coraline_search</code>, <code>coraline_callers</code>, <code>coraline_callees</code>, <code>coraline_impact</code>, <code>coraline_context</code> MCP tools</li>
+<li>Git post-commit hook integration</li>
+</ul>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+        <!-- Livereload script (if served using the cli tool) -->
+        <script>
+            const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsAddress = wsProtocol + "//" + location.host + "/" + "__livereload";
+            const socket = new WebSocket(wsAddress);
+            socket.onmessage = function (event) {
+                if (event.data === "reload") {
+                    socket.close();
+                    location.reload();
+                }
+            };
+
+            window.onbeforeunload = function() {
+                socket.close();
+            }
+        </script>
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr-ef4e11c1.min.js"></script>
+        <script src="mark-09e88c2c.min.js"></script>
+        <script src="searcher-c2a407aa.js"></script>
+
+        <script src="clipboard-1626706a.min.js"></script>
+        <script src="highlight-abc7f01d.js"></script>
+        <script src="book-a0b12cfe.js"></script>
+
+        <!-- Custom JS scripts -->
+
+        <script>
+        window.addEventListener('load', function() {
+            window.setTimeout(window.print, 100);
+        });
+        </script>
+
+
+    </div>
+    </body>
+</html>

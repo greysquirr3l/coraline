@@ -1,0 +1,3 @@
+# Architecture
+
+{{#include ../../ARCHITECTURE.md}}
