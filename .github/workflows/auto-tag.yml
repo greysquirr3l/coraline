@@ -6,6 +6,7 @@ on:
       - main
 
 permissions:
+  actions: write
   contents: write
 
 jobs:
@@ -62,6 +63,12 @@ jobs:
             echo "Tag ${{ steps.version.outputs.tag }} was created concurrently; continuing"
             exit 0
           fi
+
+      - name: Trigger release workflow
+        if: steps.gate.outputs.run == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run release.yml --ref "${{ steps.version.outputs.tag }}"
 
           echo "Failed to push tag ${{ steps.version.outputs.tag }}"
           exit 1
