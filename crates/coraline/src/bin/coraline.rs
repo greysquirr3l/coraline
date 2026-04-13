@@ -11,6 +11,7 @@ use coraline::memory;
 use coraline::sync::GitHooksManager;
 use coraline::types::NodeKind;
 use coraline::types::{BuildContextOptions, ContextFormat, EdgeKind};
+use coraline::update;
 #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
 use coraline::vectors;
 use tracing::{debug, info};
@@ -42,6 +43,8 @@ enum Command {
     Config(ConfigArgs),
     Hooks(HooksArgs),
     Serve(ServeArgs),
+    /// Check for available updates on crates.io.
+    Update,
     #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
     Embed(EmbedArgs),
     #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
@@ -270,7 +273,7 @@ fn main() {
         Command::Embed(a) => a.path.clone(),
         #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
         Command::Model(a) => a.path.clone(),
-        Command::Install => None,
+        Command::Install | Command::Update => None,
     };
     let project_root = resolve_project_root(project_root_hint);
     // Don't create .coraline/logs/ before the init command runs — that would
@@ -314,6 +317,7 @@ fn main() {
                 println!("Use --mcp to start the MCP server.");
             }
         }
+        Command::Update => run_update(),
         #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
         Command::Embed(args) => run_embed(&args),
         #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
@@ -667,6 +671,21 @@ fn run_installer() {
             println!("     export PATH=\"$HOME/.cargo/bin:$PATH\"");
         }
         println!("   Then open a new terminal and run: coraline --version");
+    }
+}
+
+fn run_update() {
+    let version = env!("CARGO_PKG_VERSION");
+    println!("Coraline v{version} — checking for updates...\n");
+
+    match update::check_for_update() {
+        Ok(status) => update::print_update_status(&status),
+        Err(e) => {
+            eprintln!("Failed to check for updates: {e}");
+            eprintln!();
+            eprintln!("You can manually check: https://crates.io/crates/coraline");
+            std::process::exit(1);
+        }
     }
 }
 

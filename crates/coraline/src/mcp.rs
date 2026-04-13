@@ -630,19 +630,16 @@ fn auto_embed_new_nodes(project_root: &Path) {
         return;
     }
 
-    let mut vm = match crate::vectors::VectorManager::from_project(project_root) {
-        Ok(vm) => vm,
-        Err(_) => return, // model files not present — silently skip
+    let Ok(mut vm) = crate::vectors::VectorManager::from_project(project_root) else {
+        return; // model files not present — silently skip
     };
 
-    let conn = match crate::db::open_database(project_root) {
-        Ok(c) => c,
-        Err(_) => return,
+    let Ok(conn) = crate::db::open_database(project_root) else {
+        return;
     };
 
-    let nodes = match crate::db::get_unembedded_nodes(&conn) {
-        Ok(n) => n,
-        Err(_) => return,
+    let Ok(nodes) = crate::db::get_unembedded_nodes(&conn) else {
+        return;
     };
 
     if nodes.is_empty() {

@@ -23,6 +23,7 @@ When `[PATH]` is omitted, the current working directory is used as the project r
 | `config` | Read or update configuration |
 | `hooks` | Manage git hooks |
 | `serve` | Start the MCP server |
+| `update` | Check for available updates on crates.io |
 | `embed` | Generate vector embeddings for indexed nodes |
 | `model` | Manage the ONNX embedding model |
 
@@ -340,6 +341,30 @@ coraline serve --mcp --path /path/to/project
 ```
 
 Typically invoked by an MCP client (Claude Desktop, Claude Code, etc.) rather than directly.
+
+---
+
+## `coraline update`
+
+Check whether a newer version of Coraline is published on crates.io. Compares the running binary version against the latest release and prints upgrade instructions when an update is available.
+
+**Options:** None.
+
+**Examples:**
+```bash
+coraline update
+```
+
+**Output (when up to date):**
+```
+✓ coraline is up to date (v0.3.0)
+```
+
+**Output (when update available):**
+```
+Update available: v0.3.0 → v0.4.0
+Run `cargo install coraline` to upgrade.
+```
 
 ---
 

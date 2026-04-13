@@ -9,11 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **MCP background auto-sync** — the MCP server now spawns a background thread that periodically checks index freshness and performs incremental sync when files have changed, keeping the knowledge graph current without manual intervention
+- **Automatic incremental embedding** — after each background sync, newly-added nodes are automatically embedded when the `embeddings` feature is enabled and ONNX model files are present on disk
+- **`auto_sync_interval_secs` config** — new `[sync]` setting in `config.toml` controls the background check interval (default: 120 seconds, set to 0 to disable)
+- **`coraline update` CLI command** — checks crates.io for newer published versions and prints upgrade instructions
+- **`get_unembedded_nodes` database query** — efficient LEFT JOIN query to find nodes missing vector embeddings, enabling incremental embedding instead of re-embedding everything
 - **Repository logo asset** — added `assets/img/coraline_logo.png` and wired it into the README header for consistent project branding
+
+### Changed
+
+- **`ureq` is now a non-optional dependency** — always available for update checking (previously gated behind the `embeddings` feature)
 
 ### Documentation
 
 - **README cleanup and docs-site routing** — removed emoji-heavy formatting, normalized the logo image tag, and updated primary documentation links to point to the published site at `https://greysquirr3l.github.io/coraline/`
+- **Configuration, MCP, and CLI docs updated** — documented `auto_sync_interval_secs`, background auto-sync behavior, and the `coraline update` command
 
 ## [0.6.0] - 2026-04-09
 
