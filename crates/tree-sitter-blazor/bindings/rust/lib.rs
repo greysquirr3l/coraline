@@ -6,6 +6,7 @@ extern "C" {
 
 pub const LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_blazor) };
 
+#[must_use]
 pub const fn language() -> LanguageFn {
     LANGUAGE
 }

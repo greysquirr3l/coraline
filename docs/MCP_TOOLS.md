@@ -1,6 +1,6 @@
 # Coraline MCP Tools Reference
 
-Coraline exposes **26 MCP tools** when running as an MCP server (`coraline serve --mcp`).
+Coraline exposes **27 MCP tools** when running as an MCP server (`coraline serve --mcp`).
 All tool names are prefixed with `coraline_` to avoid collisions with other MCP servers.
 
 Protocol notes:
@@ -40,6 +40,7 @@ When the MCP server starts, it spawns a background thread that periodically chec
 | **Context** | `coraline_context` | Build structured context for an AI task |
 | **File** | `coraline_read_file` | Read file contents |
 | | `coraline_list_dir` | List directory contents |
+| | `coraline_find_file` | Find files by glob pattern |
 | | `coraline_get_file_nodes` | Get all indexed nodes in a file |
 | | `coraline_status` | Show project index statistics |
 | | `coraline_sync` | Trigger incremental index sync |
@@ -66,6 +67,7 @@ Search for code symbols by name or pattern across the indexed codebase.
 |---|---|---|---|---|
 | `query` | string | ✅ | — | Symbol name or FTS pattern |
 | `kind` | string | | — | Filter: `function`, `method`, `class`, `struct`, `interface`, `trait`, `module` |
+| `file` | string | | — | Filter results to this file path (relative or absolute) |
 | `limit` | number | | `10` | Maximum results |
 
 **Output:**
@@ -101,8 +103,12 @@ Find all functions/methods that call a given symbol (incoming `calls` edges).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `node_id` | string | ✅ | — | ID of the target node |
+| `node_id` | string | | — | ID of the target node |
+| `name` | string | | — | Symbol name (alternative to `node_id`) |
+| `file` | string | | — | Disambiguate `name` by file path |
 | `limit` | number | | `20` | Maximum callers to return |
+
+Either `node_id` or `name` must be provided. When `name` matches multiple symbols, supply `file` to disambiguate or the tool returns a listing of candidates.
 
 **Output:**
 ```json
@@ -132,8 +138,12 @@ Find all functions/methods that a given symbol calls (outgoing `calls` edges).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `node_id` | string | ✅ | — | ID of the source node |
+| `node_id` | string | | — | ID of the source node |
+| `name` | string | | — | Symbol name (alternative to `node_id`) |
+| `file` | string | | — | Disambiguate `name` by file path |
 | `limit` | number | | `20` | Maximum callees to return |
+
+Either `node_id` or `name` must be provided.
 
 **Output:** Same shape as `coraline_callers` but field is `callees`.
 
@@ -147,9 +157,13 @@ Analyze the impact radius of changing a symbol — finds everything that directl
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `node_id` | string | ✅ | — | ID of the node to analyze |
+| `node_id` | string | | — | ID of the node to analyze |
+| `name` | string | | — | Symbol name (alternative to `node_id`) |
+| `file` | string | | — | Disambiguate `name` by file path |
 | `max_depth` | number | | `2` | BFS traversal depth |
 | `max_nodes` | number | | `50` | Cap on returned nodes |
+
+Either `node_id` or `name` must be provided.
 
 **Output:**
 ```json
@@ -175,10 +189,14 @@ Get the outgoing dependency graph from a node — what does this symbol import, 
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `node_id` | string | ✅ | — | ID of the source node |
+| `node_id` | string | | — | ID of the source node |
+| `name` | string | | — | Symbol name (alternative to `node_id`) |
+| `file` | string | | — | Disambiguate `name` by file path |
 | `max_depth` | number | | `2` | BFS traversal depth |
 | `max_nodes` | number | | `50` | Cap on returned nodes |
 | `edge_kinds` | string[] | | all | Edge kinds to follow (e.g. `["calls", "imports"]`) |
+
+Either `node_id` or `name` must be provided.
 
 **Output:**
 ```json
@@ -196,7 +214,7 @@ Get the outgoing dependency graph from a node — what does this symbol import, 
 
 Get the incoming dependency graph — what symbols depend on (call, import, or reference) this node, recursively?
 
-**Input:** Same as `coraline_dependencies`.
+**Input:** Same as `coraline_dependencies` (supports `node_id` or `name` + `file`).
 
 **Output:** Same shape as `coraline_dependencies` but traversal follows edges in reverse.
 
@@ -210,8 +228,14 @@ Find a path between two nodes in the graph, using BFS over all edge kinds.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `from_id` | string | ✅ | Starting node ID |
-| `to_id` | string | ✅ | Target node ID |
+| `from_id` | string | | Starting node ID |
+| `from_name` | string | | Starting node name (alternative to `from_id`) |
+| `from_file` | string | | Disambiguate `from_name` by file path |
+| `to_id` | string | | Target node ID |
+| `to_name` | string | | Target node name (alternative to `to_id`) |
+| `to_file` | string | | Disambiguate `to_name` by file path |
+
+For each endpoint, either the `_id` or `_name` parameter must be provided.
 
 **Output:**
 ```json
@@ -261,6 +285,7 @@ Find symbols by name pattern with richer metadata than `coraline_search`, includ
 |---|---|---|---|---|
 | `name_pattern` | string | ✅ | — | Symbol name or substring |
 | `kind` | string | | — | Same kind filter as `coraline_search` |
+| `file` | string | | — | Filter results to this file path |
 | `include_body` | boolean | | `false` | Attach source code body |
 | `limit` | number | | `10` | Maximum results |
 
@@ -301,9 +326,13 @@ Find all nodes that reference (call, import, extend, implement, etc.) a given sy
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `node_id` | string | ✅ | — | ID of the target node |
+| `node_id` | string | | — | ID of the target node |
+| `name` | string | | — | Symbol name (alternative to `node_id`) |
+| `file` | string | | — | Disambiguate `name` by file path |
 | `edge_kind` | string | | all | Filter: `calls`, `imports`, `extends`, `implements`, `references` |
 | `limit` | number | | `50` | Maximum references |
+
+Either `node_id` or `name` must be provided.
 
 **Output:** `{ "node_id": "...", "references": [...], "count": N }` — each reference includes its `edge_kind` and the line number of the edge.
 
@@ -317,8 +346,12 @@ Get complete details for a specific node by ID, including its source code body r
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `node_id` | string | ✅ | — | The node ID |
+| `node_id` | string | | — | The node ID |
+| `name` | string | | — | Symbol name (alternative to `node_id`) |
+| `file` | string | | — | Disambiguate `name` by file path |
 | `include_edges` | boolean | | `false` | Also return incoming/outgoing edge counts |
+
+Either `node_id` or `name` must be provided.
 
 **Output:** Full node record including `body` (source lines), `visibility`, `decorators`, `type_parameters`, `is_async`, `is_static`, `is_abstract`, and optionally `incoming_edge_count` / `outgoing_edge_count`.
 
@@ -386,6 +419,28 @@ Get all indexed symbols (nodes) for a specific file.
 | `file_path` | string | ✅ | File path (relative or absolute) |
 
 **Output:** `{ "file_path": "...", "nodes": [...], "count": N }`
+
+---
+
+### `coraline_find_file`
+
+Find files by name or glob pattern. Recursively walks the project tree, skipping `.git`, `node_modules`, `target`, and `.coraline` directories.
+
+**Input:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `pattern` | string | ✅ | — | File name, substring, or glob pattern (`*.rs`, `test_*`, `[Cc]argo.toml`) |
+| `limit` | number | | `20` | Maximum results |
+
+**Output:**
+```json
+{
+  "pattern": "*.rs",
+  "files": ["src/lib.rs", "src/db.rs", "src/graph.rs"],
+  "count": 3
+}
+```
 
 ---
 

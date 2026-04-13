@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Symbol name disambiguation for MCP graph tools** — `coraline_callers`, `coraline_callees`, `coraline_impact`, `coraline_find_references`, `coraline_node`, `coraline_dependencies`, `coraline_dependents`, and `coraline_path` now accept `name` (+ optional `file`) as an alternative to `node_id`, with clear disambiguation errors when multiple symbols share the same name
+- **`file` filter on search tools** — `coraline_search` and `coraline_find_symbol` accept an optional `file` parameter to scope results to a specific file path
+- **`coraline_find_file` MCP tool** — glob-based file search (`*.rs`, `test_*`, `[Cc]argo.toml`) that walks the project tree, skipping common build/hidden directories
+
+### Fixed
+
+- **Release workflow not triggered by auto-tag** — tags pushed by `github-actions[bot]` via `GITHUB_TOKEN` don't fire `push` events on other workflows; auto-tag now explicitly triggers the release workflow via `workflow_dispatch`
+
 ## [0.7.0] - 2026-04-13
 
 ### Added

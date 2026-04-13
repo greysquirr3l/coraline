@@ -270,6 +270,184 @@ impl Tool for GetFileNodesTool {
     }
 }
 
+/// Tool for finding files by name or glob pattern
+pub struct FindFileTool {
+    project_root: PathBuf,
+}
+
+impl FindFileTool {
+    pub const fn new(project_root: PathBuf) -> Self {
+        Self { project_root }
+    }
+}
+
+impl Tool for FindFileTool {
+    fn name(&self) -> &'static str {
+        "coraline_find_file"
+    }
+
+    fn description(&self) -> &'static str {
+        "Search for files by name substring or glob pattern across the project. \
+         Returns matching file paths relative to the project root."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "pattern": {
+                    "type": "string",
+                    "description": "File name substring or glob pattern (e.g. '*.rs', 'mod.rs', 'graph')"
+                },
+                "limit": {
+                    "type": "number",
+                    "description": "Maximum number of results to return",
+                    "default": 50
+                }
+            },
+            "required": ["pattern"]
+        })
+    }
+
+    #[allow(clippy::cast_possible_truncation)]
+    fn execute(&self, params: Value) -> ToolResult {
+        let pattern = params
+            .get("pattern")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ToolError::invalid_params("pattern must be a string"))?;
+
+        let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(50) as usize;
+
+        let is_glob = pattern.contains('*') || pattern.contains('?') || pattern.contains('[');
+
+        let mut matches = Vec::new();
+        find_files_recursive(
+            &self.project_root,
+            &self.project_root,
+            pattern,
+            is_glob,
+            limit,
+            &mut matches,
+        );
+
+        Ok(json!({
+            "pattern": pattern,
+            "matches": matches,
+            "count": matches.len(),
+            "truncated": matches.len() >= limit,
+        }))
+    }
+}
+
+fn find_files_recursive(
+    root: &std::path::Path,
+    dir: &std::path::Path,
+    pattern: &str,
+    is_glob: bool,
+    limit: usize,
+    results: &mut Vec<String>,
+) {
+    if results.len() >= limit {
+        return;
+    }
+
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        if results.len() >= limit {
+            return;
+        }
+
+        let name = entry.file_name().to_string_lossy().to_string();
+
+        // Skip hidden dirs, .git, node_modules, target, .coraline
+        if name.starts_with('.')
+            || name == "node_modules"
+            || name == "target"
+            || name == ".coraline"
+        {
+            continue;
+        }
+
+        let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+
+        if !is_dir {
+            let matched = if is_glob {
+                glob_match(pattern, &name)
+            } else {
+                name.contains(pattern)
+            };
+
+            if matched {
+                let rel = entry.path().strip_prefix(root).map_or_else(
+                    |_| entry.path().to_string_lossy().to_string(),
+                    |p| p.to_string_lossy().to_string(),
+                );
+                results.push(rel);
+            }
+        }
+
+        if is_dir {
+            find_files_recursive(root, &entry.path(), pattern, is_glob, limit, results);
+        }
+    }
+}
+
+/// Simple glob matching supporting `*`, `?`, and character classes `[abc]`.
+fn glob_match(pattern: &str, name: &str) -> bool {
+    let pattern_chars: Vec<char> = pattern.chars().collect();
+    let name_chars: Vec<char> = name.chars().collect();
+    glob_match_inner(&pattern_chars, &name_chars)
+}
+
+fn glob_match_inner(pattern: &[char], name: &[char]) -> bool {
+    match (pattern.first(), name.first()) {
+        (None, None) => true,
+        (Some('*'), _) => {
+            // Try matching zero chars or one char from name
+            glob_match_inner(pattern.get(1..).unwrap_or_default(), name)
+                || (!name.is_empty()
+                    && glob_match_inner(pattern, name.get(1..).unwrap_or_default()))
+        }
+        (Some('?'), Some(_)) => glob_match_inner(
+            pattern.get(1..).unwrap_or_default(),
+            name.get(1..).unwrap_or_default(),
+        ),
+        (Some('['), _) => {
+            // Find closing bracket
+            pattern.iter().position(|&c| c == ']').map_or_else(
+                || {
+                    // Malformed pattern, treat [ as literal
+                    pattern.first() == name.first()
+                        && glob_match_inner(
+                            pattern.get(1..).unwrap_or_default(),
+                            name.get(1..).unwrap_or_default(),
+                        )
+                },
+                |end| {
+                    let class = pattern.get(1..end).unwrap_or_default();
+                    let matches_class = name.first().is_some_and(|nc| class.contains(nc));
+                    if matches_class {
+                        glob_match_inner(
+                            pattern.get(end + 1..).unwrap_or_default(),
+                            name.get(1..).unwrap_or_default(),
+                        )
+                    } else {
+                        false
+                    }
+                },
+            )
+        }
+        (Some(pc), Some(nc)) if *pc == *nc => glob_match_inner(
+            pattern.get(1..).unwrap_or_default(),
+            name.get(1..).unwrap_or_default(),
+        ),
+        _ => false,
+    }
+}
+
 /// Tool for project index status and statistics
 pub struct StatusTool {
     project_root: PathBuf,

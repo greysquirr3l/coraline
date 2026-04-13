@@ -45,6 +45,10 @@ impl Tool for SearchTool {
                     "description": "Node kind filter (function, class, method, etc.)",
                     "enum": ["function", "method", "class", "struct", "interface", "trait", "module"]
                 },
+                "file": {
+                    "type": "string",
+                    "description": "Restrict results to symbols in this file path"
+                },
                 "limit": {
                     "type": "number",
                     "description": "Maximum number of results to return",
@@ -78,14 +82,36 @@ impl Tool for SearchTool {
 
         let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(10) as usize;
 
+        let file_filter = params.get("file").and_then(Value::as_str);
+
         let conn = db::open_database(&self.project_root)
             .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
 
-        let results = db::search_nodes(&conn, query, kind, limit)
+        // Fetch extra results when file-filtering so we still hit the requested limit.
+        let fetch_limit = if file_filter.is_some() {
+            limit * 5
+        } else {
+            limit
+        };
+        let results = db::search_nodes(&conn, query, kind, fetch_limit)
             .map_err(|e| ToolError::internal_error(format!("Search failed: {e}")))?;
+
+        let abs_file = file_filter.map(|f| {
+            if std::path::Path::new(f).is_absolute() {
+                f.to_string()
+            } else {
+                self.project_root.join(f).to_string_lossy().to_string()
+            }
+        });
 
         let results_json: Vec<Value> = results
             .into_iter()
+            .filter(|r| {
+                abs_file.as_ref().is_none_or(|af| {
+                    r.node.file_path == *af || file_filter.is_some_and(|f| r.node.file_path == f)
+                })
+            })
+            .take(limit)
             .map(|r| {
                 json!({
                     "node": {
@@ -139,30 +165,34 @@ impl Tool for CallersTool {
                     "type": "string",
                     "description": "ID of the node to find callers for"
                 },
+                "name": {
+                    "type": "string",
+                    "description": "Symbol name (alternative to node_id). If ambiguous, add 'file'."
+                },
+                "file": {
+                    "type": "string",
+                    "description": "File path to disambiguate when using 'name'"
+                },
                 "limit": {
                     "type": "number",
                     "description": "Maximum number of callers to return",
                     "default": 20
                 }
-            },
-            "required": ["node_id"]
+            }
         })
     }
 
     #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
-        let node_id = params
-            .get("node_id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| ToolError::invalid_params("node_id must be a string"))?;
-
-        let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
-
         let conn = db::open_database(&self.project_root)
             .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
 
+        let node_id = resolve_node_id(&conn, &self.project_root, &params, "node_id")?;
+
+        let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
+
         // Get edges where this node is the target and edge kind is "calls"
-        let edges = db::get_edges_by_target(&conn, node_id, Some(EdgeKind::Calls), limit)
+        let edges = db::get_edges_by_target(&conn, &node_id, Some(EdgeKind::Calls), limit)
             .map_err(|e| ToolError::internal_error(format!("Failed to get edges: {e}")))?;
 
         let mut callers = Vec::new();
@@ -217,30 +247,34 @@ impl Tool for CalleesTool {
                     "type": "string",
                     "description": "ID of the node to find callees for"
                 },
+                "name": {
+                    "type": "string",
+                    "description": "Symbol name (alternative to node_id). If ambiguous, add 'file'."
+                },
+                "file": {
+                    "type": "string",
+                    "description": "File path to disambiguate when using 'name'"
+                },
                 "limit": {
                     "type": "number",
                     "description": "Maximum number of callees to return",
                     "default": 20
                 }
-            },
-            "required": ["node_id"]
+            }
         })
     }
 
     #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
-        let node_id = params
-            .get("node_id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| ToolError::invalid_params("node_id must be a string"))?;
-
-        let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
-
         let conn = db::open_database(&self.project_root)
             .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
 
+        let node_id = resolve_node_id(&conn, &self.project_root, &params, "node_id")?;
+
+        let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
+
         // Get edges where this node is the source and edge kind is "calls"
-        let edges = db::get_edges_by_source(&conn, node_id, Some(EdgeKind::Calls), limit)
+        let edges = db::get_edges_by_source(&conn, &node_id, Some(EdgeKind::Calls), limit)
             .map_err(|e| ToolError::internal_error(format!("Failed to get edges: {e}")))?;
 
         let mut callees = Vec::new();
@@ -295,6 +329,14 @@ impl Tool for ImpactTool {
                     "type": "string",
                     "description": "ID of the node to analyze impact for"
                 },
+                "name": {
+                    "type": "string",
+                    "description": "Symbol name (alternative to node_id). If ambiguous, add 'file'."
+                },
+                "file": {
+                    "type": "string",
+                    "description": "File path to disambiguate when using 'name'"
+                },
                 "max_depth": {
                     "type": "number",
                     "description": "Maximum traversal depth",
@@ -305,17 +347,16 @@ impl Tool for ImpactTool {
                     "description": "Maximum nodes to include in result",
                     "default": 50
                 }
-            },
-            "required": ["node_id"]
+            }
         })
     }
 
     #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
-        let node_id = params
-            .get("node_id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| ToolError::invalid_params("node_id must be a string"))?;
+        let conn = db::open_database(&self.project_root)
+            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
+
+        let node_id = resolve_node_id(&conn, &self.project_root, &params, "node_id")?;
 
         let max_depth = params
             .get("max_depth")
@@ -326,9 +367,6 @@ impl Tool for ImpactTool {
             .and_then(Value::as_u64)
             .map(|n| n as usize);
 
-        let conn = db::open_database(&self.project_root)
-            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
-
         let traversal_options = TraversalOptions {
             max_depth,
             edge_kinds: Some(vec![EdgeKind::Calls, EdgeKind::References]),
@@ -338,7 +376,7 @@ impl Tool for ImpactTool {
             include_start: Some(true),
         };
 
-        let subgraph = graph::build_subgraph(&conn, &[node_id.to_string()], &traversal_options)
+        let subgraph = graph::build_subgraph(&conn, &[node_id], &traversal_options)
             .map_err(|e| ToolError::internal_error(format!("Failed to build subgraph: {e}")))?;
 
         let nodes: Vec<Value> = subgraph
@@ -418,6 +456,10 @@ impl Tool for FindSymbolTool {
                     "description": "Optional node kind filter",
                     "enum": ["function", "method", "class", "struct", "interface", "trait", "module"]
                 },
+                "file": {
+                    "type": "string",
+                    "description": "Restrict results to symbols in this file path"
+                },
                 "include_body": {
                     "type": "boolean",
                     "description": "Whether to include the source code body of the symbol",
@@ -452,15 +494,36 @@ impl Tool for FindSymbolTool {
 
         let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(10) as usize;
 
+        let file_filter = params.get("file").and_then(Value::as_str);
+
         let conn = db::open_database(&self.project_root)
             .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
 
-        // Use FTS search for the pattern
-        let results = db::search_nodes(&conn, pattern, kind, limit)
+        // Fetch extra results when file-filtering so we still hit the requested limit.
+        let fetch_limit = if file_filter.is_some() {
+            limit * 5
+        } else {
+            limit
+        };
+        let results = db::search_nodes(&conn, pattern, kind, fetch_limit)
             .map_err(|e| ToolError::internal_error(format!("Search failed: {e}")))?;
+
+        let abs_file = file_filter.map(|f| {
+            if std::path::Path::new(f).is_absolute() {
+                f.to_string()
+            } else {
+                self.project_root.join(f).to_string_lossy().to_string()
+            }
+        });
 
         let symbols: Vec<Value> = results
             .into_iter()
+            .filter(|r| {
+                abs_file.as_ref().is_none_or(|af| {
+                    r.node.file_path == *af || file_filter.is_some_and(|f| r.node.file_path == f)
+                })
+            })
+            .take(limit)
             .map(|r| {
                 let body = if include_body {
                     read_node_source(&self.project_root, &r.node)
@@ -627,6 +690,14 @@ impl Tool for FindReferencesTool {
                     "type": "string",
                     "description": "ID of the node to find references to"
                 },
+                "name": {
+                    "type": "string",
+                    "description": "Symbol name (alternative to node_id). If ambiguous, add 'file'."
+                },
+                "file": {
+                    "type": "string",
+                    "description": "File path to disambiguate when using 'name'"
+                },
                 "edge_kind": {
                     "type": "string",
                     "description": "Filter by edge kind (calls, imports, extends, implements, references)",
@@ -637,17 +708,16 @@ impl Tool for FindReferencesTool {
                     "description": "Maximum number of references to return",
                     "default": 50
                 }
-            },
-            "required": ["node_id"]
+            }
         })
     }
 
     #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
-        let node_id = params
-            .get("node_id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| ToolError::invalid_params("node_id must be a string"))?;
+        let conn = db::open_database(&self.project_root)
+            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
+
+        let node_id = resolve_node_id(&conn, &self.project_root, &params, "node_id")?;
 
         let edge_kind = params
             .get("edge_kind")
@@ -663,10 +733,7 @@ impl Tool for FindReferencesTool {
 
         let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(50) as usize;
 
-        let conn = db::open_database(&self.project_root)
-            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
-
-        let edges = db::get_edges_by_target(&conn, node_id, edge_kind, limit)
+        let edges = db::get_edges_by_target(&conn, &node_id, edge_kind, limit)
             .map_err(|e| ToolError::internal_error(format!("Failed to get edges: {e}")))?;
 
         let mut references = Vec::new();
@@ -723,31 +790,35 @@ impl Tool for GetNodeTool {
                     "type": "string",
                     "description": "The node ID to retrieve"
                 },
+                "name": {
+                    "type": "string",
+                    "description": "Symbol name (alternative to node_id). If ambiguous, add 'file'."
+                },
+                "file": {
+                    "type": "string",
+                    "description": "File path to disambiguate when using 'name'"
+                },
                 "include_edges": {
                     "type": "boolean",
                     "description": "Whether to include outgoing and incoming edge counts",
                     "default": false
                 }
-            },
-            "required": ["node_id"]
+            }
         })
     }
 
     fn execute(&self, params: Value) -> ToolResult {
-        let node_id = params
-            .get("node_id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| ToolError::invalid_params("node_id must be a string"))?;
+        let conn = db::open_database(&self.project_root)
+            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
+
+        let node_id = resolve_node_id(&conn, &self.project_root, &params, "node_id")?;
 
         let include_edges = params
             .get("include_edges")
             .and_then(Value::as_bool)
             .unwrap_or(false);
 
-        let conn = db::open_database(&self.project_root)
-            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
-
-        let node = db::get_node_by_id(&conn, node_id)
+        let node = db::get_node_by_id(&conn, &node_id)
             .map_err(|e| ToolError::internal_error(format!("Failed to get node: {e}")))?
             .ok_or_else(|| ToolError::not_found(format!("Node not found: {node_id}")))?;
 
@@ -777,9 +848,9 @@ impl Tool for GetNodeTool {
         });
 
         if include_edges {
-            let out_edges = db::get_edges_by_source(&conn, node_id, None, 200)
+            let out_edges = db::get_edges_by_source(&conn, &node_id, None, 200)
                 .map_err(|e| ToolError::internal_error(format!("Failed to get edges: {e}")))?;
-            let in_edges = db::get_edges_by_target(&conn, node_id, None, 200)
+            let in_edges = db::get_edges_by_target(&conn, &node_id, None, 200)
                 .map_err(|e| ToolError::internal_error(format!("Failed to get edges: {e}")))?;
             if let Some(obj) = result.as_object_mut() {
                 obj.insert("outgoing_edge_count".to_string(), json!(out_edges.len()));
@@ -821,6 +892,14 @@ impl Tool for DependenciesTool {
                     "type": "string",
                     "description": "ID of the node to find dependencies for"
                 },
+                "name": {
+                    "type": "string",
+                    "description": "Symbol name (alternative to node_id). If ambiguous, add 'file'."
+                },
+                "file": {
+                    "type": "string",
+                    "description": "File path to disambiguate when using 'name'"
+                },
                 "depth": {
                     "type": "number",
                     "description": "Traversal depth (default 2)",
@@ -831,17 +910,16 @@ impl Tool for DependenciesTool {
                     "description": "Maximum number of nodes to return (default 50)",
                     "default": 50
                 }
-            },
-            "required": ["node_id"]
+            }
         })
     }
 
     #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
-        let node_id = params
-            .get("node_id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| ToolError::invalid_params("node_id must be a string"))?;
+        let conn = db::open_database(&self.project_root)
+            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
+
+        let node_id = resolve_node_id(&conn, &self.project_root, &params, "node_id")?;
 
         let depth = params
             .get("depth")
@@ -852,9 +930,6 @@ impl Tool for DependenciesTool {
             .and_then(Value::as_u64)
             .map(|n| n as usize);
 
-        let conn = db::open_database(&self.project_root)
-            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
-
         let options = TraversalOptions {
             max_depth: depth.or(Some(2)),
             edge_kinds: None,
@@ -864,7 +939,7 @@ impl Tool for DependenciesTool {
             include_start: Some(false),
         };
 
-        let subgraph = graph::build_subgraph(&conn, &[node_id.to_string()], &options)
+        let subgraph = graph::build_subgraph(&conn, std::slice::from_ref(&node_id), &options)
             .map_err(|e| ToolError::internal_error(format!("Graph traversal failed: {e}")))?;
 
         let nodes: Vec<Value> = subgraph
@@ -934,6 +1009,14 @@ impl Tool for DependentsTool {
                     "type": "string",
                     "description": "ID of the node"
                 },
+                "name": {
+                    "type": "string",
+                    "description": "Symbol name (alternative to node_id). If ambiguous, add 'file'."
+                },
+                "file": {
+                    "type": "string",
+                    "description": "File path to disambiguate when using 'name'"
+                },
                 "depth": {
                     "type": "number",
                     "description": "Traversal depth (default 2)",
@@ -944,17 +1027,16 @@ impl Tool for DependentsTool {
                     "description": "Maximum number of nodes to return (default 50)",
                     "default": 50
                 }
-            },
-            "required": ["node_id"]
+            }
         })
     }
 
     #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
-        let node_id = params
-            .get("node_id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| ToolError::invalid_params("node_id must be a string"))?;
+        let conn = db::open_database(&self.project_root)
+            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
+
+        let node_id = resolve_node_id(&conn, &self.project_root, &params, "node_id")?;
 
         let depth = params
             .get("depth")
@@ -965,9 +1047,6 @@ impl Tool for DependentsTool {
             .and_then(Value::as_u64)
             .map(|n| n as usize);
 
-        let conn = db::open_database(&self.project_root)
-            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
-
         let options = TraversalOptions {
             max_depth: depth.or(Some(2)),
             edge_kinds: None,
@@ -977,7 +1056,7 @@ impl Tool for DependentsTool {
             include_start: Some(false),
         };
 
-        let subgraph = graph::build_subgraph(&conn, &[node_id.to_string()], &options)
+        let subgraph = graph::build_subgraph(&conn, std::slice::from_ref(&node_id), &options)
             .map_err(|e| ToolError::internal_error(format!("Graph traversal failed: {e}")))?;
 
         let nodes: Vec<Value> = subgraph
@@ -1046,17 +1125,32 @@ impl Tool for PathTool {
                     "type": "string",
                     "description": "Starting node ID"
                 },
+                "from_name": {
+                    "type": "string",
+                    "description": "Starting symbol name (alternative to from_id)"
+                },
+                "from_file": {
+                    "type": "string",
+                    "description": "File path to disambiguate from_name"
+                },
                 "to_id": {
                     "type": "string",
                     "description": "Target node ID"
+                },
+                "to_name": {
+                    "type": "string",
+                    "description": "Target symbol name (alternative to to_id)"
+                },
+                "to_file": {
+                    "type": "string",
+                    "description": "File path to disambiguate to_name"
                 },
                 "max_depth": {
                     "type": "number",
                     "description": "Maximum path length to search (default 6)",
                     "default": 6
                 }
-            },
-            "required": ["from_id", "to_id"]
+            }
         })
     }
 
@@ -1064,29 +1158,51 @@ impl Tool for PathTool {
     fn execute(&self, params: Value) -> ToolResult {
         use std::collections::{HashMap, VecDeque};
 
-        let from_id = params
-            .get("from_id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| ToolError::invalid_params("from_id must be a string"))?;
-
-        let to_id = params
-            .get("to_id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| ToolError::invalid_params("to_id must be a string"))?;
-
-        let max_depth = params.get("max_depth").and_then(Value::as_u64).unwrap_or(6) as usize;
-
         let conn = db::open_database(&self.project_root)
             .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
+
+        // Resolve from: use from_id directly, or from_name+from_file
+        let from_params = {
+            let mut p = serde_json::Map::new();
+            if let Some(v) = params.get("from_id") {
+                p.insert("node_id".to_string(), v.clone());
+            }
+            if let Some(v) = params.get("from_name") {
+                p.insert("name".to_string(), v.clone());
+            }
+            if let Some(v) = params.get("from_file") {
+                p.insert("file".to_string(), v.clone());
+            }
+            Value::Object(p)
+        };
+        let from_id = resolve_node_id(&conn, &self.project_root, &from_params, "node_id")?;
+
+        // Resolve to: use to_id directly, or to_name+to_file
+        let to_params = {
+            let mut p = serde_json::Map::new();
+            if let Some(v) = params.get("to_id") {
+                p.insert("node_id".to_string(), v.clone());
+            }
+            if let Some(v) = params.get("to_name") {
+                p.insert("name".to_string(), v.clone());
+            }
+            if let Some(v) = params.get("to_file") {
+                p.insert("file".to_string(), v.clone());
+            }
+            Value::Object(p)
+        };
+        let to_id = resolve_node_id(&conn, &self.project_root, &to_params, "node_id")?;
+
+        let max_depth = params.get("max_depth").and_then(Value::as_u64).unwrap_or(6) as usize;
 
         // BFS following outgoing edges, recording parents for path reconstruction.
 
         // Maps node_id → parent_id (empty string for the root).
         let mut parent: HashMap<String, String> = HashMap::new();
-        parent.insert(from_id.to_string(), String::new());
+        parent.insert(from_id.clone(), String::new());
 
         let mut queue: VecDeque<(String, usize)> = VecDeque::new();
-        queue.push_back((from_id.to_string(), 0));
+        queue.push_back((from_id.clone(), 0));
 
         let mut found = false;
         'bfs: while let Some((current, depth)) = queue.pop_front() {
@@ -1122,7 +1238,7 @@ impl Tool for PathTool {
 
         // Reconstruct path by walking parents backward from to_id.
         let mut path_ids: Vec<String> = Vec::new();
-        let mut cursor = to_id.to_string();
+        let mut cursor = to_id.clone();
         while !cursor.is_empty() {
             path_ids.push(cursor.clone());
             cursor = parent.get(&cursor).cloned().unwrap_or_default();
@@ -1266,6 +1382,78 @@ impl Tool for StatsTool {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
+/// Resolve a node ID from tool params.
+///
+/// Accepts either:
+///  - `node_id` directly, **or**
+///  - `name` (+ optional `file` for disambiguation)
+///
+/// When `name` matches multiple nodes and no `file` is given, returns an error
+/// listing all candidates so the caller can retry with a `file` hint.
+fn resolve_node_id(
+    conn: &rusqlite::Connection,
+    project_root: &std::path::Path,
+    params: &Value,
+    id_field: &str,
+) -> Result<String, ToolError> {
+    // Fast path: explicit node_id
+    if let Some(id) = params
+        .get(id_field)
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+    {
+        return Ok(id.to_string());
+    }
+
+    // Slow path: resolve by name (+ optional file)
+    let name = params.get("name").and_then(Value::as_str).ok_or_else(|| {
+        ToolError::invalid_params(format!("Either '{id_field}' or 'name' must be provided"))
+    })?;
+
+    let file_hint = params.get("file").and_then(Value::as_str);
+
+    let mut candidates = db::find_nodes_by_name(conn, name)
+        .map_err(|e| ToolError::internal_error(format!("Name lookup failed: {e}")))?;
+
+    // Narrow by file if provided
+    if let Some(file) = file_hint {
+        let abs_hint = if std::path::Path::new(file).is_absolute() {
+            file.to_string()
+        } else {
+            project_root.join(file).to_string_lossy().to_string()
+        };
+        candidates.retain(|n| n.file_path == abs_hint || n.file_path == file);
+    }
+
+    match candidates.len() {
+        0 => Err(ToolError::not_found(format!(
+            "No symbol named '{name}' found{}",
+            file_hint.map_or_else(String::new, |f| format!(" in file '{f}'"))
+        ))),
+        1 => Ok(candidates
+            .into_iter()
+            .next()
+            .map_or_else(String::new, |n| n.id)),
+        _ => {
+            let listing: Vec<String> = candidates
+                .iter()
+                .map(|n| {
+                    format!(
+                        "  {} ({:?}) — {}:{}",
+                        n.id, n.kind, n.file_path, n.start_line
+                    )
+                })
+                .collect();
+            Err(ToolError::invalid_params(format!(
+                "Ambiguous: {count} symbols named '{name}'. \
+                 Supply '{id_field}' or add 'file' to disambiguate:\n{list}",
+                count = candidates.len(),
+                list = listing.join("\n"),
+            )))
+        }
+    }
+}
 
 /// Read the source lines for a node from its file on disk.
 fn read_node_source(project_root: &std::path::Path, node: &crate::types::Node) -> Option<String> {
