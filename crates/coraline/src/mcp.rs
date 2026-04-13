@@ -44,6 +44,7 @@ pub struct McpServer {
     client_initialized: bool,
     negotiated_protocol_version: String,
     shutdown: Arc<AtomicBool>,
+    auto_sync_spawned: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -118,6 +119,7 @@ impl McpServer {
             client_initialized: false,
             negotiated_protocol_version: LATEST_PROTOCOL_VERSION.to_string(),
             shutdown: Arc::new(AtomicBool::new(false)),
+            auto_sync_spawned: false,
         };
         if let Some(ref root) = server.project_root {
             server.initialize_tools(root.clone());
@@ -281,7 +283,10 @@ impl McpServer {
 
         if let Some(ref root) = project_root {
             self.initialize_tools(root.clone());
-            self.spawn_auto_sync(root.clone());
+            if self.init_error.is_none() && !self.auto_sync_spawned {
+                self.spawn_auto_sync(root.clone());
+                self.auto_sync_spawned = true;
+            }
         }
 
         self.initialize_completed = true;
@@ -455,7 +460,11 @@ impl McpServer {
     fn spawn_auto_sync(&self, project_root: PathBuf) {
         let interval_secs = crate::config::load_toml_config(&project_root)
             .map(|c| c.sync.auto_sync_interval_secs)
-            .unwrap_or(120);
+            .unwrap_or_else(|_| {
+                crate::config::CoralineConfig::default()
+                    .sync
+                    .auto_sync_interval_secs
+            });
 
         if interval_secs == 0 {
             info!("auto-sync disabled (auto_sync_interval_secs = 0)");
