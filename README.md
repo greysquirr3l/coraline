@@ -293,29 +293,9 @@ See the published MCP tools reference: <https://greysquirr3l.github.io/coraline/
 
 ## Architecture
 
-```asciidoc
-┌─────────────────────────────────────────────────────────────────┐
-│                        AI Assistant (MCP Client)                 │
-│                    (Claude, VS Code, etc.)                       │
-└────────────────────────────┬────────────────────────────────────┘
-                             │
-                             ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                     Coraline MCP Server                          │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
-│  │ Graph Tools  │  │ Symbol Tools │  │ Memory Tools │          │
-│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘          │
-│         └──────────────────┼──────────────────┘                 │
-│                            ▼                                     │
-│              ┌─────────────────────────┐                         │
-│              │   Core Engine (Rust)    │                         │
-│              │   • tree-sitter parser  │                         │
-│              │   • SQLite database     │                         │
-│              │   • Vector embeddings   │                         │
-│              │   • Reference resolver  │                         │
-│              └─────────────────────────┘                         │
-└─────────────────────────────────────────────────────────────────┘
-```
+![Coraline README architecture overview](assets/img/readme-architecture-overview.png)
+
+Diagram source: `docs/diagrams/readme-architecture-overview.mmd`
 
 ### Data Flow
 

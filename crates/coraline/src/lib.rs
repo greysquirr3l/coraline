@@ -14,6 +14,7 @@ pub mod resolution;
 pub mod sync;
 pub mod tools;
 pub mod types;
+pub mod update;
 pub mod utils;
 #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
 pub mod vectors;

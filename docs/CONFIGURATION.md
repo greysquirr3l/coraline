@@ -43,9 +43,10 @@ max_code_block_size = 1500 # Max chars per code block
 traversal_depth    = 1     # Graph hops from entry nodes
 
 [sync]
-git_hooks_enabled = true   # Auto-sync on git commit
-watch_mode        = false  # Watch for file changes (not yet implemented)
-debounce_ms       = 500    # Watch mode debounce delay
+git_hooks_enabled        = true   # Auto-sync on git commit
+watch_mode               = false  # Watch for file changes (not yet implemented)
+debounce_ms              = 500    # Watch mode debounce delay
+auto_sync_interval_secs  = 120    # MCP background sync interval (0 = disabled)
 
 [vectors]
 enabled    = false                  # Requires ONNX model (see below)
@@ -191,6 +192,21 @@ Debounce delay for watch mode in milliseconds.
 
 - **Type:** integer
 - **Default:** `500`
+
+### `auto_sync_interval_secs`
+
+Interval in seconds for the MCP server's background auto-sync thread. The thread periodically checks whether the index is stale and performs an incremental sync when files have changed. When embeddings are enabled and an ONNX model is present, newly-added nodes are automatically embedded after each sync.
+
+- **Type:** integer (seconds)
+- **Default:** `120` (2 minutes)
+- Set to `0` to disable background auto-sync entirely.
+
+```toml
+[sync]
+auto_sync_interval_secs = 60   # check every minute
+```
+
+> **Note:** The first check is delayed by the configured interval to avoid racing with any initial indexing that may still be in progress when the MCP server starts.
 
 ---
 

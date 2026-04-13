@@ -742,6 +742,30 @@ pub fn get_all_nodes(conn: &Connection) -> std::io::Result<Vec<Node>> {
     Ok(results)
 }
 
+/// Return nodes that have no corresponding row in the `vectors` table.
+pub fn get_unembedded_nodes(conn: &Connection) -> std::io::Result<Vec<Node>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT n.id, n.kind, n.name, n.qualified_name, n.file_path, n.language,
+                    n.start_line, n.end_line, n.start_column, n.end_column,
+                    n.docstring, n.signature, n.visibility,
+                    n.is_exported, n.is_async, n.is_static, n.is_abstract,
+                    n.decorators, n.type_parameters, n.updated_at
+             FROM nodes n
+             LEFT JOIN vectors v ON n.id = v.node_id
+             WHERE v.node_id IS NULL
+             ORDER BY n.file_path ASC, n.start_line ASC",
+        )
+        .map_err(io_other)?;
+
+    let rows = stmt.query_map([], row_to_node).map_err(io_other)?;
+    let mut results = Vec::new();
+    for row in rows {
+        results.push(row.map_err(io_other)?);
+    }
+    Ok(results)
+}
+
 /// Database statistics returned by `get_db_stats`.
 #[derive(Debug, serde::Serialize)]
 pub struct DbStats {

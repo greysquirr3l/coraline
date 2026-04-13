@@ -10,6 +10,15 @@ Protocol notes:
 
 `coraline_semantic_search` is available by default (the `embeddings` feature ships enabled) but only registered when an ONNX model is present in `.coraline/models/`. Run `coraline model download` then `coraline embed` to activate it. All other 25 tools are always available.
 
+### Background Auto-Sync
+
+When the MCP server starts, it spawns a background thread that periodically checks index freshness and runs incremental sync when files have changed. This keeps the knowledge graph current without manual `coraline_sync` calls.
+
+- **Default interval:** 120 seconds (configurable via `sync.auto_sync_interval_secs` in `config.toml`)
+- **Disable:** Set `auto_sync_interval_secs = 0` in `[sync]`
+- When embeddings are enabled and an ONNX model is present, newly-added nodes are automatically embedded after each background sync
+- The background thread uses SQLite WAL mode for safe concurrent access alongside the main MCP request loop
+
 ---
 
 ## Quick Reference

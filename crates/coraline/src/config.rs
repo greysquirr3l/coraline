@@ -295,6 +295,9 @@ pub struct SyncConfig {
     pub watch_mode: bool,
     /// Debounce delay in milliseconds for watch mode.
     pub debounce_ms: u64,
+    /// Interval in seconds for the MCP background auto-sync check.
+    /// Set to 0 to disable. Default: 120 (2 minutes).
+    pub auto_sync_interval_secs: u64,
 }
 
 impl Default for SyncConfig {
@@ -303,6 +306,7 @@ impl Default for SyncConfig {
             git_hooks_enabled: true,
             watch_mode: false,
             debounce_ms: 500,
+            auto_sync_interval_secs: 120,
         }
     }
 }
@@ -473,9 +477,10 @@ max_code_block_size = 1500
 traversal_depth    = 1
 
 [sync]
-git_hooks_enabled = true
-watch_mode        = false
-debounce_ms       = 500
+git_hooks_enabled        = true
+watch_mode               = false
+debounce_ms              = 500
+auto_sync_interval_secs  = 120
 
 [vectors]
 # Full vector search requires an ONNX model.
