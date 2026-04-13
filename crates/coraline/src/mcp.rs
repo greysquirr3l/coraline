@@ -21,6 +21,9 @@
 use std::collections::HashMap;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -40,6 +43,7 @@ pub struct McpServer {
     initialize_completed: bool,
     client_initialized: bool,
     negotiated_protocol_version: String,
+    shutdown: Arc<AtomicBool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -113,6 +117,7 @@ impl McpServer {
             initialize_completed: false,
             client_initialized: false,
             negotiated_protocol_version: LATEST_PROTOCOL_VERSION.to_string(),
+            shutdown: Arc::new(AtomicBool::new(false)),
         };
         if let Some(ref root) = server.project_root {
             server.initialize_tools(root.clone());
@@ -149,6 +154,7 @@ impl McpServer {
             }
         }
 
+        self.shutdown.store(true, Ordering::Relaxed);
         Ok(())
     }
 
@@ -273,8 +279,9 @@ impl McpServer {
         self.project_root = project_root.clone();
         self.initialize_codegraph();
 
-        if let Some(root) = project_root {
-            self.initialize_tools(root);
+        if let Some(ref root) = project_root {
+            self.initialize_tools(root.clone());
+            self.spawn_auto_sync(root.clone());
         }
 
         self.initialize_completed = true;
@@ -438,6 +445,36 @@ impl McpServer {
         }
     }
 
+    /// Spawn a background thread that periodically checks whether the index
+    /// is stale and, if so, performs an incremental sync (and optionally
+    /// embeds any new nodes when the embeddings feature is compiled in and
+    /// the ONNX model is available on disk).
+    ///
+    /// Controlled by `[sync] auto_sync_interval_secs` in `config.toml`.
+    /// A value of `0` disables the background thread entirely.
+    fn spawn_auto_sync(&self, project_root: PathBuf) {
+        let interval_secs = crate::config::load_toml_config(&project_root)
+            .map(|c| c.sync.auto_sync_interval_secs)
+            .unwrap_or(120);
+
+        if interval_secs == 0 {
+            info!("auto-sync disabled (auto_sync_interval_secs = 0)");
+            return;
+        }
+
+        let shutdown = Arc::clone(&self.shutdown);
+        let interval = Duration::from_secs(interval_secs);
+
+        std::thread::Builder::new()
+            .name("coraline-auto-sync".into())
+            .spawn(move || {
+                info!(interval_secs = interval_secs, "auto-sync thread started");
+                auto_sync_loop(&project_root, interval, &shutdown);
+                info!("auto-sync thread stopped");
+            })
+            .ok(); // If thread creation fails, degrade gracefully.
+    }
+
     fn send_result(&self, id: JsonRpcId, result: Value) -> io::Result<()> {
         let response = serde_json::json!({
             "jsonrpc": "2.0",
@@ -520,6 +557,141 @@ fn send_response(response: Value) -> io::Result<()> {
     let mut stdout = io::stdout();
     writeln!(stdout, "{}", response)?;
     stdout.flush()
+}
+
+// ---------------------------------------------------------------------------
+// Background auto-sync
+// ---------------------------------------------------------------------------
+
+/// Core loop run on the background thread.  Checks `needs_sync` at each tick
+/// and performs an incremental sync when the index is stale.  When the
+/// embeddings feature is compiled in **and** ONNX model files are present,
+/// any newly-added nodes are embedded automatically after each sync.
+fn auto_sync_loop(project_root: &Path, interval: Duration, shutdown: &AtomicBool) {
+    // Sleep a full interval before the first check so we don't race with
+    // the initial indexing that may still be in progress.
+    interruptible_sleep(interval, shutdown);
+
+    loop {
+        if shutdown.load(Ordering::Relaxed) {
+            break;
+        }
+
+        if let Err(err) = auto_sync_tick(project_root) {
+            warn!(error = %err, "auto-sync tick failed");
+        }
+
+        interruptible_sleep(interval, shutdown);
+    }
+}
+
+/// A single tick: load config → check staleness → sync → optionally embed.
+fn auto_sync_tick(project_root: &Path) -> io::Result<()> {
+    let mut cfg = crate::config::load_config(project_root)?;
+    if let Ok(toml_cfg) = crate::config::load_toml_config(project_root) {
+        crate::config::apply_toml_to_code_graph(&mut cfg, &toml_cfg);
+    }
+
+    let status = crate::extraction::needs_sync(project_root, &cfg)?;
+    if !status.is_stale() {
+        debug!("auto-sync: index is up to date");
+        return Ok(());
+    }
+
+    info!(
+        added = status.files_added,
+        modified = status.files_modified,
+        removed = status.files_removed,
+        "auto-sync: index is stale, syncing"
+    );
+
+    let result = crate::extraction::sync(project_root, &cfg, None)?;
+    info!(
+        files_added = result.files_added,
+        files_modified = result.files_modified,
+        files_removed = result.files_removed,
+        nodes_updated = result.nodes_updated,
+        duration_ms = result.duration_ms,
+        "auto-sync: sync complete"
+    );
+
+    auto_embed_new_nodes(project_root);
+
+    Ok(())
+}
+
+/// Best-effort embedding of any nodes that don't yet have a vector.
+/// Silently skipped when the embeddings feature is not compiled in or the
+/// model files are missing.
+#[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
+fn auto_embed_new_nodes(project_root: &Path) {
+    let toml_cfg = crate::config::load_toml_config(project_root).unwrap_or_default();
+    if !toml_cfg.vectors.enabled {
+        return;
+    }
+
+    let mut vm = match crate::vectors::VectorManager::from_project(project_root) {
+        Ok(vm) => vm,
+        Err(_) => return, // model files not present — silently skip
+    };
+
+    let conn = match crate::db::open_database(project_root) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+
+    let nodes = match crate::db::get_unembedded_nodes(&conn) {
+        Ok(n) => n,
+        Err(_) => return,
+    };
+
+    if nodes.is_empty() {
+        return;
+    }
+
+    info!(count = nodes.len(), "auto-sync: embedding new nodes");
+
+    let mut ok = 0usize;
+    for node in &nodes {
+        let text = crate::vectors::node_embed_text(
+            &node.name,
+            &node.qualified_name,
+            node.docstring.as_deref(),
+            node.signature.as_deref(),
+        );
+        if let Ok(embedding) = vm.embed(&text) {
+            if crate::vectors::store_embedding(&conn, &node.id, &embedding, vm.model_name()).is_ok()
+            {
+                ok += 1;
+            }
+        }
+    }
+
+    info!(
+        embedded = ok,
+        total = nodes.len(),
+        "auto-sync: embedding done"
+    );
+}
+
+#[cfg(not(any(feature = "embeddings", feature = "embeddings-dynamic")))]
+fn auto_embed_new_nodes(_project_root: &Path) {
+    // Embeddings feature not compiled in — nothing to do.
+}
+
+/// Sleep for `duration` but wake early if `shutdown` becomes true.
+/// Checks every 500 ms so the thread exits promptly on shutdown.
+fn interruptible_sleep(duration: Duration, shutdown: &AtomicBool) {
+    let tick = Duration::from_millis(500);
+    let mut remaining = duration;
+    while remaining > Duration::ZERO {
+        if shutdown.load(Ordering::Relaxed) {
+            return;
+        }
+        let sleep_for = remaining.min(tick);
+        std::thread::sleep(sleep_for);
+        remaining = remaining.saturating_sub(sleep_for);
+    }
 }
 
 #[cfg(test)]
