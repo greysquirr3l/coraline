@@ -679,7 +679,7 @@ fn language_to_parser(language: Language) -> Option<tree_sitter::Language> {
         Language::Ruby => Some(tree_sitter::Language::new(tree_sitter_ruby::LANGUAGE)),
         // New language parsers
         Language::Bash => Some(tree_sitter::Language::new(tree_sitter_bash::LANGUAGE)),
-        Language::Dart => Some(tree_sitter_dart::language()),
+        Language::Dart => Some(tree_sitter::Language::new(tree_sitter_dart::LANGUAGE)),
         Language::Elixir => Some(tree_sitter::Language::new(tree_sitter_elixir::LANGUAGE)),
         Language::Elm => Some(tree_sitter::Language::new(tree_sitter_elm::LANGUAGE)),
         Language::Erlang => Some(tree_sitter::Language::new(tree_sitter_erlang::LANGUAGE)),

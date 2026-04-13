@@ -19,6 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **`ureq` is now a non-optional dependency** — always available for update checking (previously gated behind the `embeddings` feature)
+- **`tree-sitter-dart` updated to 0.1.0** — migrated from deprecated `language()` function to the new `LANGUAGE` constant API
+
+### Dependencies
+
+- Consolidated Dependabot PRs (#15–#19) — CI action versions (`actions/checkout@v6`, `codeql-action@v4`, `upload-artifact@v7`, `download-artifact@v8.0.1`) were already at target versions; no changes needed
+- Skipped `ort` 2.0.0-rc.12 due to upstream `VitisAI` build regression — remains pinned at `=2.0.0-rc.11`
 
 ### Documentation
 
