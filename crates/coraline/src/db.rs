@@ -492,7 +492,6 @@ pub fn search_nodes(
 fn build_fts_query(query: &str) -> Option<String> {
     let mut terms = query
         .split_whitespace()
-        .filter(|term| !term.is_empty())
         .map(|term| format!("\"{}\"", term.replace('"', "\"\"")));
 
     let first = terms.next()?;
@@ -899,6 +898,7 @@ fn row_to_edge(row: &rusqlite::Row<'_>) -> rusqlite::Result<Edge> {
 #[cfg(test)]
 mod tests {
     use super::build_fts_query;
+    use rusqlite::Connection;
 
     #[test]
     fn build_fts_query_quotes_slash_terms() {
@@ -919,5 +919,45 @@ mod tests {
     #[test]
     fn build_fts_query_returns_none_for_blank_input() {
         assert_eq!(build_fts_query("   \n\t  "), None);
+    }
+
+    #[test]
+    fn build_fts_query_executes_with_slash_and_quote_terms() {
+        let conn = Connection::open_in_memory();
+        assert!(conn.is_ok());
+        let Some(conn) = conn.ok() else {
+            return;
+        };
+
+        let create_result = conn.execute_batch(
+            "CREATE VIRTUAL TABLE nodes_fts USING fts5(name, qualified_name, docstring, content='');",
+        );
+        assert!(create_result.is_ok());
+
+        let insert_result = conn.execute(
+            "INSERT INTO nodes_fts(rowid, name, qualified_name, docstring) VALUES (1, ?1, ?2, ?3)",
+            ("auth_login_2fa", "/auth/login/2fa", "route \"name\""),
+        );
+        assert!(insert_result.is_ok());
+
+        let queries = ["/auth/login/2fa", "route \"name\""];
+        for raw in queries {
+            let fts_query = build_fts_query(raw);
+            assert!(fts_query.is_some());
+            let Some(fts_query) = fts_query else {
+                return;
+            };
+
+            let query_result: rusqlite::Result<i64> = conn.query_row(
+                "SELECT COUNT(*) FROM nodes_fts WHERE nodes_fts MATCH ?1",
+                [fts_query],
+                |row| row.get(0),
+            );
+
+            assert!(query_result.is_ok());
+            if let Ok(count) = query_result {
+                assert!(count >= 1);
+            }
+        }
     }
 }

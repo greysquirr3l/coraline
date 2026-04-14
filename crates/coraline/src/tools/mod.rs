@@ -345,4 +345,13 @@ mod tests {
         let result = registry.execute("mcp_coraline_coraline_mock_tool", serde_json::json!({}));
         assert!(result.is_ok());
     }
+
+    #[test]
+    fn test_registry_execute_mcp_coraline_single_prefix_tool_name() {
+        let mut registry = ToolRegistry::new();
+        registry.register(Box::new(CoralineMockTool));
+
+        let result = registry.execute("mcp_coraline_mock_tool", serde_json::json!({}));
+        assert!(result.is_ok());
+    }
 }
