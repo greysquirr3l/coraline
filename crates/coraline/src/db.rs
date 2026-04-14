@@ -439,15 +439,8 @@ pub fn search_nodes(
     kind: Option<NodeKind>,
     limit: usize,
 ) -> std::io::Result<Vec<SearchResult>> {
-    // Use FTS5 for multi-word searches, or OR each word for better matching
-    // Example: "calculator functionality" -> search for nodes containing "calculator" OR "functionality"
-    let words: Vec<&str> = query.split_whitespace().collect();
-    let fts_query = if words.len() > 1 {
-        // Multi-word: OR search (any word matches)
-        words.join(" OR ")
-    } else {
-        // Single word: use as-is
-        query.to_string()
+    let Some(fts_query) = build_fts_query(query) else {
+        return Ok(Vec::new());
     };
 
     // First try FTS search for better matching
@@ -494,6 +487,22 @@ pub fn search_nodes(
     }
 
     Ok(results)
+}
+
+fn build_fts_query(query: &str) -> Option<String> {
+    let mut terms = query
+        .split_whitespace()
+        .filter(|term| !term.is_empty())
+        .map(|term| format!("\"{}\"", term.replace('"', "\"\"")));
+
+    let first = terms.next()?;
+    let fts_query = terms.fold(first, |mut acc, term| {
+        acc.push_str(" OR ");
+        acc.push_str(&term);
+        acc
+    });
+
+    Some(fts_query)
 }
 
 pub fn find_nodes_by_name(conn: &Connection, name: &str) -> std::io::Result<Vec<Node>> {
@@ -885,4 +894,30 @@ fn row_to_edge(row: &rusqlite::Row<'_>) -> rusqlite::Result<Edge> {
         line: row.get(4)?,
         column: row.get(5)?,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_fts_query;
+
+    #[test]
+    fn build_fts_query_quotes_slash_terms() {
+        assert_eq!(
+            build_fts_query("/auth/login/2fa"),
+            Some("\"/auth/login/2fa\"".to_string())
+        );
+    }
+
+    #[test]
+    fn build_fts_query_escapes_embedded_quotes() {
+        assert_eq!(
+            build_fts_query("route \"name\""),
+            Some("\"route\" OR \"\"\"name\"\"\"".to_string())
+        );
+    }
+
+    #[test]
+    fn build_fts_query_returns_none_for_blank_input() {
+        assert_eq!(build_fts_query("   \n\t  "), None);
+    }
 }

@@ -111,11 +111,31 @@ impl ToolRegistry {
 
     /// Execute a tool by name
     pub fn execute(&self, name: &str, params: Value) -> ToolResult {
-        self.get(name).map_or_else(
-            || Err(ToolError::not_found(format!("Tool not found: {name}"))),
-            |tool| tool.execute(params),
-        )
+        if let Some(tool) = self.get(name) {
+            return tool.execute(params);
+        }
+
+        if let Some(alias) = normalize_tool_name(name)
+            && let Some(tool) = self.get(&alias)
+        {
+            return tool.execute(params);
+        }
+
+        Err(ToolError::not_found(format!("Tool not found: {name}")))
     }
+}
+
+fn normalize_tool_name(name: &str) -> Option<String> {
+    const CORALINE_TOOL_PREFIXES: [&str; 2] = ["mcp_coraline_coraline_", "mcp_coraline_"];
+
+    for prefix in CORALINE_TOOL_PREFIXES {
+        if let Some(rest) = name.strip_prefix(prefix) {
+            return Some(format!("coraline_{rest}"));
+        }
+    }
+
+    name.strip_prefix("mcp_")
+        .map(std::string::ToString::to_string)
 }
 
 /// Create a default tool registry with all built-in tools
@@ -235,6 +255,7 @@ mod tests {
     use super::*;
 
     struct MockTool;
+    struct CoralineMockTool;
 
     impl Tool for MockTool {
         fn name(&self) -> &'static str {
@@ -243,6 +264,29 @@ mod tests {
 
         fn description(&self) -> &'static str {
             "A mock tool for testing"
+        }
+
+        fn input_schema(&self) -> Value {
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "value": { "type": "string" }
+                }
+            })
+        }
+
+        fn execute(&self, params: Value) -> ToolResult {
+            Ok(serde_json::json!({ "result": params }))
+        }
+    }
+
+    impl Tool for CoralineMockTool {
+        fn name(&self) -> &'static str {
+            "coraline_mock_tool"
+        }
+
+        fn description(&self) -> &'static str {
+            "A coraline-prefixed mock tool for testing"
         }
 
         fn input_schema(&self) -> Value {
@@ -282,5 +326,23 @@ mod tests {
         let registry = ToolRegistry::new();
         let result = registry.execute("nonexistent", serde_json::json!({}));
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_registry_execute_mcp_prefixed_tool_name() {
+        let mut registry = ToolRegistry::new();
+        registry.register(Box::new(MockTool));
+
+        let result = registry.execute("mcp_mock_tool", serde_json::json!({ "value": "test" }));
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_registry_execute_mcp_coraline_prefixed_tool_name() {
+        let mut registry = ToolRegistry::new();
+        registry.register(Box::new(CoralineMockTool));
+
+        let result = registry.execute("mcp_coraline_coraline_mock_tool", serde_json::json!({}));
+        assert!(result.is_ok());
     }
 }
