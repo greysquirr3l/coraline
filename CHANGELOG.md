@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### CI
+
+- Add Dependabot auto-merge workflow — approved Dependabot PRs with passing CI now merge automatically
+
 ## [0.8.1] - 2026-04-15
 
 ### CI
