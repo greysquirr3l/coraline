@@ -55,7 +55,6 @@ impl Tool for ReadFileTool {
         })
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
         let raw_path = params
             .get("path")
@@ -67,13 +66,15 @@ impl Tool for ReadFileTool {
         let start_line = params
             .get("start_line")
             .and_then(Value::as_u64)
-            .map_or(1, |n| n as usize)
+            .and_then(|n| usize::try_from(n).ok())
+            .unwrap_or(1)
             .max(1);
 
         let limit = params
             .get("limit")
             .and_then(Value::as_u64)
-            .map_or(200, |n| n as usize);
+            .and_then(|n| usize::try_from(n).ok())
+            .unwrap_or(200);
 
         let text = std::fs::read_to_string(&path).map_err(|e| {
             ToolError::not_found(format!("Cannot read file {}: {e}", path.display()))
@@ -309,14 +310,17 @@ impl Tool for FindFileTool {
         })
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
         let pattern = params
             .get("pattern")
             .and_then(Value::as_str)
             .ok_or_else(|| ToolError::invalid_params("pattern must be a string"))?;
 
-        let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(50) as usize;
+        let limit = params
+            .get("limit")
+            .and_then(Value::as_u64)
+            .and_then(|n| usize::try_from(n).ok())
+            .unwrap_or(50);
 
         let is_glob = pattern.contains('*') || pattern.contains('?') || pattern.contains('[');
 
@@ -954,14 +958,18 @@ impl Tool for SemanticSearchTool {
         })
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
         let query = params
             .get("query")
             .and_then(Value::as_str)
             .ok_or_else(|| ToolError::invalid_params("query must be a string"))?;
 
-        let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(10) as usize;
+        let limit = params
+            .get("limit")
+            .and_then(Value::as_u64)
+            .and_then(|n| usize::try_from(n).ok())
+            .unwrap_or(10);
+        #[allow(clippy::cast_possible_truncation)] // f64→f32: no lossless conversion in std
         let min_similarity = params
             .get("min_similarity")
             .and_then(Value::as_f64)
