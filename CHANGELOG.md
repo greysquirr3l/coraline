@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### CI
+
+- Bump `actions/attest-build-provenance` from 3.0.0 to 4.1.0
+- Bump `actions/cache` from 5.0.4 to 5.0.5
+- Bump `actions/configure-pages` from 5.0.0 to 6.0.0
+- Bump `softprops/action-gh-release` from 2.6.1 to 3.0.0
+- Bump `actions/upload-pages-artifact` from 3.0.1 to 5.0.0
+- Pin `ort` to `=2.0.0-rc.11` in Dependabot ignore rules pending resolution of VitisAI build regression in rc.12
+
 ### Security
 
 - **Updated `ureq` to 3.3.0, `rustls` to 0.23.38, `rustls-webpki` to 0.103.12** — resolves RUSTSEC-2026-0098 and RUSTSEC-2026-0099 (URI name constraint validation bugs)
