@@ -443,16 +443,81 @@ fn run_embed(args: &EmbedArgs) {
         println!("Loading embedding model…");
     }
 
-    let mut vm = vectors::VectorManager::from_project(&project_root).unwrap_or_else(|err| {
-        eprintln!("Failed to load model: {err}");
-        eprintln!(
-            "Download model.onnx + tokenizer.json into {}",
-            vectors::default_model_dir(&project_root).display()
-        );
-        std::process::exit(1);
-    });
+    let mut vm = match vectors::VectorManager::from_project(&project_root) {
+        Ok(vm) => vm,
+        Err(err) => {
+            let model_dir = {
+                let cfg = config::load_toml_config(&project_root).unwrap_or_default();
+                cfg.vectors
+                    .model_dir
+                    .map_or_else(|| vectors::default_model_dir(&project_root), PathBuf::from)
+            };
+            // Check whether the error is due to missing model files specifically.
+            let no_model = vectors::find_model_file(&model_dir, None).is_err();
+            if no_model {
+                #[cfg(feature = "embeddings")]
+                {
+                    eprintln!("No embedding model found in {}.", model_dir.display());
+                    if prompt_yes_no("Download model now? [Y/n]") {
+                        if !args.quiet {
+                            println!(
+                                "Downloading {} into {} …",
+                                args.variant,
+                                model_dir.display()
+                            );
+                        }
+                        if let Err(e) =
+                            vectors::download_model(&model_dir, &args.variant, true, args.quiet)
+                        {
+                            eprintln!("Download failed: {e}");
+                            std::process::exit(1);
+                        }
+                    } else {
+                        eprintln!(
+                            "Hint: run `coraline embed --download` or `coraline model download` to fetch the model."
+                        );
+                        std::process::exit(1);
+                    }
+                }
+                #[cfg(not(feature = "embeddings"))]
+                {
+                    eprintln!("No embedding model found in {}.", model_dir.display());
+                    eprintln!(
+                        "This build does not support automatic download. Download the model files manually:"
+                    );
+                    eprintln!("  tokenizer.json  — {}", vectors::tokenizer_url());
+                    eprintln!(
+                        "  model_int8.onnx — {}",
+                        vectors::model_url("model_int8.onnx")
+                    );
+                    eprintln!("Place both files in: {}", model_dir.display());
+                    std::process::exit(1);
+                }
+            } else {
+                eprintln!("Failed to load model: {err}");
+                std::process::exit(1);
+            }
+            // Retry loading after download (only reached in the embeddings feature path).
+            vectors::VectorManager::from_project(&project_root).unwrap_or_else(|e| {
+                eprintln!("Failed to load model after download: {e}");
+                std::process::exit(1);
+            })
+        }
+    };
 
     embed_all_nodes(&project_root, args, &mut vm);
+}
+
+/// Prompt the user with a yes/no question. Returns `true` if the user answers
+/// yes (or presses Enter, accepting the default of yes).
+fn prompt_yes_no(question: &str) -> bool {
+    eprint!("{question} ");
+    let mut buf = String::new();
+    if std::io::stdin().read_line(&mut buf).is_err() {
+        return false;
+    }
+    let answer = buf.trim().to_ascii_lowercase();
+    answer.is_empty() || answer == "y" || answer == "yes"
 }
 
 #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
