@@ -8,7 +8,7 @@ Protocol notes:
 - Expects `notifications/initialized` after `initialize` before normal requests
 - `tools/list` supports pagination via `cursor` and `nextCursor`
 
-`coraline_semantic_search` is available by default (the `embeddings` feature ships enabled) but only registered when an ONNX model is present in `.coraline/models/`. Run `coraline model download` then `coraline embed` to activate it. All other 26 tools are always available.
+`coraline_semantic_search` is available by default (the `embeddings` feature ships enabled) but only registered when an ONNX model is present in `.coraline/models/`. Run `coraline model download` then `coraline embed` to activate it. The remaining 26 tools are typically available; memory-backed tools may be skipped if their initialization fails (e.g. due to filesystem or permission issues).
 
 ### Background Auto-Sync
 
