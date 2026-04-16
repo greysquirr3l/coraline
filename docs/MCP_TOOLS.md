@@ -8,7 +8,7 @@ Protocol notes:
 - Expects `notifications/initialized` after `initialize` before normal requests
 - `tools/list` supports pagination via `cursor` and `nextCursor`
 
-`coraline_semantic_search` is available by default (the `embeddings` feature ships enabled) but only registered when an ONNX model is present in `.coraline/models/`. Run `coraline model download` then `coraline embed` to activate it. All other 25 tools are always available.
+`coraline_semantic_search` is available by default (the `embeddings` feature ships enabled) but only registered when an ONNX model is present in `.coraline/models/`. Run `coraline model download` then `coraline embed` to activate it. The remaining 26 tools are typically available; memory-backed tools may be skipped if their initialization fails (e.g. due to filesystem or permission issues).
 
 ### Background Auto-Sync
 
@@ -389,9 +389,9 @@ Read the contents of a file within the project.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `file_path` | string | ✅ | — | File path (relative or absolute) |
-| `start_line` | number | | — | Start line (1-based, inclusive) |
-| `end_line` | number | | — | End line (1-based, inclusive) |
+| `path` | string | ✅ | — | File path (relative to project root or absolute) |
+| `start_line` | number | | `1` | First line to read (1-indexed, inclusive) |
+| `limit` | number | | `200` | Maximum number of lines to return |
 
 ---
 
@@ -403,8 +403,7 @@ List the contents of a directory within the project.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `path` | string | | `.` | Directory path (relative or absolute) |
-| `recursive` | boolean | | `false` | Recurse into subdirectories |
+| `path` | string | | `.` | Directory path (relative to project root or absolute). Defaults to project root. |
 
 ---
 

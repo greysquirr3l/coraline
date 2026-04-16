@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Updated `ureq` to 3.3.0, `rustls` to 0.23.38, `rustls-webpki` to 0.103.12** — resolves RUSTSEC-2026-0098 and RUSTSEC-2026-0099 (URI name constraint validation bugs)
+
+## [0.8.0] - 2026-04-15
+
 ### Added
 
 - **Symbol name disambiguation for MCP graph tools** — `coraline_callers`, `coraline_callees`, `coraline_impact`, `coraline_find_references`, `coraline_node`, `coraline_dependencies`, `coraline_dependents`, and `coraline_path` now accept `name` (+ optional `file`) as an alternative to `node_id`, with clear disambiguation errors when multiple symbols share the same name
@@ -15,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **FTS5 search hardened against special-character queries** — search terms are now individually double-quoted before SQLite `MATCH` execution, with embedded quotes escaped; blank/whitespace-only input returns empty results instead of an FTS syntax error. Queries containing `/` (e.g. file paths), `"`, or other FTS special characters now work correctly
+- **MCP tool dispatch resolves prefixed tool names** — `ToolRegistry` now normalizes common client prefixes (`mcp_coraline_coraline_*`, `mcp_coraline_*`, `mcp_*`) before lookup, preventing `Unknown tool` errors when MCP clients such as VS Code Copilot automatically prefix registered tool names
+- **Removed `#[allow(clippy::cast_possible_truncation)]` suppressions** — all `u64 as usize` casts in MCP tool `execute` functions replaced with `usize::try_from().ok().unwrap_or(N)`; `f64 as f32` in `SemanticSearchTool` narrowed to a single line-level allow with justification comment
+- **Fixed silent empty-string return in `resolve_node_id`** — the `len() == 1` branch now returns a proper `internal_error` instead of silently producing an empty node ID if the iterator is unexpectedly exhausted
 - **Release workflow not triggered by auto-tag** — tags pushed by `github-actions[bot]` via `GITHUB_TOKEN` don't fire `push` events on other workflows; auto-tag now explicitly triggers the release workflow via `workflow_dispatch`
 
 ## [0.7.0] - 2026-04-13
@@ -295,6 +305,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `coraline_search`, `coraline_callers`, `coraline_callees`, `coraline_impact`, `coraline_context` MCP tools
 - Git post-commit hook integration
 
+[Unreleased]: https://github.com/greysquirr3l/coraline/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/greysquirr3l/coraline/compare/v0.7.0...v0.8.0
+[0.7.0]: https://github.com/greysquirr3l/coraline/compare/v0.6.0...v0.7.0
 [0.2.0]: https://github.com/greysquirr3l/coraline/compare/v0.1.3...v0.2.0
 [0.6.0]: https://github.com/greysquirr3l/coraline/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/greysquirr3l/coraline/compare/v0.4.4...v0.5.0
