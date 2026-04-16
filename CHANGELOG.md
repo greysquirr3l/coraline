@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **FTS5 search hardened against special-character queries** — search terms are now individually double-quoted before SQLite `MATCH` execution, with embedded quotes escaped; blank/whitespace-only input returns empty results instead of an FTS syntax error. Queries containing `/` (e.g. file paths), `"`, or other FTS special characters now work correctly
 - **MCP tool dispatch resolves prefixed tool names** — `ToolRegistry` now normalizes common client prefixes (`mcp_coraline_coraline_*`, `mcp_coraline_*`, `mcp_*`) before lookup, preventing `Unknown tool` errors when MCP clients such as VS Code Copilot automatically prefix registered tool names
+- **Removed `#[allow(clippy::cast_possible_truncation)]` suppressions** — all `u64 as usize` casts in MCP tool `execute` functions replaced with `usize::try_from().ok().unwrap_or(N)`; `f64 as f32` in `SemanticSearchTool` narrowed to a single line-level allow with justification comment
+- **Fixed silent empty-string return in `resolve_node_id`** — the `len() == 1` branch now returns a proper `internal_error` instead of silently producing an empty node ID if the iterator is unexpectedly exhausted
 - **Release workflow not triggered by auto-tag** — tags pushed by `github-actions[bot]` via `GITHUB_TOKEN` don't fire `push` events on other workflows; auto-tag now explicitly triggers the release workflow via `workflow_dispatch`
 
 ## [0.7.0] - 2026-04-13
