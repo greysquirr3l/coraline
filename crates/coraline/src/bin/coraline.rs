@@ -460,7 +460,11 @@ fn run_embed(args: &EmbedArgs) {
                     eprintln!("No embedding model found in {}.", model_dir.display());
                     if prompt_yes_no("Download model now? [Y/n]") {
                         if !args.quiet {
-                            println!("Downloading {} into {} …", args.variant, model_dir.display());
+                            println!(
+                                "Downloading {} into {} …",
+                                args.variant,
+                                model_dir.display()
+                            );
                         }
                         if let Err(e) =
                             vectors::download_model(&model_dir, &args.variant, true, args.quiet)
@@ -481,10 +485,7 @@ fn run_embed(args: &EmbedArgs) {
                     eprintln!(
                         "This build does not support automatic download. Download the model files manually:"
                     );
-                    eprintln!(
-                        "  tokenizer.json  — {}",
-                        vectors::tokenizer_url()
-                    );
+                    eprintln!("  tokenizer.json  — {}", vectors::tokenizer_url());
                     eprintln!(
                         "  model_int8.onnx — {}",
                         vectors::model_url("model_int8.onnx")
