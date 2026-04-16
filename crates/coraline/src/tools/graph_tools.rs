@@ -59,7 +59,6 @@ impl Tool for SearchTool {
         })
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
         let query = params
             .get("query")
@@ -80,7 +79,11 @@ impl Tool for SearchTool {
                 _ => None,
             });
 
-        let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(10) as usize;
+        let limit = params
+            .get("limit")
+            .and_then(Value::as_u64)
+            .and_then(|n| usize::try_from(n).ok())
+            .unwrap_or(10);
 
         let file_filter = params.get("file").and_then(Value::as_str);
 
@@ -182,14 +185,17 @@ impl Tool for CallersTool {
         })
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
         let conn = db::open_database(&self.project_root)
             .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
 
         let node_id = resolve_node_id(&conn, &self.project_root, &params, "node_id")?;
 
-        let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
+        let limit = params
+            .get("limit")
+            .and_then(Value::as_u64)
+            .and_then(|n| usize::try_from(n).ok())
+            .unwrap_or(20);
 
         // Get edges where this node is the target and edge kind is "calls"
         let edges = db::get_edges_by_target(&conn, &node_id, Some(EdgeKind::Calls), limit)
@@ -264,14 +270,17 @@ impl Tool for CalleesTool {
         })
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
         let conn = db::open_database(&self.project_root)
             .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
 
         let node_id = resolve_node_id(&conn, &self.project_root, &params, "node_id")?;
 
-        let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
+        let limit = params
+            .get("limit")
+            .and_then(Value::as_u64)
+            .and_then(|n| usize::try_from(n).ok())
+            .unwrap_or(20);
 
         // Get edges where this node is the source and edge kind is "calls"
         let edges = db::get_edges_by_source(&conn, &node_id, Some(EdgeKind::Calls), limit)
@@ -351,7 +360,6 @@ impl Tool for ImpactTool {
         })
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
         let conn = db::open_database(&self.project_root)
             .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
@@ -361,11 +369,11 @@ impl Tool for ImpactTool {
         let max_depth = params
             .get("max_depth")
             .and_then(Value::as_u64)
-            .map(|n| n as usize);
+            .and_then(|n| usize::try_from(n).ok());
         let max_nodes = params
             .get("max_nodes")
             .and_then(Value::as_u64)
-            .map(|n| n as usize);
+            .and_then(|n| usize::try_from(n).ok());
 
         let traversal_options = TraversalOptions {
             max_depth,
@@ -475,7 +483,6 @@ impl Tool for FindSymbolTool {
         })
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
         let pattern = params
             .get("name_pattern")
@@ -492,7 +499,11 @@ impl Tool for FindSymbolTool {
             .and_then(Value::as_bool)
             .unwrap_or(false);
 
-        let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(10) as usize;
+        let limit = params
+            .get("limit")
+            .and_then(Value::as_u64)
+            .and_then(|n| usize::try_from(n).ok())
+            .unwrap_or(10);
 
         let file_filter = params.get("file").and_then(Value::as_str);
 
@@ -712,7 +723,6 @@ impl Tool for FindReferencesTool {
         })
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
         let conn = db::open_database(&self.project_root)
             .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
@@ -731,7 +741,11 @@ impl Tool for FindReferencesTool {
                 _ => None,
             });
 
-        let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(50) as usize;
+        let limit = params
+            .get("limit")
+            .and_then(Value::as_u64)
+            .and_then(|n| usize::try_from(n).ok())
+            .unwrap_or(50);
 
         let edges = db::get_edges_by_target(&conn, &node_id, edge_kind, limit)
             .map_err(|e| ToolError::internal_error(format!("Failed to get edges: {e}")))?;
@@ -914,7 +928,6 @@ impl Tool for DependenciesTool {
         })
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
         let conn = db::open_database(&self.project_root)
             .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
@@ -924,11 +937,11 @@ impl Tool for DependenciesTool {
         let depth = params
             .get("depth")
             .and_then(Value::as_u64)
-            .map(|n| n as usize);
+            .and_then(|n| usize::try_from(n).ok());
         let limit = params
             .get("limit")
             .and_then(Value::as_u64)
-            .map(|n| n as usize);
+            .and_then(|n| usize::try_from(n).ok());
 
         let options = TraversalOptions {
             max_depth: depth.or(Some(2)),
@@ -1031,7 +1044,6 @@ impl Tool for DependentsTool {
         })
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
         let conn = db::open_database(&self.project_root)
             .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
@@ -1041,11 +1053,11 @@ impl Tool for DependentsTool {
         let depth = params
             .get("depth")
             .and_then(Value::as_u64)
-            .map(|n| n as usize);
+            .and_then(|n| usize::try_from(n).ok());
         let limit = params
             .get("limit")
             .and_then(Value::as_u64)
-            .map(|n| n as usize);
+            .and_then(|n| usize::try_from(n).ok());
 
         let options = TraversalOptions {
             max_depth: depth.or(Some(2)),
@@ -1154,7 +1166,6 @@ impl Tool for PathTool {
         })
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
         use std::collections::{HashMap, VecDeque};
 
@@ -1193,7 +1204,11 @@ impl Tool for PathTool {
         };
         let to_id = resolve_node_id(&conn, &self.project_root, &to_params, "node_id")?;
 
-        let max_depth = params.get("max_depth").and_then(Value::as_u64).unwrap_or(6) as usize;
+        let max_depth = params
+            .get("max_depth")
+            .and_then(Value::as_u64)
+            .and_then(|n| usize::try_from(n).ok())
+            .unwrap_or(6);
 
         // BFS following outgoing edges, recording parents for path reconstruction.
 
@@ -1431,10 +1446,11 @@ fn resolve_node_id(
             "No symbol named '{name}' found{}",
             file_hint.map_or_else(String::new, |f| format!(" in file '{f}'"))
         ))),
-        1 => Ok(candidates
+        1 => candidates
             .into_iter()
             .next()
-            .map_or_else(String::new, |n| n.id)),
+            .map(|n| n.id)
+            .ok_or_else(|| ToolError::internal_error("internal: candidate count mismatch")),
         _ => {
             let listing: Vec<String> = candidates
                 .iter()
