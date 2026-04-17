@@ -2505,7 +2505,7 @@ fn scan_directory(
             };
             let rel_str = rel_path.to_string_lossy().to_string();
 
-            if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+            if entry.file_type().is_ok_and(|t| t.is_dir()) {
                 let dir_pattern = format!("{}/", rel_str);
                 if config.exclude.iter().any(|p| matches_glob(&dir_pattern, p)) {
                     continue;
@@ -2516,7 +2516,7 @@ fn scan_directory(
                     continue;
                 }
                 stack.push(path);
-            } else if entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
+            } else if entry.file_type().is_ok_and(|t| t.is_file()) {
                 if should_include_file(&rel_str, config) {
                     files.push(rel_str.clone());
                     count += 1;
@@ -2546,10 +2546,7 @@ fn should_include_file(file_path: &str, config: &CodeGraphConfig) -> bool {
 }
 
 fn matches_glob(file_path: &str, pattern: &str) -> bool {
-    globset::Glob::new(pattern)
-        .ok()
-        .and_then(|glob| glob.compile_matcher().is_match(file_path).then_some(true))
-        .unwrap_or(false)
+    globset::Glob::new(pattern).is_ok_and(|glob| glob.compile_matcher().is_match(file_path))
 }
 
 fn detect_language(path: &str) -> Language {
@@ -2606,6 +2603,5 @@ fn detect_language(path: &str) -> Language {
 fn now_millis() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
+        .map_or(0, |d| d.as_millis() as i64)
 }

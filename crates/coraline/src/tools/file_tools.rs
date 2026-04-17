@@ -150,7 +150,7 @@ impl Tool for ListDirTool {
             if name.starts_with('.') {
                 continue;
             }
-            let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+            let is_dir = entry.file_type().is_ok_and(|t| t.is_dir());
             let display = if is_dir {
                 format!("{name}/")
             } else {
@@ -375,7 +375,7 @@ fn find_files_recursive(
             continue;
         }
 
-        let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+        let is_dir = entry.file_type().is_ok_and(|t| t.is_dir());
 
         if !is_dir {
             let matched = if is_glob {
@@ -487,7 +487,7 @@ impl Tool for StatusTool {
             .map_err(|e| ToolError::internal_error(format!("Failed to get stats: {e}")))?;
 
         let db_path = db::database_path(&self.project_root);
-        let db_size = std::fs::metadata(&db_path).map(|m| m.len()).unwrap_or(0);
+        let db_size = std::fs::metadata(&db_path).map_or(0, |m| m.len());
 
         Ok(json!({
             "project_root": self.project_root,

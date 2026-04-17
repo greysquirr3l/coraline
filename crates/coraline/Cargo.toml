@@ -30,6 +30,7 @@ hex = "0.4"
 regex = "1"
 globset = "0.4.18"
 rayon = "1"
+indicatif = "0.17"
 ndarray = { version = "0.17", optional = true }
 ort = { version = "=2.0.0-rc.11", default-features = false, features = ["ndarray", "std"], optional = true }
 tokenizers = { version = "0.22", default-features = false, features = ["onig"], optional = true }

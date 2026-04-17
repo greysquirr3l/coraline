@@ -14,6 +14,7 @@ use coraline::types::{BuildContextOptions, ContextFormat, EdgeKind};
 use coraline::update;
 #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
 use coraline::vectors;
+use indicatif::{ProgressBar, ProgressStyle};
 use tracing::{debug, info};
 
 use clap::{Args, Parser, Subcommand};
@@ -538,14 +539,22 @@ fn embed_all_nodes(project_root: &Path, args: &EmbedArgs, vm: &mut vectors::Vect
         return;
     }
 
-    if !args.quiet {
-        println!("Embedding {total} nodes…");
-    }
+    let bar = if args.quiet {
+        ProgressBar::hidden()
+    } else {
+        let b = ProgressBar::new(total as u64);
+        b.set_style(
+            ProgressStyle::default_bar()
+                .template("{spinner:.green} Embedding [{bar:40.cyan/blue}] {pos}/{len} {msg}")
+                .unwrap_or_else(|_| ProgressStyle::default_bar()),
+        );
+        b
+    };
 
     let mut ok = 0usize;
     let mut skipped = 0usize;
 
-    for (i, node) in nodes.iter().enumerate() {
+    for node in &nodes {
         let text = vectors::node_embed_text(
             &node.name,
             &node.qualified_name,
@@ -555,35 +564,27 @@ fn embed_all_nodes(project_root: &Path, args: &EmbedArgs, vm: &mut vectors::Vect
 
         match vm.embed(&text) {
             Ok(embedding) => {
-                if let Err(err) =
+                if let Err(_err) =
                     vectors::store_embedding(&conn, &node.id, &embedding, vm.model_name())
                 {
-                    if !args.quiet {
-                        eprintln!(
-                            "  Warning: failed to store embedding for {}: {err}",
-                            node.id
-                        );
-                    }
+                    bar.set_message(format!("warn: store failed for {}", node.id));
                     skipped += 1;
                 } else {
                     ok += 1;
                 }
             }
             Err(err) => {
-                if !args.quiet {
-                    eprintln!("  Warning: failed to embed {}: {err}", node.name);
-                }
+                bar.set_message(format!("warn: embed failed for {} ({err})", node.name));
                 skipped += 1;
             }
         }
 
-        if !args.quiet && (i + 1) % args.batch_size == 0 {
-            print!("\r  {}/{total}", i + 1);
-        }
+        bar.inc(1);
     }
 
+    bar.finish_and_clear();
     if !args.quiet {
-        println!("\rEmbedded {ok}/{total} nodes ({skipped} skipped)");
+        println!("Embedded {ok}/{total} nodes ({skipped} skipped)");
     }
 }
 
@@ -622,18 +623,41 @@ fn auto_sync_before_embed(project_root: &Path, quiet: bool) {
         println!(" {total_changes} change(s) detected, syncing…");
     }
 
-    let result = extraction::sync(
-        project_root,
-        &cfg,
-        if quiet { None } else { Some(&print_progress) },
-    )
-    .unwrap_or_else(|err| {
-        eprintln!("Auto-sync failed: {err}");
-        std::process::exit(1);
-    });
+    let bar = if quiet {
+        ProgressBar::hidden()
+    } else {
+        let b = ProgressBar::new(0);
+        #[allow(clippy::literal_string_with_formatting_args)]
+        b.set_style(
+            ProgressStyle::default_bar()
+                .template("{spinner:.green} {msg:<20} [{bar:40.cyan/blue}] {pos}/{len}")
+                .unwrap_or_else(|_| ProgressStyle::default_bar()),
+        );
+        b
+    };
+    let bar_cb = bar.clone();
+    let cb = move |p: extraction::IndexProgress| {
+        let phase = match p.phase {
+            extraction::IndexPhase::Scanning => "Scanning",
+            extraction::IndexPhase::Parsing => "Parsing",
+            extraction::IndexPhase::Storing => "Storing",
+            extraction::IndexPhase::Resolving => "Resolving",
+        };
+        bar_cb.set_length(p.total as u64);
+        bar_cb.set_position(p.current as u64);
+        let msg = p
+            .current_file
+            .map_or_else(|| phase.to_owned(), |f| format!("{phase}: {f}"));
+        bar_cb.set_message(msg);
+    };
+    let result = extraction::sync(project_root, &cfg, if quiet { None } else { Some(&cb) })
+        .unwrap_or_else(|err| {
+            eprintln!("Auto-sync failed: {err}");
+            std::process::exit(1);
+        });
 
+    bar.finish_and_clear();
     if !quiet {
-        clear_progress_line();
         let total_changes = result.files_added + result.files_modified + result.files_removed;
         println!("Synced {total_changes} files before embedding.");
         if result.files_added > 0 {
@@ -958,27 +982,47 @@ fn run_index(args: IndexArgs) {
         config::apply_toml_to_code_graph(&mut cfg, &toml_cfg);
     }
 
-    if !args.quiet {
-        println!("Indexing project...\n");
-    }
+    let bar = if args.quiet {
+        ProgressBar::hidden()
+    } else {
+        let b = ProgressBar::new(0);
+        #[allow(clippy::literal_string_with_formatting_args)]
+        b.set_style(
+            ProgressStyle::default_bar()
+                .template("{spinner:.green} {msg:<20} [{bar:40.cyan/blue}] {pos}/{len}")
+                .unwrap_or_else(|_| ProgressStyle::default_bar()),
+        );
+        b
+    };
+    let bar_cb = bar.clone();
+    let index_cb = move |p: extraction::IndexProgress| {
+        let phase = match p.phase {
+            extraction::IndexPhase::Scanning => "Scanning",
+            extraction::IndexPhase::Parsing => "Parsing",
+            extraction::IndexPhase::Storing => "Storing",
+            extraction::IndexPhase::Resolving => "Resolving",
+        };
+        bar_cb.set_length(p.total as u64);
+        bar_cb.set_position(p.current as u64);
+        let msg = p
+            .current_file
+            .map_or_else(|| phase.to_owned(), |f| format!("{phase}: {f}"));
+        bar_cb.set_message(msg);
+    };
 
     let result = extraction::index_all(
         &project_root,
         &cfg,
         args.force,
-        if args.quiet {
-            None
-        } else {
-            Some(&print_progress)
-        },
+        if args.quiet { None } else { Some(&index_cb) },
     )
     .unwrap_or_else(|err| {
         eprintln!("Indexing failed: {err}");
         std::process::exit(1);
     });
 
+    bar.finish_and_clear();
     if !args.quiet {
-        clear_progress_line();
         println!("Indexed {} files", result.files_indexed);
         println!("Created {} nodes", result.nodes_created);
         println!("Completed in {}ms", result.duration_ms);
@@ -1004,22 +1048,46 @@ fn run_sync(args: SyncArgs) {
         config::apply_toml_to_code_graph(&mut cfg, &toml_cfg);
     }
 
+    let bar = if args.quiet {
+        ProgressBar::hidden()
+    } else {
+        let b = ProgressBar::new(0);
+        #[allow(clippy::literal_string_with_formatting_args)]
+        b.set_style(
+            ProgressStyle::default_bar()
+                .template("{spinner:.green} {msg:<20} [{bar:40.cyan/blue}] {pos}/{len}")
+                .unwrap_or_else(|_| ProgressStyle::default_bar()),
+        );
+        b
+    };
+    let bar_cb = bar.clone();
+    let sync_cb = move |p: extraction::IndexProgress| {
+        let phase = match p.phase {
+            extraction::IndexPhase::Scanning => "Scanning",
+            extraction::IndexPhase::Parsing => "Parsing",
+            extraction::IndexPhase::Storing => "Storing",
+            extraction::IndexPhase::Resolving => "Resolving",
+        };
+        bar_cb.set_length(p.total as u64);
+        bar_cb.set_position(p.current as u64);
+        let msg = p
+            .current_file
+            .map_or_else(|| phase.to_owned(), |f| format!("{phase}: {f}"));
+        bar_cb.set_message(msg);
+    };
+
     let result = extraction::sync(
         &project_root,
         &cfg,
-        if args.quiet {
-            None
-        } else {
-            Some(&print_progress)
-        },
+        if args.quiet { None } else { Some(&sync_cb) },
     )
     .unwrap_or_else(|err| {
         eprintln!("Sync failed: {err}");
         std::process::exit(1);
     });
 
+    bar.finish_and_clear();
     if !args.quiet {
-        clear_progress_line();
         let total_changes = result.files_added + result.files_modified + result.files_removed;
         if total_changes == 0 {
             println!("Already up to date");
@@ -1051,7 +1119,7 @@ fn run_status(args: StatusArgs) {
 
     let cfg_path = config::config_path(&project_root);
     let db_path = db::database_path(&project_root);
-    let db_size = std::fs::metadata(&db_path).map(|m| m.len()).unwrap_or(0);
+    let db_size = std::fs::metadata(&db_path).map_or(0, |m| m.len());
 
     println!("Coraline Status\n");
     println!("Project: {}", project_root.display());
@@ -1529,33 +1597,6 @@ fn create_coraline_dir(project_root: &Path) -> std::io::Result<()> {
         std::fs::write(gitignore_path, content)?;
     }
     Ok(())
-}
-
-#[allow(clippy::needless_pass_by_value)]
-fn print_progress(progress: extraction::IndexProgress) {
-    use std::io::Write;
-    let phase = match progress.phase {
-        extraction::IndexPhase::Scanning => "Scanning",
-        extraction::IndexPhase::Parsing => "Parsing",
-        extraction::IndexPhase::Storing => "Storing",
-        extraction::IndexPhase::Resolving => "Resolving",
-    };
-    let file = progress
-        .current_file
-        .as_ref()
-        .map(|f| format!(" {f}"))
-        .unwrap_or_default();
-    print!(
-        "\r\x1B[K{phase}: {}/{}{}",
-        progress.current, progress.total, file
-    );
-    let _ = std::io::stdout().flush();
-}
-
-fn clear_progress_line() {
-    use std::io::Write;
-    println!();
-    let _ = std::io::stdout().flush();
 }
 
 fn parse_node_kind(value: &str) -> Option<NodeKind> {

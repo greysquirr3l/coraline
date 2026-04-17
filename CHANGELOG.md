@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `coraline index`, `coraline sync`, and `coraline embed` now display an `indicatif` progress bar (`{spinner} {phase} [{bar}] {pos}/{len}`) instead of raw ANSI escape sequences; `--quiet` suppresses it entirely
+
 ### CI
 
 - Add Dependabot auto-merge workflow — approved Dependabot PRs with passing CI now merge automatically
