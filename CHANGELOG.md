@@ -7,9 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-04-16
+
 ### Changed
 
 - `coraline index`, `coraline sync`, and `coraline embed` now display an `indicatif` progress bar (`{spinner} {phase} [{bar}] {pos}/{len}`) instead of raw ANSI escape sequences; `--quiet` suppresses it entirely
+
+### Fixed
+
+- **macOS `tree-sitter-blazor` archive warning removed** — the build now avoids the unsupported BSD `ar -D` flag probe that previously emitted noisy warnings during local builds on macOS
 
 ### CI
 
@@ -324,7 +330,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `coraline_search`, `coraline_callers`, `coraline_callees`, `coraline_impact`, `coraline_context` MCP tools
 - Git post-commit hook integration
 
-[Unreleased]: https://github.com/greysquirr3l/coraline/compare/v0.8.1...HEAD
+[Unreleased]: https://github.com/greysquirr3l/coraline/compare/v0.8.2...HEAD
+[0.8.2]: https://github.com/greysquirr3l/coraline/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/greysquirr3l/coraline/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/greysquirr3l/coraline/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/greysquirr3l/coraline/compare/v0.6.0...v0.7.0
