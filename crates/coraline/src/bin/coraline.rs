@@ -1,5 +1,6 @@
 #![allow(clippy::multiple_crate_versions)]
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use coraline::config;
 use coraline::context;
@@ -396,6 +397,14 @@ fn run_model(args: ModelArgs) {
 }
 
 #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
+fn embedding_model_dir(project_root: &Path) -> PathBuf {
+    let cfg = config::load_toml_config(project_root).unwrap_or_default();
+    cfg.vectors
+        .model_dir
+        .map_or_else(|| vectors::default_model_dir(project_root), PathBuf::from)
+}
+
+#[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
 fn run_embed(args: &EmbedArgs) {
     let project_root = resolve_project_root(args.path.clone());
 
@@ -416,11 +425,7 @@ fn run_embed(args: &EmbedArgs) {
     // Auto-download model files if requested.
     #[cfg(feature = "embeddings")]
     if args.download {
-        let cfg = config::load_toml_config(&project_root).unwrap_or_default();
-        let model_dir = cfg
-            .vectors
-            .model_dir
-            .map_or_else(|| vectors::default_model_dir(&project_root), PathBuf::from);
+        let model_dir = embedding_model_dir(&project_root);
         if !args.quiet {
             println!(
                 "Downloading {} into {} ...",
@@ -440,19 +445,10 @@ fn run_embed(args: &EmbedArgs) {
         std::process::exit(1);
     }
 
-    if !args.quiet {
-        println!("Loading embedding model…");
-    }
-
-    let mut vm = match vectors::VectorManager::from_project(&project_root) {
+    let mut vm = match load_vector_manager_with_indicator(&project_root, args.quiet) {
         Ok(vm) => vm,
         Err(err) => {
-            let model_dir = {
-                let cfg = config::load_toml_config(&project_root).unwrap_or_default();
-                cfg.vectors
-                    .model_dir
-                    .map_or_else(|| vectors::default_model_dir(&project_root), PathBuf::from)
-            };
+            let model_dir = embedding_model_dir(&project_root);
             // Check whether the error is due to missing model files specifically.
             let no_model = vectors::find_model_file(&model_dir, None).is_err();
             if no_model {
@@ -499,10 +495,13 @@ fn run_embed(args: &EmbedArgs) {
                 std::process::exit(1);
             }
             // Retry loading after download (only reached in the embeddings feature path).
-            vectors::VectorManager::from_project(&project_root).unwrap_or_else(|e| {
-                eprintln!("Failed to load model after download: {e}");
-                std::process::exit(1);
-            })
+            match load_vector_manager_with_indicator(&project_root, args.quiet) {
+                Ok(vm) => vm,
+                Err(e) => {
+                    eprintln!("Failed to load model after download: {e}");
+                    std::process::exit(1);
+                }
+            }
         }
     };
 
@@ -519,6 +518,63 @@ fn prompt_yes_no(question: &str) -> bool {
     }
     let answer = buf.trim().to_ascii_lowercase();
     answer.is_empty() || answer == "y" || answer == "yes"
+}
+
+#[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
+fn load_vector_manager_from_project(
+    project_root: &Path,
+) -> std::io::Result<vectors::VectorManager> {
+    let previous_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        vectors::VectorManager::from_project(project_root)
+    }));
+    std::panic::set_hook(previous_hook);
+
+    match result {
+        Ok(result) => result,
+        Err(panic) => {
+            let panic_msg = panic
+                .downcast_ref::<String>()
+                .cloned()
+                .or_else(|| panic.downcast_ref::<&str>().map(|s| (*s).to_string()))
+                .unwrap_or_else(|| "unknown ONNX runtime panic".to_string());
+
+            let hint = if panic_msg.contains("libonnxruntime.dylib")
+                || panic_msg.contains("Failed to load ONNX Runtime dylib")
+            {
+                "ONNX Runtime dynamic library could not be loaded. On macOS, ensure libonnxruntime.dylib is installed and discoverable via DYLD_LIBRARY_PATH or placed in a default loader path.".to_string()
+            } else {
+                "ONNX Runtime initialization panicked while loading the embedding model."
+                    .to_string()
+            };
+
+            Err(std::io::Error::other(format!(
+                "{hint} Panic details: {panic_msg}"
+            )))
+        }
+    }
+}
+
+#[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
+fn load_vector_manager_with_indicator(
+    project_root: &Path,
+    quiet: bool,
+) -> std::io::Result<vectors::VectorManager> {
+    if quiet {
+        return load_vector_manager_from_project(project_root);
+    }
+
+    if !std::io::IsTerminal::is_terminal(&std::io::stderr()) {
+        eprintln!("Loading embedding model (ONNX runtime + tokenizer)...");
+        return load_vector_manager_from_project(project_root);
+    }
+
+    let spinner = file_spinner(quiet);
+    spinner.set_message("Loading embedding model (ONNX runtime + tokenizer)…".to_string());
+    let result = load_vector_manager_from_project(project_root);
+    spinner.finish_and_clear();
+    result
 }
 
 #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
@@ -539,22 +595,19 @@ fn embed_all_nodes(project_root: &Path, args: &EmbedArgs, vm: &mut vectors::Vect
         return;
     }
 
-    let bar = if args.quiet {
-        ProgressBar::hidden()
-    } else {
-        let b = ProgressBar::new(total as u64);
-        b.set_style(
-            ProgressStyle::default_bar()
-                .template("{spinner:.green} Embedding [{bar:40.cyan/blue}] {pos}/{len} {msg}")
-                .unwrap_or_else(|_| ProgressStyle::default_bar()),
-        );
-        b
-    };
+    let bar = file_spinner(args.quiet);
 
     let mut ok = 0usize;
     let mut skipped = 0usize;
 
     for node in &nodes {
+        let target = if node.file_path.is_empty() {
+            node.qualified_name.as_str()
+        } else {
+            node.file_path.as_str()
+        };
+        bar.set_message(format!("Embedding: {target}"));
+
         let text = vectors::node_embed_text(
             &node.name,
             &node.qualified_name,
@@ -567,19 +620,16 @@ fn embed_all_nodes(project_root: &Path, args: &EmbedArgs, vm: &mut vectors::Vect
                 if let Err(_err) =
                     vectors::store_embedding(&conn, &node.id, &embedding, vm.model_name())
                 {
-                    bar.set_message(format!("warn: store failed for {}", node.id));
                     skipped += 1;
                 } else {
                     ok += 1;
                 }
             }
             Err(err) => {
-                bar.set_message(format!("warn: embed failed for {} ({err})", node.name));
+                debug!(node = %node.name, error = %err, "embed failed for node");
                 skipped += 1;
             }
         }
-
-        bar.inc(1);
     }
 
     bar.finish_and_clear();
@@ -623,18 +673,7 @@ fn auto_sync_before_embed(project_root: &Path, quiet: bool) {
         println!(" {total_changes} change(s) detected, syncing…");
     }
 
-    let bar = if quiet {
-        ProgressBar::hidden()
-    } else {
-        let b = ProgressBar::new(0);
-        #[allow(clippy::literal_string_with_formatting_args)]
-        b.set_style(
-            ProgressStyle::default_bar()
-                .template("{spinner:.green} {msg:<20} [{bar:40.cyan/blue}] {pos}/{len}")
-                .unwrap_or_else(|_| ProgressStyle::default_bar()),
-        );
-        b
-    };
+    let bar = file_spinner(quiet);
     let bar_cb = bar.clone();
     let cb = move |p: extraction::IndexProgress| {
         let phase = match p.phase {
@@ -643,8 +682,6 @@ fn auto_sync_before_embed(project_root: &Path, quiet: bool) {
             extraction::IndexPhase::Storing => "Storing",
             extraction::IndexPhase::Resolving => "Resolving",
         };
-        bar_cb.set_length(p.total as u64);
-        bar_cb.set_position(p.current as u64);
         let msg = p
             .current_file
             .map_or_else(|| phase.to_owned(), |f| format!("{phase}: {f}"));
@@ -776,6 +813,22 @@ fn run_update() {
             std::process::exit(1);
         }
     }
+}
+
+fn file_spinner(quiet: bool) -> ProgressBar {
+    if quiet {
+        return ProgressBar::hidden();
+    }
+
+    let spinner = ProgressBar::new_spinner();
+    #[allow(clippy::literal_string_with_formatting_args)]
+    spinner.set_style(
+        ProgressStyle::with_template("{spinner:.cyan} {msg}")
+            .unwrap_or_else(|_| ProgressStyle::default_spinner())
+            .tick_strings(&["⠁", "⠂", "⠄", "⡀", "⢀", "⠠", "⠐", "⠈"]),
+    );
+    spinner.enable_steady_tick(Duration::from_millis(90));
+    spinner
 }
 
 fn run_init(args: InitArgs) {
@@ -982,18 +1035,7 @@ fn run_index(args: IndexArgs) {
         config::apply_toml_to_code_graph(&mut cfg, &toml_cfg);
     }
 
-    let bar = if args.quiet {
-        ProgressBar::hidden()
-    } else {
-        let b = ProgressBar::new(0);
-        #[allow(clippy::literal_string_with_formatting_args)]
-        b.set_style(
-            ProgressStyle::default_bar()
-                .template("{spinner:.green} {msg:<20} [{bar:40.cyan/blue}] {pos}/{len}")
-                .unwrap_or_else(|_| ProgressStyle::default_bar()),
-        );
-        b
-    };
+    let bar = file_spinner(args.quiet);
     let bar_cb = bar.clone();
     let index_cb = move |p: extraction::IndexProgress| {
         let phase = match p.phase {
@@ -1002,8 +1044,6 @@ fn run_index(args: IndexArgs) {
             extraction::IndexPhase::Storing => "Storing",
             extraction::IndexPhase::Resolving => "Resolving",
         };
-        bar_cb.set_length(p.total as u64);
-        bar_cb.set_position(p.current as u64);
         let msg = p
             .current_file
             .map_or_else(|| phase.to_owned(), |f| format!("{phase}: {f}"));
@@ -1048,18 +1088,7 @@ fn run_sync(args: SyncArgs) {
         config::apply_toml_to_code_graph(&mut cfg, &toml_cfg);
     }
 
-    let bar = if args.quiet {
-        ProgressBar::hidden()
-    } else {
-        let b = ProgressBar::new(0);
-        #[allow(clippy::literal_string_with_formatting_args)]
-        b.set_style(
-            ProgressStyle::default_bar()
-                .template("{spinner:.green} {msg:<20} [{bar:40.cyan/blue}] {pos}/{len}")
-                .unwrap_or_else(|_| ProgressStyle::default_bar()),
-        );
-        b
-    };
+    let bar = file_spinner(args.quiet);
     let bar_cb = bar.clone();
     let sync_cb = move |p: extraction::IndexProgress| {
         let phase = match p.phase {
@@ -1068,8 +1097,6 @@ fn run_sync(args: SyncArgs) {
             extraction::IndexPhase::Storing => "Storing",
             extraction::IndexPhase::Resolving => "Resolving",
         };
-        bar_cb.set_length(p.total as u64);
-        bar_cb.set_position(p.current as u64);
         let msg = p
             .current_file
             .map_or_else(|| phase.to_owned(), |f| format!("{phase}: {f}"));

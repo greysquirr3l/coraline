@@ -251,7 +251,8 @@ pub fn index_all(
         .filter_map(|file| parse_file_only(project_root, config, &existing_hashes, file))
         .collect();
 
-    let files_skipped = files.len().saturating_sub(parsed.len());
+    let parsed_total = parsed.len();
+    let files_skipped = files.len().saturating_sub(parsed_total);
     info!(
         parsed = parsed.len(),
         skipped = files_skipped,
@@ -262,7 +263,7 @@ pub fn index_all(
         cb(IndexProgress {
             phase: IndexPhase::Storing,
             current: 0,
-            total: parsed.len(),
+            total: parsed_total,
             current_file: None,
         });
     }
@@ -276,7 +277,7 @@ pub fn index_all(
             cb(IndexProgress {
                 phase: IndexPhase::Storing,
                 current: idx + 1,
-                total: files.len(),
+                total: parsed_total,
                 current_file: Some(parsed_file.file_record.path.clone()),
             });
         }

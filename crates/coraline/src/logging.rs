@@ -32,6 +32,12 @@ pub fn init(project_root: Option<&Path>) -> LogGuard {
     let env_filter =
         EnvFilter::try_from_env("CORALINE_LOG").unwrap_or_else(|_| EnvFilter::new("coraline=info"));
 
+    // When no project root is available (e.g. fresh `init` before `.coraline`
+    // exists), avoid stderr logging so progress output remains stable.
+    if project_root.is_none() {
+        return LogGuard { _guard: None };
+    }
+
     // Attempt to set up file logging
     if let Some(root) = project_root {
         let log_dir = root.join(".coraline").join("logs");

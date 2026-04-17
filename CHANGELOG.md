@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-04-17
+
+### Changed
+
+- `coraline index`, `coraline sync`, and `coraline embed` now use a Braille spinner with the current phase/file instead of a progress bar, reducing terminal jitter during indexing and embedding
+- `coraline embed` now displays an explicit model-loading status indicator while ONNX Runtime and tokenizer initialization are in progress
+
+### Fixed
+
+- Fixed storing-phase progress accounting in `index_all` where mixed totals (`parsed.len()` vs `files.len()`) caused visible progress jumps
+- `coraline embed` now handles ONNX Runtime initialization panics gracefully and returns actionable loader error guidance instead of a panic backtrace
+
+### CI
+
+- Release workflow now supports auto-tag-triggered releases via `workflow_run` and shared tag/SHA resolution, avoiding the `GITHUB_TOKEN` tag-push trigger gap
+
 ## [0.8.2] - 2026-04-16
 
 ### Changed
