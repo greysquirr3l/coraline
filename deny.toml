@@ -13,6 +13,8 @@ yanked = "deny"
 ignore = [
     # paste crate - creator marked as unmaintained in README; no security issue, transitive dep
     { id = "RUSTSEC-2024-0436", reason = "paste is unmaintained but has no security vulnerability; transitive dep" },
+    # number_prefix is pulled transitively by indicatif for CLI progress formatting
+    { id = "RUSTSEC-2025-0119", reason = "number_prefix is unmaintained; transitive via indicatif and no known vulnerability" },
 ]
 
 [licenses]

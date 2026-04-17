@@ -1,9 +1,10 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 #[cfg(target_os = "macos")]
 fn configure_macos_archiver() {
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
+    use std::path::PathBuf;
 
     if std::env::var_os("AR").is_some() {
         return;
