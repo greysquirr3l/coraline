@@ -7,10 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-04-20
+
 ### Fixed
 
 - **Call graph precision:** `coraline_callees` no longer returns false-positive cross-project edges when multiple paths have the same symbol name. Resolver now prefers extractor-provided candidate IDs (better locality signal) and avoids low-confidence global-name fallback for call edges.
 - Graph queries (`coraline_callees`, `coraline_callers`) now return deterministic, stable result sets via explicit `ORDER BY (line, col, target/source)` in edge retrieval, improving user trust in output consistency across repeated queries.
+- **Windows test portability:** graph precision acceptance tests now normalize path separators in assertions, preventing `src\\api.rs` vs `src/api.rs` mismatches on `windows-latest`.
 
 ### Added
 
@@ -359,7 +362,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `coraline_search`, `coraline_callers`, `coraline_callees`, `coraline_impact`, `coraline_context` MCP tools
 - Git post-commit hook integration
 
-[Unreleased]: https://github.com/greysquirr3l/coraline/compare/v0.8.2...HEAD
+[Unreleased]: https://github.com/greysquirr3l/coraline/compare/v0.8.4...HEAD
+[0.8.4]: https://github.com/greysquirr3l/coraline/compare/v0.8.3...v0.8.4
+[0.8.3]: https://github.com/greysquirr3l/coraline/compare/v0.8.2...v0.8.3
 [0.8.2]: https://github.com/greysquirr3l/coraline/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/greysquirr3l/coraline/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/greysquirr3l/coraline/compare/v0.7.0...v0.8.0
