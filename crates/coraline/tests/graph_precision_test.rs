@@ -33,11 +33,27 @@ fn node_id_by_name_and_path(
     file_path: &str,
     symbol_name: &str,
 ) -> Option<String> {
-    db::get_nodes_by_file(conn, file_path, None)
+    let expected_suffix = file_path.replace('\\', "/");
+
+    db::get_all_nodes(conn)
         .ok()?
         .into_iter()
-        .find(|n| n.name == symbol_name)
+        .find(|n| {
+            n.name == symbol_name && n.file_path.replace('\\', "/").ends_with(&expected_suffix)
+        })
         .map(|n| n.id)
+}
+
+fn file_nodes_by_suffix(
+    conn: &rusqlite::Connection,
+    file_path: &str,
+) -> Vec<coraline::types::Node> {
+    let expected_suffix = file_path.replace('\\', "/");
+    db::get_all_nodes(conn)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|n| n.file_path.replace('\\', "/").ends_with(&expected_suffix))
+        .collect()
 }
 
 fn callee_paths_for_node(project_root: &Path, node_id: &str) -> Vec<String> {
@@ -155,8 +171,7 @@ fn test_stale_file_deletion_removes_call_edges_and_is_stable() {
     extraction::sync(project_root, &cfg, None).expect("Failed sync after deleting api.rs");
 
     let conn = db::open_database(project_root).expect("Failed to reopen database");
-    let api_nodes =
-        db::get_nodes_by_file(&conn, "src/api.rs", None).expect("Failed to query api.rs nodes");
+    let api_nodes = file_nodes_by_suffix(&conn, "src/api.rs");
     assert!(api_nodes.is_empty(), "deleted file nodes must be pruned");
 
     let after = callee_paths_for_node(project_root, &run_id);
