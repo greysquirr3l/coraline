@@ -76,7 +76,7 @@ fn callee_paths_for_node(project_root: &Path, node_id: &str) -> Vec<String> {
         .filter_map(|item| {
             item.get("file_path")
                 .and_then(serde_json::Value::as_str)
-                .map(std::string::ToString::to_string)
+                .map(|path| path.replace('\\', "/"))
         })
         .collect();
 
