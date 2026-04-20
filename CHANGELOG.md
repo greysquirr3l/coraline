@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Call graph precision:** `coraline_callees` no longer returns false-positive cross-project edges when multiple paths have the same symbol name. Resolver now prefers extractor-provided candidate IDs (better locality signal) and avoids low-confidence global-name fallback for call edges.
+- Graph queries (`coraline_callees`, `coraline_callers`) now return deterministic, stable result sets via explicit `ORDER BY (line, col, target/source)` in edge retrieval, improving user trust in output consistency across repeated queries.
+
+### Added
+
+- **Graph precision acceptance tests** for call-edge disambiguation in mixed active/legacy workspaces, stale-file deletion edge hygiene, and fallback prevention scenarios.
+
+### CI
+
+- Replaced hardcoded Rust toolchain commit hashes with `@stable` tag to fix transient CI failures and ensure stable Rust channel alignment with MSRV policy.
+
 ## [0.8.3] - 2026-04-17
 
 ### Changed
