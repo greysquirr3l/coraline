@@ -585,7 +585,7 @@ pub fn get_edges_by_source(
         params_vec.push(edge_kind_to_string(kind));
     }
 
-    sql.push_str(" LIMIT ?");
+    sql.push_str(" ORDER BY COALESCE(line, 0) ASC, COALESCE(col, 0) ASC, target ASC LIMIT ?");
     params_vec.push(limit.to_string());
 
     let mut stmt = conn.prepare(&sql).map_err(io_other)?;
@@ -616,7 +616,7 @@ pub fn get_edges_by_target(
         params_vec.push(edge_kind_to_string(kind));
     }
 
-    sql.push_str(" LIMIT ?");
+    sql.push_str(" ORDER BY COALESCE(line, 0) ASC, COALESCE(col, 0) ASC, source ASC LIMIT ?");
     params_vec.push(limit.to_string());
 
     let mut stmt = conn.prepare(&sql).map_err(io_other)?;

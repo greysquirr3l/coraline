@@ -43,7 +43,19 @@ impl ReferenceResolver {
             let from_node = db::get_node_by_id(conn, &reference.from_node_id)?;
             let candidates = match reference.reference_kind {
                 EdgeKind::Calls => {
-                    filter_by_call_kind(db::find_nodes_by_name(conn, &reference.reference_name)?)
+                    // Prefer extractor-provided candidate IDs for better locality/precision.
+                    let from_ids = reference
+                        .candidates
+                        .as_ref()
+                        .map_or_else(Vec::new, |ids| nodes_from_ids(conn, ids));
+                    if from_ids.is_empty() {
+                        filter_by_call_kind(db::find_nodes_by_name(
+                            conn,
+                            &reference.reference_name,
+                        )?)
+                    } else {
+                        filter_by_call_kind(from_ids)
+                    }
                 }
                 _ => db::find_nodes_by_name(conn, &reference.reference_name)?,
             };
@@ -58,6 +70,7 @@ impl ReferenceResolver {
                 from_node.as_ref(),
                 import_hint.as_ref(),
                 &reference.reference_name,
+                reference.reference_kind,
             )?;
 
             // If generic resolution found nothing, try framework-specific hints.
@@ -99,6 +112,21 @@ impl ReferenceResolver {
             remaining,
         })
     }
+}
+
+fn nodes_from_ids(conn: &rusqlite::Connection, ids: &[String]) -> Vec<Node> {
+    let mut nodes = Vec::new();
+    let mut seen = HashSet::new();
+    for id in ids {
+        if !seen.insert(id) {
+            continue;
+        }
+
+        if let Ok(Some(node)) = db::get_node_by_id(conn, id) {
+            nodes.push(node);
+        }
+    }
+    nodes
 }
 
 /// Use framework-specific resolvers to find candidates when name search fails.
@@ -158,6 +186,7 @@ fn rank_candidates(
     from_node: Option<&Node>,
     import_hint: Option<&ImportHint>,
     symbol_name: &str,
+    reference_kind: EdgeKind,
 ) -> std::io::Result<Vec<Node>> {
     let Some(from_node) = from_node else {
         return Ok(nodes);
@@ -196,6 +225,10 @@ fn rank_candidates(
         Ok(same_file)
     } else if !same_dir.is_empty() {
         Ok(same_dir)
+    } else if reference_kind == EdgeKind::Calls {
+        // Avoid low-confidence global-name fallback for call edges because
+        // it causes noisy cross-project links in mixed active/legacy workspaces.
+        Ok(Vec::new())
     } else {
         Ok(others)
     }

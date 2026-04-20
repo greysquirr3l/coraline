@@ -147,6 +147,12 @@ Either `node_id` or `name` must be provided.
 
 **Output:** Same shape as `coraline_callers` but field is `callees`.
 
+**Precision Notes:**
+
+- Call-edge resolution prefers extractor-provided candidate IDs (better locality signal) to avoid false-positive cross-project links in mixed active/legacy workspaces.
+- When a call target is ambiguous and no scoped match exists, it is left unresolved (empty) rather than linked to a low-confidence global match.
+- Results are ordered deterministically by (line, column, target) to ensure consistency across repeated queries.
+
 ---
 
 ### `coraline_impact`
