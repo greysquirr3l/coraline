@@ -30,7 +30,7 @@ hex = "0.4"
 regex = "1"
 globset = "0.4.18"
 rayon = "1"
-indicatif = "0.17"
+indicatif = "0.18"
 ndarray = { version = "0.17", optional = true }
 ort = { version = "=2.0.0-rc.11", default-features = false, features = ["ndarray", "std"], optional = true }
 tokenizers = { version = "0.22", default-features = false, features = ["onig"], optional = true }
@@ -69,7 +69,7 @@ tree-sitter-nix = "0.3.0"
 tree-sitter-perl = "1.1.2"
 tree-sitter-powershell = "0.26.3"
 tree-sitter-r = "1.2.0"
-tree-sitter-scala = "0.25.0"
+tree-sitter-scala = "0.26.0"
 tree-sitter-toml-ng = "0.7.0"  # -ng version compatible with tree-sitter 0.26
 tree-sitter-yaml = "0.7.2"
 tree-sitter-zig = "1.1.2"
