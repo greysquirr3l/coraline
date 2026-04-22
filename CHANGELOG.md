@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.5] - 2026-04-21
+
+### Dependencies
+
+- Bump `indicatif` 0.17 → 0.18
+- Bump `tree-sitter-scala` 0.25.0 → 0.26.0
+
+### CI
+
+- Bump `actions/upload-artifact` 7.0.0 → 7.0.1
+- Bump `github/codeql-action` 4.35.1 → 4.35.2
+- Bump `actions/deploy-pages` 4.0.5 → 5.0.0
+- Bump `dependabot/fetch-metadata` 2.3.0 → 3.1.0
+
 ## [0.8.4] - 2026-04-20
 
 ### Fixed
