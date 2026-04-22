@@ -1340,17 +1340,29 @@ fn run_callers(args: CallersArgs) {
             std::process::exit(1);
         });
 
-    let edges = db::get_edges_by_target(&conn, &args.node_id, Some(EdgeKind::Calls), args.limit)
-        .unwrap_or_else(|err| {
-            eprintln!("Failed to get callers: {err}");
-            std::process::exit(1);
-        });
+    let edges =
+        db::get_edges_by_target(&conn, &args.node_id, Some(EdgeKind::Calls), args.limit * 2)
+            .unwrap_or_else(|err| {
+                eprintln!("Failed to get callers: {err}");
+                std::process::exit(1);
+            });
 
     if args.json {
         let results: Vec<_> = edges
             .iter()
-            .filter_map(|e| db::get_node_by_id(&conn, &e.source).ok().flatten())
-            .map(|n| serde_json::json!({ "id": n.id, "name": n.name, "kind": n.kind, "file": n.file_path, "line": n.start_line }))
+            .filter_map(|e| {
+                db::get_node_by_id(&conn, &e.source).ok().flatten().and_then(|caller| {
+                    // Validate crate boundary
+                    db::is_valid_call_edge(&conn, &caller, &node).ok().and_then(|valid| {
+                        if valid {
+                            Some(serde_json::json!({ "id": caller.id, "name": caller.name, "kind": caller.kind, "file": caller.file_path, "line": caller.start_line }))
+                        } else {
+                            None
+                        }
+                    })
+                })
+            })
+            .take(args.limit)
             .collect();
         println!(
             "{}",
@@ -1360,17 +1372,24 @@ fn run_callers(args: CallersArgs) {
     }
 
     println!("Callers of {} ({:?}):\n", node.name, node.kind);
-    if edges.is_empty() {
-        println!("  No callers found.");
-        return;
-    }
+    let mut printed = 0;
     for edge in &edges {
-        if let Ok(Some(caller)) = db::get_node_by_id(&conn, &edge.source) {
-            println!(
-                "  {:?} {} ({}:{})",
-                caller.kind, caller.name, caller.file_path, caller.start_line
-            );
+        if printed >= args.limit {
+            break;
         }
+        if let Ok(Some(caller)) = db::get_node_by_id(&conn, &edge.source) {
+            // Validate crate boundary
+            if matches!(db::is_valid_call_edge(&conn, &caller, &node), Ok(true)) {
+                println!(
+                    "  {:?} {} ({}:{})",
+                    caller.kind, caller.name, caller.file_path, caller.start_line
+                );
+                printed += 1;
+            }
+        }
+    }
+    if printed == 0 {
+        println!("  No callers found.");
     }
 }
 
@@ -1397,17 +1416,29 @@ fn run_callees(args: CalleesArgs) {
             std::process::exit(1);
         });
 
-    let edges = db::get_edges_by_source(&conn, &args.node_id, Some(EdgeKind::Calls), args.limit)
-        .unwrap_or_else(|err| {
-            eprintln!("Failed to get callees: {err}");
-            std::process::exit(1);
-        });
+    let edges =
+        db::get_edges_by_source(&conn, &args.node_id, Some(EdgeKind::Calls), args.limit * 2)
+            .unwrap_or_else(|err| {
+                eprintln!("Failed to get callees: {err}");
+                std::process::exit(1);
+            });
 
     if args.json {
         let results: Vec<_> = edges
             .iter()
-            .filter_map(|e| db::get_node_by_id(&conn, &e.target).ok().flatten())
-            .map(|n| serde_json::json!({ "id": n.id, "name": n.name, "kind": n.kind, "file": n.file_path, "line": n.start_line }))
+            .filter_map(|e| {
+                db::get_node_by_id(&conn, &e.target).ok().flatten().and_then(|callee| {
+                    // Validate crate boundary
+                    db::is_valid_call_edge(&conn, &node, &callee).ok().and_then(|valid| {
+                        if valid {
+                            Some(serde_json::json!({ "id": callee.id, "name": callee.name, "kind": callee.kind, "file": callee.file_path, "line": callee.start_line }))
+                        } else {
+                            None
+                        }
+                    })
+                })
+            })
+            .take(args.limit)
             .collect();
         println!(
             "{}",
@@ -1417,17 +1448,24 @@ fn run_callees(args: CalleesArgs) {
     }
 
     println!("Callees of {} ({:?}):\n", node.name, node.kind);
-    if edges.is_empty() {
-        println!("  No callees found.");
-        return;
-    }
+    let mut printed = 0;
     for edge in &edges {
-        if let Ok(Some(callee)) = db::get_node_by_id(&conn, &edge.target) {
-            println!(
-                "  {:?} {} ({}:{})",
-                callee.kind, callee.name, callee.file_path, callee.start_line
-            );
+        if printed >= args.limit {
+            break;
         }
+        if let Ok(Some(callee)) = db::get_node_by_id(&conn, &edge.target) {
+            // Validate crate boundary
+            if matches!(db::is_valid_call_edge(&conn, &node, &callee), Ok(true)) {
+                println!(
+                    "  {:?} {} ({}:{})",
+                    callee.kind, callee.name, callee.file_path, callee.start_line
+                );
+                printed += 1;
+            }
+        }
+    }
+    if printed == 0 {
+        println!("  No callees found.");
     }
 }
 

@@ -6,6 +6,7 @@ docs/dev/
 .coraline/
 .mypy_cache/
 aur/
+.mcp.json
 
 # Rust
 target/

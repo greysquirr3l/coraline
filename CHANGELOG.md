@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.6] - 2026-04-22
+
+### Fixed
+
+- **Callees/callers query accuracy:** `coraline_callees` and `coraline_callers` MCP tools now validate call edges against import/crate boundaries before returning results, eliminating false-positive cross-crate links from name collisions (e.g., `heartbeat()` in raccoon-agent falsely calling `post()` in raccoon-frontend). Validation checks: same-file, same-directory, or explicit import statements; queries fetch 2x limit to maintain result count after filtering.
+- **CLI callees/callers filtering:** `coraline callees` and `coraline callers` CLI commands now apply the same boundary validation and show "No callees/callers found" when all edges are filtered out.
+
+### Added
+
+- **`is_valid_call_edge()` database function** — validates whether a call edge respects module/crate boundaries before inclusion in query results.
+
 ## [0.8.5] - 2026-04-21
 
 ### Dependencies
@@ -376,8 +387,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `coraline_search`, `coraline_callers`, `coraline_callees`, `coraline_impact`, `coraline_context` MCP tools
 - Git post-commit hook integration
 
-[Unreleased]: https://github.com/greysquirr3l/coraline/compare/v0.8.4...HEAD
-[0.8.4]: https://github.com/greysquirr3l/coraline/compare/v0.8.3...v0.8.4
+[Unreleased]: https://github.com/greysquirr3l/coraline/compare/v0.8.5...HEAD
+[0.8.6]: https://github.com/greysquirr3l/coraline/compare/v0.8.5...v0.8.6
+[0.8.5]: https://github.com/greysquirr3l/coraline/compare/v0.8.4...v0.8.5
 [0.8.3]: https://github.com/greysquirr3l/coraline/compare/v0.8.2...v0.8.3
 [0.8.2]: https://github.com/greysquirr3l/coraline/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/greysquirr3l/coraline/compare/v0.8.0...v0.8.1

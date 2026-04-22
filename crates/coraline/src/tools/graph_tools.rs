@@ -197,8 +197,12 @@ impl Tool for CallersTool {
             .and_then(|n| usize::try_from(n).ok())
             .unwrap_or(20);
 
+        // Get the target node for crate boundary validation
+        let to_node = db::get_node_by_id(&conn, &node_id)
+            .map_err(|e| ToolError::internal_error(format!("Failed to get target node: {e}")))?;
+
         // Get edges where this node is the target and edge kind is "calls"
-        let edges = db::get_edges_by_target(&conn, &node_id, Some(EdgeKind::Calls), limit)
+        let edges = db::get_edges_by_target(&conn, &node_id, Some(EdgeKind::Calls), limit * 2)
             .map_err(|e| ToolError::internal_error(format!("Failed to get edges: {e}")))?;
 
         let mut callers = Vec::new();
@@ -206,15 +210,30 @@ impl Tool for CallersTool {
             if let Some(caller) = db::get_node_by_id(&conn, &edge.source)
                 .map_err(|e| ToolError::internal_error(format!("Failed to get node: {e}")))?
             {
-                callers.push(json!({
-                    "id": caller.id,
-                    "kind": caller.kind,
-                    "name": caller.name,
-                    "qualified_name": caller.qualified_name,
-                    "file_path": caller.file_path,
-                    "start_line": caller.start_line,
-                    "line": edge.line,
-                }));
+                // Validate that the call edge has proper crate/import boundaries
+                let is_valid = if let Some(ref target) = to_node {
+                    db::is_valid_call_edge(&conn, &caller, target).map_err(|e| {
+                        ToolError::internal_error(format!("Failed to validate edge: {e}"))
+                    })?
+                } else {
+                    true // If we can't find the target node, allow the edge (shouldn't happen)
+                };
+
+                if is_valid {
+                    callers.push(json!({
+                        "id": caller.id,
+                        "kind": caller.kind,
+                        "name": caller.name,
+                        "qualified_name": caller.qualified_name,
+                        "file_path": caller.file_path,
+                        "start_line": caller.start_line,
+                        "line": edge.line,
+                    }));
+
+                    if callers.len() >= limit {
+                        break;
+                    }
+                }
             }
         }
 
@@ -282,8 +301,12 @@ impl Tool for CalleesTool {
             .and_then(|n| usize::try_from(n).ok())
             .unwrap_or(20);
 
+        // Get the calling node for crate boundary validation
+        let from_node = db::get_node_by_id(&conn, &node_id)
+            .map_err(|e| ToolError::internal_error(format!("Failed to get source node: {e}")))?;
+
         // Get edges where this node is the source and edge kind is "calls"
-        let edges = db::get_edges_by_source(&conn, &node_id, Some(EdgeKind::Calls), limit)
+        let edges = db::get_edges_by_source(&conn, &node_id, Some(EdgeKind::Calls), limit * 2)
             .map_err(|e| ToolError::internal_error(format!("Failed to get edges: {e}")))?;
 
         let mut callees = Vec::new();
@@ -291,15 +314,30 @@ impl Tool for CalleesTool {
             if let Some(callee) = db::get_node_by_id(&conn, &edge.target)
                 .map_err(|e| ToolError::internal_error(format!("Failed to get node: {e}")))?
             {
-                callees.push(json!({
-                    "id": callee.id,
-                    "kind": callee.kind,
-                    "name": callee.name,
-                    "qualified_name": callee.qualified_name,
-                    "file_path": callee.file_path,
-                    "start_line": callee.start_line,
-                    "line": edge.line,
-                }));
+                // Validate that the call edge has proper crate/import boundaries
+                let is_valid = if let Some(ref from) = from_node {
+                    db::is_valid_call_edge(&conn, from, &callee).map_err(|e| {
+                        ToolError::internal_error(format!("Failed to validate edge: {e}"))
+                    })?
+                } else {
+                    true // If we can't find the source node, allow the edge (shouldn't happen)
+                };
+
+                if is_valid {
+                    callees.push(json!({
+                        "id": callee.id,
+                        "kind": callee.kind,
+                        "name": callee.name,
+                        "qualified_name": callee.qualified_name,
+                        "file_path": callee.file_path,
+                        "start_line": callee.start_line,
+                        "line": edge.line,
+                    }));
+
+                    if callees.len() >= limit {
+                        break;
+                    }
+                }
             }
         }
 

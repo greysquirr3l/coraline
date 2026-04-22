@@ -895,6 +895,69 @@ fn row_to_edge(row: &rusqlite::Row<'_>) -> rusqlite::Result<Edge> {
     })
 }
 
+/// Validates if a call edge is within valid crate/module boundaries.
+/// A call is valid if:
+/// 1. Both functions are in the same file
+/// 2. Both functions are in the same directory
+/// 3. The caller has an import statement for the callee's module
+///
+/// Returns false for cross-crate calls without proper imports.
+pub fn is_valid_call_edge(
+    conn: &Connection,
+    from_node: &Node,
+    to_node: &Node,
+) -> std::io::Result<bool> {
+    // Same file always valid
+    if from_node.file_path == to_node.file_path {
+        return Ok(true);
+    }
+
+    // Same directory usually valid (intra-module calls)
+    let from_dir = std::path::Path::new(&from_node.file_path).parent();
+    let to_dir = std::path::Path::new(&to_node.file_path).parent();
+    if from_dir.is_some() && from_dir == to_dir {
+        return Ok(true);
+    }
+
+    // Check if caller imports the callee's module
+    // Look for import nodes in the same file as the caller
+    let mut stmt = conn
+        .prepare("SELECT id, name, signature FROM nodes WHERE file_path = ? AND kind = 'import'")
+        .map_err(io_other)?;
+    let imports = stmt
+        .query_map(params![&from_node.file_path], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
+        })
+        .map_err(io_other)?;
+
+    for import_result in imports {
+        let (_, import_name, import_sig) = import_result.map_err(io_other)?;
+        // Check if import references the callee's file or module
+        if to_node.file_path.contains(&import_name)
+            || to_node
+                .file_path
+                .contains(import_name.replace("::", "/").as_str())
+        {
+            return Ok(true);
+        }
+
+        // Also check the signature if available
+        if let Some(sig) = import_sig
+            && (to_node.file_path.contains(&sig)
+                || to_node.file_path.contains(sig.replace("::", "/").as_str()))
+        {
+            return Ok(true);
+        }
+    }
+
+    // Cross-crate call without import is invalid
+    Ok(false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::build_fts_query;
