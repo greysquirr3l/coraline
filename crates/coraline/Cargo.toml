@@ -1,6 +1,6 @@
 [package]
 name = "coraline"
-version = "0.8.6"
+version = "0.8.7"
 edition = "2024"
 license = "MIT"
 description = "Coraline: semantic code knowledge graph for faster AI-assisted development."

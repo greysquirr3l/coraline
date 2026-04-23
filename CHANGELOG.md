@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.7] - 2026-04-23
+
 ### Fixed
 
 - **`coraline audit-docs --json` now respects filtering flags** — JSON output now honors `--no-stale` and `--no-undocumented` instead of always emitting both result arrays.
