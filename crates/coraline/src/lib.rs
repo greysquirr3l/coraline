@@ -2,6 +2,7 @@
 // Transitive dependency version conflicts we can't control (base64, getrandom, hashbrown).
 #![allow(clippy::multiple_crate_versions)]
 
+pub mod audit;
 pub mod config;
 pub mod context;
 pub mod db;

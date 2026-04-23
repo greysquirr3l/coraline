@@ -2,6 +2,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use coraline::audit;
 use coraline::config;
 use coraline::context;
 use coraline::db;
@@ -47,6 +48,8 @@ enum Command {
     Serve(ServeArgs),
     /// Check for available updates on crates.io.
     Update,
+    /// Audit documentation accuracy and coverage against the code graph.
+    AuditDocs(AuditDocsArgs),
     #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
     Embed(EmbedArgs),
     #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
@@ -245,6 +248,24 @@ enum ModelAction {
     Status,
 }
 
+#[derive(Debug, Args)]
+struct AuditDocsArgs {
+    #[arg(short = 'p', long = "path")]
+    path: Option<PathBuf>,
+    /// Hide stale-reference findings.
+    #[arg(long = "no-stale")]
+    no_stale: bool,
+    /// Hide undocumented-export findings.
+    #[arg(long = "no-undocumented")]
+    no_undocumented: bool,
+    /// Maximum items to display per category.
+    #[arg(short = 'l', long = "limit", default_value_t = 50)]
+    limit: usize,
+    /// Output raw JSON instead of formatted text.
+    #[arg(short = 'j', long = "json")]
+    json: bool,
+}
+
 fn main() {
     let cli = Cli::parse();
     if matches!(cli.command, None | Some(Command::Install)) {
@@ -271,6 +292,7 @@ fn main() {
         Command::Config(a) => a.path.clone(),
         Command::Hooks(a) => a.path.clone(),
         Command::Serve(a) => a.path.clone(),
+        Command::AuditDocs(a) => a.path.clone(),
         #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
         Command::Embed(a) => a.path.clone(),
         #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
@@ -320,6 +342,7 @@ fn main() {
             }
         }
         Command::Update => run_update(),
+        Command::AuditDocs(args) => run_audit_docs(args),
         #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
         Command::Embed(args) => run_embed(&args),
         #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
@@ -811,6 +834,109 @@ fn run_update() {
             eprintln!();
             eprintln!("You can manually check: https://crates.io/crates/coraline");
             std::process::exit(1);
+        }
+    }
+}
+
+fn run_audit_docs(args: AuditDocsArgs) {
+    let project_root = resolve_project_root(args.path);
+
+    let report = match audit::audit_docs(&project_root) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("Failed to run doc audit: {e}");
+            eprintln!("Make sure the project has been indexed (`coraline index`).");
+            std::process::exit(1);
+        }
+    };
+
+    if args.json {
+        let stale: Vec<_> = report
+            .stale_refs
+            .iter()
+            .take(args.limit)
+            .map(|r| {
+                serde_json::json!({
+                    "reference": r.reference_name,
+                    "doc_file": r.doc_file,
+                    "section": r.doc_section,
+                    "line": r.line,
+                    "column": r.column
+                })
+            })
+            .collect();
+        let undoc: Vec<_> = report
+            .undocumented_exports
+            .iter()
+            .take(args.limit)
+            .map(|u| {
+                serde_json::json!({
+                    "name": u.name,
+                    "qualified_name": u.qualified_name,
+                    "kind": u.kind,
+                    "file": u.file_path,
+                    "line": u.start_line
+                })
+            })
+            .collect();
+        let out = serde_json::json!({
+            "doc_files_indexed": report.doc_files_indexed,
+            "doc_sections_indexed": report.doc_sections_indexed,
+            "stale_refs": stale,
+            "undocumented_exports": undoc
+        });
+        println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
+        return;
+    }
+
+    // Human-readable output
+    println!(
+        "Doc audit — {} file(s), {} section(s) indexed\n",
+        report.doc_files_indexed, report.doc_sections_indexed
+    );
+
+    if !args.no_stale {
+        let total = report.stale_refs.len();
+        if total == 0 {
+            println!("✓ No stale references found.");
+        } else {
+            println!(
+                "Stale references ({total} total{})\n",
+                if total > args.limit {
+                    format!(", showing first {}", args.limit)
+                } else {
+                    String::new()
+                }
+            );
+            for r in report.stale_refs.iter().take(args.limit) {
+                println!(
+                    "  {}:{} — `{}` (section: {})",
+                    r.doc_file, r.line, r.reference_name, r.doc_section
+                );
+            }
+            println!();
+        }
+    }
+
+    if !args.no_undocumented {
+        let total = report.undocumented_exports.len();
+        if total == 0 {
+            println!("✓ All exported symbols have documentation coverage.");
+        } else {
+            println!(
+                "Undocumented exports ({total} total{})\n",
+                if total > args.limit {
+                    format!(", showing first {}", args.limit)
+                } else {
+                    String::new()
+                }
+            );
+            for u in report.undocumented_exports.iter().take(args.limit) {
+                println!(
+                    "  {} {} — {} line {}",
+                    u.kind, u.name, u.file_path, u.start_line
+                );
+            }
         }
     }
 }

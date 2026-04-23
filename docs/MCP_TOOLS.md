@@ -1,6 +1,6 @@
 # Coraline MCP Tools Reference
 
-Coraline exposes **27 MCP tools** when running as an MCP server (`coraline serve --mcp`).
+Coraline exposes **28 MCP tools** when running as an MCP server (`coraline serve --mcp`).
 All tool names are prefixed with `coraline_` to avoid collisions with other MCP servers.
 
 Protocol notes:
@@ -8,7 +8,7 @@ Protocol notes:
 - Expects `notifications/initialized` after `initialize` before normal requests
 - `tools/list` supports pagination via `cursor` and `nextCursor`
 
-`coraline_semantic_search` is available by default (the `embeddings` feature ships enabled) but only registered when an ONNX model is present in `.coraline/models/`. Run `coraline model download` then `coraline embed` to activate it. The remaining 26 tools are typically available; memory-backed tools may be skipped if their initialization fails (e.g. due to filesystem or permission issues).
+`coraline_semantic_search` is available by default (the `embeddings` feature ships enabled) but only registered when an ONNX model is present in `.coraline/models/`. Run `coraline model download` then `coraline embed` to activate it. The remaining 27 tools are typically available; memory-backed tools may be skipped if their initialization fails (e.g. due to filesystem or permission issues).
 
 ### Background Auto-Sync
 
@@ -38,6 +38,7 @@ When the MCP server starts, it spawns a background thread that periodically chec
 | | `coraline_find_references` | Find all references to a symbol |
 | | `coraline_node` | Get full node details and source code |
 | **Context** | `coraline_context` | Build structured context for an AI task |
+| **Audit** | `coraline_audit_docs` | Audit Markdown docs for stale references and undocumented exports |
 | **File** | `coraline_read_file` | Read file contents |
 | | `coraline_list_dir` | List directory contents |
 | | `coraline_find_file` | Find files by glob pattern |
@@ -382,6 +383,56 @@ Build structured context for an AI task description. Searches the graph, travers
 | `format` | string | | `"markdown"` | `"markdown"` or `"json"` |
 
 **Output:** A Markdown or JSON document containing relevant symbols and code, ready to paste as context for an LLM.
+
+---
+
+## Audit Tool
+
+### `coraline_audit_docs`
+
+Audit Markdown documentation coverage against the indexed code graph.
+
+Detects two classes of issues:
+- `stale_refs`: inline code-span symbol references in Markdown that do not resolve to indexed symbols
+- `undocumented_exports`: exported code symbols with no inbound `references` edge from Markdown docs
+
+**Input:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `show_undocumented` | boolean | | `true` | Include undocumented export results |
+| `show_stale` | boolean | | `true` | Include stale reference results |
+| `limit` | number | | `50` | Max items returned per result set |
+
+**Output:**
+```json
+{
+  "summary": {
+    "doc_files_indexed": 12,
+    "doc_sections_indexed": 89,
+    "stale_ref_count": 3,
+    "undocumented_export_count": 7
+  },
+  "stale_refs": [
+    {
+      "reference": "resolve_unresolved",
+      "doc_file": "docs/ARCHITECTURE.md",
+      "section": "Resolution",
+      "line": 42,
+      "column": 18
+    }
+  ],
+  "undocumented_exports": [
+    {
+      "name": "audit_docs",
+      "qualified_name": "coraline::audit::audit_docs",
+      "kind": "function",
+      "file": "crates/coraline/src/audit.rs",
+      "line": 48
+    }
+  ]
+}
+```
 
 ---
 
