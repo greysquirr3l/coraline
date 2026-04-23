@@ -246,6 +246,7 @@ pub const fn is_language_supported(language: &Language) -> bool {
             | Language::Swift
             | Language::Kotlin
             | Language::Liquid
+            | Language::Markdown
             | Language::Blazor
             | Language::Unknown
     )

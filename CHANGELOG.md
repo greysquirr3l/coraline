@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.8] - 2026-04-23
+
+### Fixed
+
+- **Markdown docs were silently excluded from indexing despite include globs** — added `Language::Markdown` to `is_language_supported`, allowing `**/*.md` include patterns to actually parse/index docs and enabling `coraline_audit_docs` to produce real documentation findings.
+
 ## [0.8.7] - 2026-04-23
 
 ### Fixed
