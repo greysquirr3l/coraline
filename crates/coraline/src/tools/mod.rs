@@ -9,6 +9,7 @@
 use serde_json::Value;
 use std::collections::HashMap;
 
+pub mod audit_tools;
 pub mod context_tools;
 pub mod file_tools;
 pub mod graph_tools;
@@ -208,6 +209,11 @@ pub fn create_default_registry(project_root: &std::path::Path) -> ToolRegistry {
 
     // Register context tools
     registry.register(Box::new(context_tools::BuildContextTool::new(
+        project_root.to_path_buf(),
+    )));
+
+    // Register audit tools
+    registry.register(Box::new(audit_tools::AuditDocsTool::new(
         project_root.to_path_buf(),
     )));
 

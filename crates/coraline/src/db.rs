@@ -958,6 +958,123 @@ pub fn is_valid_call_edge(
     Ok(false)
 }
 
+// ─── Doc-audit helpers ────────────────────────────────────────────────────────
+
+/// A single unresolved reference whose source node lives in a Markdown file.
+///
+/// After the resolution pass runs, these are references from doc sections to
+/// code symbols that could not be matched — i.e. stale documentation.
+#[derive(Debug, Clone)]
+pub struct DocUnresolvedRef {
+    /// The symbol name written in backticks in the doc (e.g. `"MyStruct"`).
+    pub reference_name: String,
+    /// Relative path of the Markdown file that contains the reference.
+    pub doc_file_path: String,
+    /// Name of the heading section the reference was found in, or the file
+    /// name when the reference appears before any heading.
+    pub doc_section_name: String,
+    /// 1-based line number inside the Markdown file.
+    pub line: i64,
+    /// 0-based column.
+    pub column: i64,
+}
+
+/// Return all unresolved references whose source node is in a Markdown file.
+///
+/// These represent inline `` `code_span` `` references that were not matched
+/// to any code symbol during the resolution pass — stale documentation.
+pub fn list_doc_unresolved_refs(conn: &Connection) -> std::io::Result<Vec<DocUnresolvedRef>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT ur.reference_name, n.file_path, n.name, ur.line, ur.col
+             FROM unresolved_refs ur
+             JOIN nodes n ON ur.from_node_id = n.id
+             WHERE n.language = 'markdown'
+             ORDER BY n.file_path, ur.line",
+        )
+        .map_err(io_other)?;
+
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(DocUnresolvedRef {
+                reference_name: row.get(0)?,
+                doc_file_path: row.get(1)?,
+                doc_section_name: row.get(2)?,
+                line: row.get(3)?,
+                column: row.get(4)?,
+            })
+        })
+        .map_err(io_other)?;
+
+    let mut results = Vec::new();
+    for row in rows {
+        results.push(row.map_err(io_other)?);
+    }
+    Ok(results)
+}
+
+/// Return exported code symbols that have **no** `references` edge arriving
+/// from any Markdown-language node.
+///
+/// These are public API items that are not mentioned anywhere in the
+/// documentation.
+pub fn list_undocumented_exports(conn: &Connection) -> std::io::Result<Vec<Node>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT n.id, n.kind, n.name, n.qualified_name, n.file_path, n.language,
+                    n.start_line, n.end_line, n.start_column, n.end_column,
+                    n.docstring, n.signature, n.visibility,
+                    n.is_exported, n.is_async, n.is_static, n.is_abstract,
+                    n.decorators, n.type_parameters, n.updated_at
+             FROM nodes n
+             WHERE n.is_exported = 1
+               AND n.language != 'markdown'
+               AND n.kind IN (
+                     'function','method','struct','class','interface',
+                     'trait','enum','type_alias','constant'
+                   )
+               AND NOT EXISTS (
+                     SELECT 1
+                     FROM edges e
+                     JOIN nodes src ON e.source = src.id
+                     WHERE e.target = n.id
+                       AND e.kind = 'references'
+                       AND src.language = 'markdown'
+                   )
+             ORDER BY n.file_path, n.start_line",
+        )
+        .map_err(io_other)?;
+
+    let rows = stmt.query_map([], row_to_node).map_err(io_other)?;
+    let mut results = Vec::new();
+    for row in rows {
+        results.push(row.map_err(io_other)?);
+    }
+    Ok(results)
+}
+
+/// Return `(doc_files_count, doc_sections_count)` — the number of distinct
+/// Markdown files that have been indexed with heading nodes, and the total
+/// number of heading sections across all of them.
+pub fn get_doc_coverage_stats(conn: &Connection) -> std::io::Result<(usize, usize)> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT COUNT(DISTINCT file_path), COUNT(id)
+             FROM nodes
+             WHERE language = 'markdown' AND kind = 'module'",
+        )
+        .map_err(io_other)?;
+
+    let (files, sections): (i64, i64) = stmt
+        .query_row([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .map_err(io_other)?;
+
+    Ok((
+        usize::try_from(files).unwrap_or(0),
+        usize::try_from(sections).unwrap_or(0),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::build_fts_query;
