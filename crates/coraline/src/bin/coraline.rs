@@ -839,7 +839,15 @@ fn run_update() {
 }
 
 fn run_audit_docs(args: AuditDocsArgs) {
-    let project_root = resolve_project_root(args.path);
+    let AuditDocsArgs {
+        path,
+        no_stale,
+        no_undocumented,
+        limit,
+        json,
+    } = args;
+
+    let project_root = resolve_project_root(path);
 
     let report = match audit::audit_docs(&project_root) {
         Ok(r) => r,
@@ -850,44 +858,58 @@ fn run_audit_docs(args: AuditDocsArgs) {
         }
     };
 
-    if args.json {
-        let stale: Vec<_> = report
-            .stale_refs
-            .iter()
-            .take(args.limit)
-            .map(|r| {
-                serde_json::json!({
-                    "reference": r.reference_name,
-                    "doc_file": r.doc_file,
-                    "section": r.doc_section,
-                    "line": r.line,
-                    "column": r.column
-                })
-            })
-            .collect();
-        let undoc: Vec<_> = report
-            .undocumented_exports
-            .iter()
-            .take(args.limit)
-            .map(|u| {
-                serde_json::json!({
-                    "name": u.name,
-                    "qualified_name": u.qualified_name,
-                    "kind": u.kind,
-                    "file": u.file_path,
-                    "line": u.start_line
-                })
-            })
-            .collect();
-        let out = serde_json::json!({
-            "doc_files_indexed": report.doc_files_indexed,
-            "doc_sections_indexed": report.doc_sections_indexed,
-            "stale_refs": stale,
-            "undocumented_exports": undoc
-        });
-        println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
+    if json {
+        print_audit_docs_json(&report, limit);
         return;
     }
+
+    print_audit_docs_human(&report, no_stale, no_undocumented, limit);
+}
+
+fn print_audit_docs_json(report: &audit::DocAuditReport, limit: usize) {
+    let stale: Vec<_> = report
+        .stale_refs
+        .iter()
+        .take(limit)
+        .map(|r| {
+            serde_json::json!({
+                "reference": r.reference_name,
+                "doc_file": r.doc_file,
+                "section": r.doc_section,
+                "line": r.line,
+                "column": r.column
+            })
+        })
+        .collect();
+    let undoc: Vec<_> = report
+        .undocumented_exports
+        .iter()
+        .take(limit)
+        .map(|u| {
+            serde_json::json!({
+                "name": u.name,
+                "qualified_name": u.qualified_name,
+                "kind": u.kind,
+                "file": u.file_path,
+                "line": u.start_line
+            })
+        })
+        .collect();
+    let out = serde_json::json!({
+        "doc_files_indexed": report.doc_files_indexed,
+        "doc_sections_indexed": report.doc_sections_indexed,
+        "stale_refs": stale,
+        "undocumented_exports": undoc
+    });
+    println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
+}
+
+fn print_audit_docs_human(
+    report: &audit::DocAuditReport,
+    no_stale: bool,
+    no_undocumented: bool,
+    limit: usize,
+) {
 
     // Human-readable output
     println!(
@@ -895,20 +917,20 @@ fn run_audit_docs(args: AuditDocsArgs) {
         report.doc_files_indexed, report.doc_sections_indexed
     );
 
-    if !args.no_stale {
+    if !no_stale {
         let total = report.stale_refs.len();
         if total == 0 {
             println!("✓ No stale references found.");
         } else {
             println!(
                 "Stale references ({total} total{})\n",
-                if total > args.limit {
-                    format!(", showing first {}", args.limit)
+                if total > limit {
+                    format!(", showing first {limit}")
                 } else {
                     String::new()
                 }
             );
-            for r in report.stale_refs.iter().take(args.limit) {
+            for r in report.stale_refs.iter().take(limit) {
                 println!(
                     "  {}:{} — `{}` (section: {})",
                     r.doc_file, r.line, r.reference_name, r.doc_section
@@ -918,20 +940,20 @@ fn run_audit_docs(args: AuditDocsArgs) {
         }
     }
 
-    if !args.no_undocumented {
+    if !no_undocumented {
         let total = report.undocumented_exports.len();
         if total == 0 {
             println!("✓ All exported symbols have documentation coverage.");
         } else {
             println!(
                 "Undocumented exports ({total} total{})\n",
-                if total > args.limit {
-                    format!(", showing first {}", args.limit)
+                if total > limit {
+                    format!(", showing first {limit}")
                 } else {
                     String::new()
                 }
             );
-            for u in report.undocumented_exports.iter().take(args.limit) {
+            for u in report.undocumented_exports.iter().take(limit) {
                 println!(
                     "  {} {} — {} line {}",
                     u.kind, u.name, u.file_path, u.start_line
