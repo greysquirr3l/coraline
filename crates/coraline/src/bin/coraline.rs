@@ -859,49 +859,72 @@ fn run_audit_docs(args: AuditDocsArgs) {
     };
 
     if json {
-        print_audit_docs_json(&report, limit);
+        print_audit_docs_json(&report, no_stale, no_undocumented, limit);
         return;
     }
 
     print_audit_docs_human(&report, no_stale, no_undocumented, limit);
 }
 
-fn print_audit_docs_json(report: &audit::DocAuditReport, limit: usize) {
-    let stale: Vec<_> = report
-        .stale_refs
-        .iter()
-        .take(limit)
-        .map(|r| {
-            serde_json::json!({
-                "reference": r.reference_name,
-                "doc_file": r.doc_file,
-                "section": r.doc_section,
-                "line": r.line,
-                "column": r.column
+fn print_audit_docs_json(
+    report: &audit::DocAuditReport,
+    no_stale: bool,
+    no_undocumented: bool,
+    limit: usize,
+) {
+    let mut out = serde_json::Map::new();
+    out.insert(
+        "doc_files_indexed".to_string(),
+        serde_json::Value::from(report.doc_files_indexed),
+    );
+    out.insert(
+        "doc_sections_indexed".to_string(),
+        serde_json::Value::from(report.doc_sections_indexed),
+    );
+
+    if !no_stale {
+        let stale: Vec<_> = report
+            .stale_refs
+            .iter()
+            .take(limit)
+            .map(|r| {
+                serde_json::json!({
+                    "reference": r.reference_name,
+                    "doc_file": r.doc_file,
+                    "section": r.doc_section,
+                    "line": r.line,
+                    "column": r.column
+                })
             })
-        })
-        .collect();
-    let undoc: Vec<_> = report
-        .undocumented_exports
-        .iter()
-        .take(limit)
-        .map(|u| {
-            serde_json::json!({
-                "name": u.name,
-                "qualified_name": u.qualified_name,
-                "kind": u.kind,
-                "file": u.file_path,
-                "line": u.start_line
+            .collect();
+        out.insert("stale_refs".to_string(), serde_json::Value::from(stale));
+    }
+
+    if !no_undocumented {
+        let undoc: Vec<_> = report
+            .undocumented_exports
+            .iter()
+            .take(limit)
+            .map(|u| {
+                serde_json::json!({
+                    "name": u.name,
+                    "qualified_name": u.qualified_name,
+                    "kind": u.kind,
+                    "file": u.file_path,
+                    "line": u.start_line
+                })
             })
-        })
-        .collect();
-    let out = serde_json::json!({
-        "doc_files_indexed": report.doc_files_indexed,
-        "doc_sections_indexed": report.doc_sections_indexed,
-        "stale_refs": stale,
-        "undocumented_exports": undoc
-    });
-    println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
+            .collect();
+        out.insert(
+            "undocumented_exports".to_string(),
+            serde_json::Value::from(undoc),
+        );
+    }
+
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::Value::Object(out)).unwrap_or_default()
+    );
 }
 
 fn print_audit_docs_human(
@@ -910,7 +933,6 @@ fn print_audit_docs_human(
     no_undocumented: bool,
     limit: usize,
 ) {
-
     // Human-readable output
     println!(
         "Doc audit — {} file(s), {} section(s) indexed\n",

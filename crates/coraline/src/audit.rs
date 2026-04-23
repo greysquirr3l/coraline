@@ -94,7 +94,10 @@ pub fn audit_docs(project_root: &Path) -> std::io::Result<DocAuditReport> {
         .map(|n| UndocumentedExport {
             name: n.name,
             qualified_name: n.qualified_name,
-            kind: format!("{:?}", n.kind).to_ascii_lowercase(),
+            kind: serde_json::to_value(n.kind)
+                .ok()
+                .and_then(|v| v.as_str().map(ToOwned::to_owned))
+                .unwrap_or_else(|| "unknown".to_string()),
             file_path: n.file_path,
             start_line: n.start_line,
         })

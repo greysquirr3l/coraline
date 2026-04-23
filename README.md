@@ -240,7 +240,7 @@ See the published CLI reference: <https://greysquirr3l.github.io/coraline/cli-re
 
 ## MCP Tools
 
-When running as an MCP server, Coraline exposes **27 tools** prefixed with `coraline_` (`coraline_semantic_search` requires the embedding model to be downloaded — see [Semantic Search](#semantic-search--llm-embeddings)).
+When running as an MCP server, Coraline exposes **27 standard tools** prefixed with `coraline_`, plus optional `coraline_semantic_search` when the embedding model has been downloaded (for **28 total** tools in that configuration; see [Semantic Search](#semantic-search--llm-embeddings)).
 See the published MCP tools reference: <https://greysquirr3l.github.io/coraline/mcp-tools.html>.
 
 `coraline_semantic_search` also performs periodic freshness maintenance: it checks index staleness on an interval, auto-runs incremental sync when needed, and refreshes stale embeddings before returning results.

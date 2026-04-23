@@ -410,8 +410,8 @@ Detects two classes of issues:
   "summary": {
     "doc_files_indexed": 12,
     "doc_sections_indexed": 89,
-    "stale_ref_count": 3,
-    "undocumented_export_count": 7
+    "stale_refs_count": 3,
+    "undocumented_exports_count": 7
   },
   "stale_refs": [
     {

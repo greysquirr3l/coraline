@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`coraline audit-docs --json` now respects filtering flags** — JSON output now honors `--no-stale` and `--no-undocumented` instead of always emitting both result arrays.
+- **Canonical `NodeKind` serialization in doc audit output** — undocumented export `kind` values are now serialized from the enum representation (snake_case) instead of debug-lowercase formatting, preventing mismatches like `typealias` vs `type_alias`.
+- **Audit docs JSON schema naming alignment** — `docs/MCP_TOOLS.md` examples now use `stale_refs_count` and `undocumented_exports_count`, matching the actual MCP response keys.
+
+### Documentation
+
+- Clarified README MCP tool-count wording: **27 standard tools** plus optional `coraline_semantic_search` when embeddings are available (**28 total** in that configuration).
+
 ## [0.8.6] - 2026-04-22
 
 ### Fixed
