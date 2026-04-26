@@ -12,6 +12,7 @@ pub mod logging;
 pub mod mcp;
 pub mod memory;
 pub mod resolution;
+pub mod security;
 pub mod sync;
 pub mod tools;
 pub mod types;

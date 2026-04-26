@@ -1,6 +1,6 @@
 # Coraline MCP Tools Reference
 
-Coraline exposes **28 MCP tools** when running as an MCP server (`coraline serve --mcp`).
+Coraline exposes **29 MCP tools** when running as an MCP server (`coraline serve --mcp`).
 All tool names are prefixed with `coraline_` to avoid collisions with other MCP servers.
 
 Protocol notes:
@@ -8,7 +8,7 @@ Protocol notes:
 - Expects `notifications/initialized` after `initialize` before normal requests
 - `tools/list` supports pagination via `cursor` and `nextCursor`
 
-`coraline_semantic_search` is available by default (the `embeddings` feature ships enabled) but only registered when an ONNX model is present in `.coraline/models/`. Run `coraline model download` then `coraline embed` to activate it. The remaining 27 tools are typically available; memory-backed tools may be skipped if their initialization fails (e.g. due to filesystem or permission issues).
+`coraline_semantic_search` is available by default (the `embeddings` feature ships enabled) but only registered when an ONNX model is present in `.coraline/models/`. Run `coraline model download` then `coraline embed` to activate it. The remaining 28 tools are typically available; memory-backed tools may be skipped if their initialization fails (e.g. due to filesystem or permission issues).
 
 ### Background Auto-Sync
 
@@ -48,6 +48,7 @@ When the MCP server starts, it spawns a background thread that periodically chec
 | | `coraline_get_config` | Read project configuration |
 | | `coraline_update_config` | Update a config value |
 | | `coraline_semantic_search` | Vector similarity search (requires model download — see below) |
+| | `coraline_session_security_status` | Show live MCP session security counters and configured limits |
 | **Memory** | `coraline_write_memory` | Write or update a project memory |
 | | `coraline_read_memory` | Read a project memory |
 | | `coraline_list_memories` | List all memories |
@@ -514,6 +515,45 @@ Show project statistics: total files, nodes, edges, and unresolved reference cou
   "edges": 9872,
   "unresolved": 153,
   "db_size_bytes": 2097152
+}
+```
+
+---
+
+### `coraline_session_security_status`
+
+Show live MCP session security counters and configured guardrail/session limits.
+Useful for runtime triage when investigating blocked or redacted tool calls.
+
+**Input:** None.
+
+**Example `tools/call` request:**
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "sec-1",
+  "method": "tools/call",
+  "params": {
+    "name": "coraline_session_security_status",
+    "arguments": {}
+  }
+}
+```
+
+**Example `tools/call` response:**
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "sec-1",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"session\":{\"tool_calls\":12,\"guardrail_hits\":3,\"blocked_calls\":1},\"limits\":{\"enabled\":true,\"max_tool_calls_per_session\":500,\"max_guardrail_hits_per_session\":100,\"max_blocked_calls_per_session\":25},\"security\":{\"enabled\":true,\"input_guardrail_mode\":\"monitor\",\"output_guardrail_mode\":\"enforce\"}}"
+      }
+    ],
+    "isError": false
+  }
 }
 ```
 

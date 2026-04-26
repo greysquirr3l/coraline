@@ -15,6 +15,21 @@ pub mod file_tools;
 pub mod graph_tools;
 pub mod memory_tools;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolRisk {
+    ReadOnly,
+    WriteLike,
+}
+
+impl ToolRisk {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ReadOnly => "read_only",
+            Self::WriteLike => "write_like",
+        }
+    }
+}
+
 /// Result type for tool execution
 pub type ToolResult = Result<Value, ToolError>;
 
@@ -137,6 +152,20 @@ fn normalize_tool_name(name: &str) -> Option<String> {
 
     name.strip_prefix("mcp_")
         .map(std::string::ToString::to_string)
+}
+
+pub fn classify_tool_risk(tool_name: &str) -> ToolRisk {
+    let canonical = normalize_tool_name(tool_name).unwrap_or_else(|| tool_name.to_string());
+
+    if canonical.starts_with("coraline_write_memory")
+        || canonical.starts_with("coraline_delete_memory")
+        || canonical.starts_with("coraline_edit_memory")
+        || canonical.starts_with("coraline_update_config")
+    {
+        return ToolRisk::WriteLike;
+    }
+
+    ToolRisk::ReadOnly
 }
 
 /// Create a default tool registry with all built-in tools
@@ -359,5 +388,18 @@ mod tests {
 
         let result = registry.execute("mcp_coraline_mock_tool", serde_json::json!({}));
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_classify_tool_risk_write_like_for_memory_mutation_tool() {
+        assert_eq!(
+            classify_tool_risk("coraline_write_memory"),
+            ToolRisk::WriteLike
+        );
+    }
+
+    #[test]
+    fn test_classify_tool_risk_read_only_for_read_tool() {
+        assert_eq!(classify_tool_risk("coraline_read_file"), ToolRisk::ReadOnly);
     }
 }

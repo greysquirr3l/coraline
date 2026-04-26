@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-04-25
+
+### Added
+
+- **MCP production security hardening** — new `security.rs` module with input/output guardrails, pattern-based redaction, prompt-injection detection, and configurable enforcement modes (`Off` / `Monitor` / `Enforce`).
+- **`SecurityConfig`** in `CoralineConfig` — controls session limits (`max_tool_calls_per_session`, `max_guardrail_hits_per_session`, `max_blocked_calls_per_session`), read→write flow policy (`enforce_flow_policy`), output character cap (`max_output_chars`), and per-category redaction/pattern lists; surfaced in the default TOML template.
+- **Per-tool risk classification** — `classify_tool_risk()` labels every registered tool as `ReadOnly` or `WriteLike`; used by the flow policy to detect anomalous read→write transitions within a session.
+- **Session security state tracking** — `McpServer` maintains live counters for tool calls, guardrail hits, blocked calls, and read→write events; resets on `initialize`.
+- **`coraline_session_security_status` pseudo-tool** — returns a JSON snapshot of the current session counters against configured limits; useful for monitoring and debugging from the AI client.
+- **Serve-time security warning** — `coraline serve --mcp` now emits a warning when the security module is disabled; `--require-security` flag exits with code 2 when security is not enabled, allowing hardened deployments to fail fast.
+- **Structured audit log events** — every tool dispatch emits a `tracing` event with `event`, `tool`, `decision`, `guardrail_hits`, `arg_hash` (SHA-256), and `result_size` for SIEM/log-pipeline integration.
+- **`docs/MCP_PRODUCTION_SECURITY_PLAN.md`** — full production security checklist and code-level integration map.
+- **`docs/MCP_TOOLS.md` updated** — tool count raised to 29; `coraline_session_security_status` documented with full request/response example.
+
 ## [0.8.8] - 2026-04-23
 
 ### Fixed

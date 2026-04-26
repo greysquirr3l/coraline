@@ -196,6 +196,9 @@ struct ServeArgs {
     path: Option<PathBuf>,
     #[arg(long = "mcp")]
     mcp: bool,
+    /// Refuse to start MCP unless [security].enabled = true in config.toml.
+    #[arg(long = "require-security")]
+    require_security: bool,
 }
 
 #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
@@ -332,7 +335,24 @@ fn main() {
         },
         Command::Serve(args) => {
             if args.mcp {
-                let mut server = McpServer::new(args.path);
+                let serve_root = resolve_project_root(args.path.clone());
+                let security_enabled =
+                    config::load_toml_config(&serve_root).is_ok_and(|cfg| cfg.security.enabled);
+
+                if args.require_security && !security_enabled {
+                    eprintln!(
+                        "Refusing to start MCP server: security is disabled. Set [security].enabled = true or remove --require-security."
+                    );
+                    std::process::exit(2);
+                }
+
+                if !security_enabled {
+                    eprintln!(
+                        "Warning: MCP security guardrails are disabled ([security].enabled = false)."
+                    );
+                }
+
+                let mut server = McpServer::new(Some(serve_root));
                 if let Err(err) = server.start() {
                     eprintln!("Failed to start MCP server: {err}");
                     std::process::exit(1);

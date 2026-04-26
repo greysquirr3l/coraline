@@ -350,6 +350,84 @@ impl Default for VectorsConfig {
     }
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum GuardrailMode {
+    Off,
+    #[default]
+    Monitor,
+    Enforce,
+}
+
+/// MCP security and guardrail settings.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SecurityConfig {
+    /// Enables MCP security controls.
+    pub enabled: bool,
+    /// Mode for input guardrail checks.
+    pub input_guardrail_mode: GuardrailMode,
+    /// Mode for output guardrail checks.
+    pub output_guardrail_mode: GuardrailMode,
+    /// Sensitive data classes to redact from MCP tool output.
+    pub redaction_categories: Vec<String>,
+    /// Regex patterns that should never appear in output.
+    pub blocked_output_patterns: Vec<String>,
+    /// Regex patterns that indicate likely prompt injection in input.
+    pub blocked_input_patterns: Vec<String>,
+    /// Enforce per-session MCP anomaly limits.
+    pub enforce_session_limits: bool,
+    /// Maximum tools/call invocations allowed in one MCP session.
+    pub max_tool_calls_per_session: usize,
+    /// Maximum cumulative guardrail hits allowed in one MCP session.
+    pub max_guardrail_hits_per_session: usize,
+    /// Maximum blocked tool calls allowed in one MCP session.
+    pub max_blocked_calls_per_session: usize,
+    /// Enforce read-to-write flow policy across a session.
+    pub enforce_flow_policy: bool,
+    /// Maximum allowed read->write transitions per session.
+    pub max_read_then_write_events_per_session: usize,
+    /// Output size cap before truncation or deny in enforce mode.
+    pub max_output_chars: usize,
+}
+
+impl Default for SecurityConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            input_guardrail_mode: GuardrailMode::Monitor,
+            output_guardrail_mode: GuardrailMode::Monitor,
+            redaction_categories: vec![
+                "email".to_string(),
+                "phone".to_string(),
+                "ssn".to_string(),
+                "credit_card".to_string(),
+                "access_token".to_string(),
+            ],
+            blocked_output_patterns: vec![
+                "-----BEGIN [A-Z ]*PRIVATE KEY-----".to_string(),
+                "AKIA[0-9A-Z]{16}".to_string(),
+                "ghp_[A-Za-z0-9]{20,}".to_string(),
+                "xox[baprs]-[A-Za-z0-9-]{20,}".to_string(),
+            ],
+            blocked_input_patterns: vec![
+                "(?i)ignore\\s+previous\\s+instructions".to_string(),
+                "(?i)system\\s+prompt".to_string(),
+                "(?i)developer\\s+message".to_string(),
+                "(?i)exfiltrat(?:e|ion)".to_string(),
+                "(?i)send\\s+.*\\s+to\\s+external".to_string(),
+            ],
+            enforce_session_limits: false,
+            max_tool_calls_per_session: 500,
+            max_guardrail_hits_per_session: 100,
+            max_blocked_calls_per_session: 25,
+            enforce_flow_policy: false,
+            max_read_then_write_events_per_session: 10,
+            max_output_chars: 50_000,
+        }
+    }
+}
+
 /// Indexing settings (superset of the legacy `CodeGraphConfig` fields).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -385,6 +463,7 @@ pub struct CoralineConfig {
     pub context: ContextConfig,
     pub sync: SyncConfig,
     pub vectors: VectorsConfig,
+    pub security: SecurityConfig,
 }
 
 impl CoralineConfig {
@@ -503,4 +582,31 @@ batch_size = 32
 max_seq_len = 512
 # model_dir  = ".coraline/models/nomic-embed-text-v1.5"  # override default path
 # model_file = "model_int8.onnx"                          # pin a specific variant
+
+[security]
+# MCP guardrails are opt-in by default to preserve current behavior.
+enabled = false
+input_guardrail_mode = "monitor"   # off | monitor | enforce
+output_guardrail_mode = "monitor"  # off | monitor | enforce
+redaction_categories = ["email", "phone", "ssn", "credit_card", "access_token"]
+blocked_output_patterns = [
+    "-----BEGIN [A-Z ]*PRIVATE KEY-----",
+    "AKIA[0-9A-Z]{16}",
+    "ghp_[A-Za-z0-9]{20,}",
+    "xox[baprs]-[A-Za-z0-9-]{20,}",
+]
+blocked_input_patterns = [
+    "(?i)ignore\\s+previous\\s+instructions",
+    "(?i)system\\s+prompt",
+    "(?i)developer\\s+message",
+    "(?i)exfiltrat(?:e|ion)",
+    "(?i)send\\s+.*\\s+to\\s+external",
+]
+enforce_session_limits = false
+max_tool_calls_per_session = 500
+max_guardrail_hits_per_session = 100
+max_blocked_calls_per_session = 25
+enforce_flow_policy = false
+max_read_then_write_events_per_session = 10
+max_output_chars = 50000
 "#;
