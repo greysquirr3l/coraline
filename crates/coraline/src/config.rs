@@ -257,6 +257,31 @@ pub const fn is_language_supported(language: &Language) -> bool {
 /// Filename for the user-editable TOML configuration.
 pub const TOML_CONFIG_FILENAME: &str = "config.toml";
 
+/// XDG-compliant base directory for global Coraline configuration.
+///
+/// Returns `$XDG_CONFIG_HOME/coraline` when the env variable is set, otherwise
+/// `~/.config/coraline`. Falls back to `.config/coraline` (relative to CWD)
+/// when `HOME` is also absent.
+pub fn global_config_dir() -> PathBuf {
+    let config_base = std::env::var("XDG_CONFIG_HOME").map_or_else(
+        |_| {
+            std::env::var("HOME").map_or_else(
+                |_| PathBuf::from(".config"),
+                |h| PathBuf::from(h).join(".config"),
+            )
+        },
+        PathBuf::from,
+    );
+
+    config_base.join("coraline")
+}
+
+/// Path to the global config file: `~/.config/coraline/config.toml`.
+pub fn global_toml_config_path() -> PathBuf {
+    global_config_dir().join(TOML_CONFIG_FILENAME)
+}
+
+/// Path to the per-project config file: `<project_root>/.coraline/config.toml`.
 pub fn toml_config_path(project_root: &Path) -> PathBuf {
     project_root.join(".coraline").join(TOML_CONFIG_FILENAME)
 }
@@ -325,7 +350,7 @@ pub struct VectorsConfig {
     /// Batch size for embedding generation.
     pub batch_size: usize,
     /// Path to the model directory (containing an ONNX file + tokenizer.json).
-    /// Defaults to `.coraline/models/nomic-embed-text-v1.5/`.
+    /// Defaults to `~/.config/coraline/models/nomic-embed-text-v1.5/`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_dir: Option<String>,
     /// Specific ONNX filename to use (e.g. `model_int8.onnx`).
@@ -473,15 +498,70 @@ impl CoralineConfig {
     }
 }
 
-/// Load the TOML config from `.coraline/config.toml`, returning defaults if
-/// the file does not exist.  Returns an error only on parse failures.
+/// Load and merge config from `~/.config/coraline/config.toml` (global) and
+/// `<project_root>/.coraline/config.toml` (local).
+///
+/// Local values take precedence at the individual field level: a local
+/// `[vectors]` section that only sets `enabled = true` still inherits
+/// `model_dir` from the global config. Returns struct defaults when neither
+/// file exists.
 pub fn load_toml_config(project_root: &Path) -> std::io::Result<CoralineConfig> {
+    let global = load_raw_toml_value(&global_toml_config_path());
+    let local = load_raw_toml_value(&toml_config_path(project_root));
+
+    let merged = match (global, local) {
+        (Some(g), Some(l)) => merge_toml_values(g, l),
+        (Some(g), None) => g,
+        (None, Some(l)) => l,
+        (None, None) => return Ok(CoralineConfig::default_config()),
+    };
+
+    CoralineConfig::deserialize(merged)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+}
+
+/// Load only the per-project config without applying the global fallback.
+///
+/// Use this when you need to read and write back a single config value without
+/// unintentionally baking global defaults into the local file.
+pub fn load_local_toml_config(project_root: &Path) -> std::io::Result<CoralineConfig> {
     let path = toml_config_path(project_root);
     if !path.exists() {
         return Ok(CoralineConfig::default_config());
     }
     let raw = fs::read_to_string(&path)?;
     toml::from_str(&raw).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+}
+
+/// Read a TOML file into a raw `toml::Value`, returning `None` if the file
+/// does not exist or fails to parse.
+fn load_raw_toml_value(path: &Path) -> Option<toml::Value> {
+    if !path.exists() {
+        return None;
+    }
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|raw| toml::from_str(&raw).ok())
+}
+
+/// Deep-merge two TOML values with `overlay` winning at every leaf.
+///
+/// When both values are tables the merge recurses into each key. For any other
+/// combination the overlay value replaces the base value entirely.
+fn merge_toml_values(base: toml::Value, overlay: toml::Value) -> toml::Value {
+    match (base, overlay) {
+        (toml::Value::Table(mut base_tbl), toml::Value::Table(overlay_tbl)) => {
+            for (key, overlay_val) in overlay_tbl {
+                let merged = match base_tbl.remove(&key) {
+                    Some(base_val) => merge_toml_values(base_val, overlay_val),
+                    None => overlay_val,
+                };
+                base_tbl.insert(key, merged);
+            }
+            toml::Value::Table(base_tbl)
+        }
+        (_, overlay) => overlay,
+    }
 }
 
 /// Persist the TOML config to `.coraline/config.toml`.
@@ -681,7 +761,7 @@ model      = "nomic-embed-text-v1.5"
 dimension  = 768
 batch_size = 32
 max_seq_len = 512
-# model_dir  = ".coraline/models/nomic-embed-text-v1.5"  # override default path
+# model_dir  = "~/.config/coraline/models/nomic-embed-text-v1.5"  # override default path
 # model_file = "model_int8.onnx"                          # pin a specific variant
 
 [security]
