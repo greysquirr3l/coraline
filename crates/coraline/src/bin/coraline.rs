@@ -245,6 +245,11 @@ enum ModelAction {
     },
     /// Show which model files are present in the model directory.
     Status,
+    /// Copy model files from the legacy per-project location to the shared global directory.
+    ///
+    /// The legacy location is `.coraline/models/nomic-embed-text-v1.5/` inside the
+    /// project root. After migration the old directory can be removed manually.
+    Migrate,
 }
 
 fn main() {
@@ -336,7 +341,10 @@ fn run_model(args: ModelArgs) {
     let model_dir = cfg
         .vectors
         .model_dir
-        .map_or_else(|| vectors::default_model_dir(&project_root), PathBuf::from);
+        .map_or_else(vectors::global_model_dir, PathBuf::from);
+
+    // Lazily migrate any model files found in the legacy per-project location.
+    vectors::maybe_migrate_legacy_model(&vectors::global_model_dir(), &project_root);
 
     match args.action {
         ModelAction::Download { variant, force } => {
@@ -371,6 +379,47 @@ fn run_model(args: ModelArgs) {
                     println!("  {name:<30}  (not present)");
                 }
             }
+        }
+        ModelAction::Migrate => {
+            let global_dir = vectors::global_model_dir();
+            let legacy_dir = project_root
+                .join(".coraline")
+                .join("models")
+                .join(vectors::DEFAULT_MODEL);
+
+            let global_has_model = vectors::MODEL_PREFERENCE_ORDER
+                .iter()
+                .any(|name| global_dir.join(name).exists());
+
+            if global_has_model {
+                println!(
+                    "Shared model directory already populated: {}",
+                    global_dir.display()
+                );
+                println!("Nothing to migrate.");
+
+                return;
+            }
+
+            let legacy_has_model = vectors::MODEL_PREFERENCE_ORDER
+                .iter()
+                .any(|name| legacy_dir.join(name).exists());
+
+            if !legacy_has_model {
+                println!(
+                    "No model files found in legacy location: {}",
+                    legacy_dir.display()
+                );
+                println!(
+                    "Run `coraline model download` to fetch the model into {}",
+                    global_dir.display()
+                );
+
+                return;
+            }
+
+            // The lazy migration function prints its own message when files are copied.
+            vectors::maybe_migrate_legacy_model(&global_dir, &project_root);
         }
     }
 }

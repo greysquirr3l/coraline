@@ -640,8 +640,9 @@ impl Tool for UpdateConfigTool {
             .ok_or_else(|| ToolError::invalid_params("value is required"))?
             .clone();
 
-        // Load current config, mutate it as JSON, write back
-        let cfg = crate::config::load_toml_config(&self.project_root)
+        // Load only the local config so we patch and save just project-level
+        // values without baking global defaults into the per-project file.
+        let cfg = crate::config::load_local_toml_config(&self.project_root)
             .map_err(|e| ToolError::internal_error(format!("Failed to load config: {e}")))?;
 
         let mut cfg_json = serde_json::to_value(&cfg)

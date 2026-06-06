@@ -17,7 +17,7 @@
 //!
 //! ## Quick start
 //!
-//! 1. Download a model into `.coraline/models/nomic-embed-text-v1.5/`.
+//! 1. Download a model into `~/.config/coraline/models/nomic-embed-text-v1.5/`.
 //!    Any of the ONNX variants from `nomic-ai/nomic-embed-text-v1.5` work;
 //!    the smallest usable option is `model_int8.onnx` (137 MB).
 //!    Also copy `tokenizer.json` from the same HuggingFace repo.
@@ -307,15 +307,20 @@ impl VectorManager {
         Self::new(&model_path)
     }
 
-    /// Load using the project's config (falls back to default model dir).
+    /// Load using the project's config (falls back to [`global_model_dir`]).
     ///
     /// Respects `vectors.model_dir` and `vectors.model_file` from config.toml.
+    /// Lazily migrates model files from the legacy per-project location when
+    /// the global directory has no model yet.
     pub fn from_project(project_root: &Path) -> io::Result<Self> {
         let cfg = crate::config::load_toml_config(project_root).unwrap_or_default();
         let model_dir = cfg
             .vectors
             .model_dir
-            .map_or_else(|| default_model_dir(project_root), PathBuf::from);
+            .map_or_else(global_model_dir, PathBuf::from);
+
+        maybe_migrate_legacy_model(&global_model_dir(), project_root);
+
         let model_path = find_model_file(&model_dir, cfg.vectors.model_file.as_deref())?;
         Self::new(&model_path)
     }
@@ -377,12 +382,98 @@ impl VectorManager {
     }
 }
 
-/// Default model directory: `.coraline/models/nomic-embed-text-v1.5/`.
-pub fn default_model_dir(project_root: &Path) -> PathBuf {
-    project_root
-        .join(".coraline")
+/// Shared model directory: `$XDG_CONFIG_HOME/coraline/models/nomic-embed-text-v1.5/`.
+///
+/// Falls back to `~/.config/coraline/models/nomic-embed-text-v1.5/` when
+/// `XDG_CONFIG_HOME` is not set.
+pub fn global_model_dir() -> PathBuf {
+    crate::config::global_config_dir()
         .join("models")
         .join(DEFAULT_MODEL)
+}
+
+/// Default model directory for a project.
+///
+/// Delegates to [`global_model_dir`]; `_project_root` is kept for backward
+/// compatibility but is no longer used.
+pub fn default_model_dir(_project_root: &Path) -> PathBuf {
+    global_model_dir()
+}
+
+/// Copy model files from the legacy per-project location to the shared global directory.
+///
+/// Checks `<project_root>/.coraline/models/nomic-embed-text-v1.5/` for ONNX and
+/// tokenizer files. If `global_dir` already contains any model file the function
+/// returns immediately. Prints one informational message when files are copied so
+/// users know where the model now lives and how to clean up the old location.
+pub fn maybe_migrate_legacy_model(global_dir: &Path, project_root: &Path) {
+    let already_present = MODEL_PREFERENCE_ORDER
+        .iter()
+        .any(|name| global_dir.join(name).exists());
+
+    if already_present {
+        return;
+    }
+
+    let legacy_dir = project_root
+        .join(".coraline")
+        .join("models")
+        .join(DEFAULT_MODEL);
+
+    if !legacy_dir.exists() {
+        return;
+    }
+
+    let has_model = MODEL_PREFERENCE_ORDER
+        .iter()
+        .any(|name| legacy_dir.join(name).exists());
+
+    if !has_model {
+        return;
+    }
+
+    if let Err(e) = std::fs::create_dir_all(global_dir) {
+        tracing::warn!(
+            "Model migration: could not create {}: {e}",
+            global_dir.display()
+        );
+        return;
+    }
+
+    let files_to_copy: Vec<&str> = MODEL_PREFERENCE_ORDER
+        .iter()
+        .copied()
+        .chain(["tokenizer.json", "tokenizer_config.json"])
+        .filter(|name| legacy_dir.join(name).exists())
+        .collect();
+
+    let mut copied = 0usize;
+
+    for name in &files_to_copy {
+        let src = legacy_dir.join(name);
+        let dst = global_dir.join(name);
+
+        if dst.exists() {
+            continue;
+        }
+
+        match std::fs::copy(&src, &dst) {
+            Ok(_) => copied += 1,
+            Err(e) => tracing::warn!("Model migration: failed to copy {name}: {e}"),
+        }
+    }
+
+    if copied > 0 {
+        println!(
+            "Migrated embedding model to shared location ({copied} file(s) copied).\n  \
+             From: {}\n  \
+             To:   {}\n  \
+             You can remove the old directory with: rm -rf {}",
+            legacy_dir.display(),
+            global_dir.display(),
+            legacy_dir.display(),
+        );
+    }
 }
 
 /// Mean-pool the last hidden state over non-masked positions.
