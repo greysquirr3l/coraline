@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-06-17
+
+### Fixed
+
+- **Cross-compile release builds for Linux musl/gnu** — `vectors::download_to_file` and `vectors::download_model` are now compiled under both the `embeddings` and `embeddings-dynamic` features. The previous gating (`#[cfg(feature = "embeddings")]`) caused `E0425: cannot find function download_model` when building with `--no-default-features --features embeddings-dynamic`, which is the configuration used by the `x86_64-unknown-linux-musl`, `aarch64-unknown-linux-gnu`, and `aarch64-unknown-linux-musl` release artifacts.
+
+### Changed
+
+- **MSRV bumped from 1.93 to 1.96.0** — Required by transitive dependencies (e.g. `libsqlite3-sys 0.38.1` uses the now-stabilized `cfg_select!` macro).
+- **CI Clippy job inlined** — The `cargo lint` call was depending on the `.cargo/config.toml` `lint` alias, which is gitignored and therefore not visible to CI. The workflow now runs the full clippy invocation directly.
+
 ## [0.10.0] - 2026-06-17
 
 ### Added
@@ -491,7 +502,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `coraline_search`, `coraline_callers`, `coraline_callees`, `coraline_impact`, `coraline_context` MCP tools
 - Git post-commit hook integration
 
-[Unreleased]: https://github.com/greysquirr3l/coraline/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/greysquirr3l/coraline/compare/v0.10.1...HEAD
+[0.10.1]: https://github.com/greysquirr3l/coraline/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/greysquirr3l/coraline/compare/v0.9.0...v0.10.0
 [0.8.6]: https://github.com/greysquirr3l/coraline/compare/v0.8.5...v0.8.6
 [0.8.5]: https://github.com/greysquirr3l/coraline/compare/v0.8.4...v0.8.5

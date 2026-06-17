@@ -127,8 +127,8 @@ pub fn model_url(filename: &str) -> String {
 /// Writes to a `.tmp` sibling first, then renames atomically on success.
 /// This avoids leaving a partially-written file if the download is interrupted.
 ///
-/// Only available with the `embeddings` feature (not `embeddings-dynamic`).
-#[cfg(feature = "embeddings")]
+/// Available with the `embeddings` and `embeddings-dynamic` features.
+#[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
 pub fn download_to_file(url: &str, dest: &Path, label: &str, quiet: bool) -> io::Result<()> {
     use std::io::{Read, Write};
 
@@ -197,8 +197,8 @@ pub fn download_to_file(url: &str, dest: &Path, label: &str, quiet: bool) -> io:
 ///
 /// Set `skip_existing = true` to skip files that are already present on disk.
 ///
-/// Only available with the `embeddings` feature (not `embeddings-dynamic`).
-#[cfg(feature = "embeddings")]
+/// Available with the `embeddings` and `embeddings-dynamic` features.
+#[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
 pub fn download_model(
     model_dir: &Path,
     model_filename: &str,
