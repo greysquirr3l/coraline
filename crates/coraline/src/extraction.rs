@@ -73,20 +73,6 @@ pub struct SyncResult {
     pub duration_ms: u128,
 }
 
-#[derive(Debug, Clone)]
-pub struct SyncStatus {
-    pub files_checked: usize,
-    pub files_added: usize,
-    pub files_modified: usize,
-    pub files_removed: usize,
-}
-
-impl SyncStatus {
-    pub const fn is_stale(&self) -> bool {
-        self.files_added > 0 || self.files_modified > 0 || self.files_removed > 0
-    }
-}
-
 struct ParsedFile {
     file_record: FileRecord,
     nodes: Vec<Node>,
@@ -251,8 +237,7 @@ pub fn index_all(
         .filter_map(|file| parse_file_only(project_root, config, &existing_hashes, file))
         .collect();
 
-    let parsed_total = parsed.len();
-    let files_skipped = files.len().saturating_sub(parsed_total);
+    let files_skipped = files.len().saturating_sub(parsed.len());
     info!(
         parsed = parsed.len(),
         skipped = files_skipped,
@@ -263,7 +248,7 @@ pub fn index_all(
         cb(IndexProgress {
             phase: IndexPhase::Storing,
             current: 0,
-            total: parsed_total,
+            total: parsed.len(),
             current_file: None,
         });
     }
@@ -277,7 +262,7 @@ pub fn index_all(
             cb(IndexProgress {
                 phase: IndexPhase::Storing,
                 current: idx + 1,
-                total: parsed_total,
+                total: files.len(),
                 current_file: Some(parsed_file.file_record.path.clone()),
             });
         }
@@ -339,76 +324,6 @@ pub fn index_all(
         edges_created,
         errors,
         duration_ms: start.elapsed().as_millis(),
-    })
-}
-
-/// Lightweight check for whether the index is out of date.
-///
-/// Scans the project directory and compares the current file set and tracked
-/// filesystem metadata (modification time and size) against indexed state.
-/// If metadata differs, it verifies content hash before marking a file as
-/// modified. Returns detailed status of added, modified, and removed files.
-pub fn needs_sync(project_root: &Path, config: &CodeGraphConfig) -> std::io::Result<SyncStatus> {
-    let conn = db::open_database(project_root)?;
-
-    let current_files: HashSet<String> = scan_directory(project_root, config, |_count, _file| {})
-        .into_iter()
-        .collect();
-    let tracked_files = db::list_files(&conn)?;
-
-    let tracked_paths: HashSet<&str> = tracked_files.iter().map(|f| f.path.as_str()).collect();
-
-    let mut files_added = 0usize;
-    for file in &current_files {
-        if !tracked_paths.contains(file.as_str()) {
-            files_added += 1;
-        }
-    }
-
-    let mut files_removed = 0usize;
-    let mut files_modified = 0usize;
-    for tracked in &tracked_files {
-        if !current_files.contains(&tracked.path) {
-            files_removed += 1;
-            continue;
-        }
-
-        let full_path = project_root.join(&tracked.path);
-        // Fast-path: compare mtime (milliseconds) and size from filesystem metadata.
-        // If metadata differs, confirm by hash to avoid timestamp-only false positives.
-        match fs::metadata(&full_path) {
-            Err(_) => {
-                // Unreadable tracked file is considered stale.
-                files_modified += 1;
-            }
-            Ok(meta) => {
-                let mtime = meta
-                    .modified()
-                    .ok()
-                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                    .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX));
-                let size = meta.len();
-                if mtime != tracked.modified_at || size != tracked.size {
-                    let content = if let Ok(content) = fs::read_to_string(&full_path) {
-                        content
-                    } else {
-                        // Unreadable tracked file is considered stale.
-                        files_modified += 1;
-                        continue;
-                    };
-                    if hash_sha256(&content) != tracked.content_hash {
-                        files_modified += 1;
-                    }
-                }
-            }
-        }
-    }
-
-    Ok(SyncStatus {
-        files_checked: current_files.len(),
-        files_added,
-        files_modified,
-        files_removed,
     })
 }
 
@@ -624,12 +539,6 @@ fn extract_nodes(
         Some(tree) => tree,
         None => return (Vec::new(), Vec::new(), Vec::new()),
     };
-
-    // Markdown files use a specialised doc-structure extractor rather than the
-    // generic code-symbol walker.
-    if language == Language::Markdown {
-        return extract_markdown_nodes(file_path, source, tree.root_node(), root_id, now_ms);
-    }
 
     let mut nodes = Vec::new();
     let mut edges = Vec::new();
@@ -2553,7 +2462,10 @@ fn should_include_file(file_path: &str, config: &CodeGraphConfig) -> bool {
 }
 
 fn matches_glob(file_path: &str, pattern: &str) -> bool {
-    globset::Glob::new(pattern).is_ok_and(|glob| glob.compile_matcher().is_match(file_path))
+    globset::Glob::new(pattern)
+        .ok()
+        .and_then(|glob| glob.compile_matcher().is_match(file_path).then_some(true))
+        .unwrap_or(false)
 }
 
 fn detect_language(path: &str) -> Language {
@@ -2611,275 +2523,4 @@ fn now_millis() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as i64)
-}
-
-// ─── Markdown doc-structure extraction ──────────────────────────────────────
-//
-// Produces:
-//  • NodeKind::Module  for every ATX / setext heading  (the doc section)
-//  • UnresolvedReference (EdgeKind::References) for every inline `code_span`
-//    that looks like a symbol name, so the resolution pass can link them to
-//    real code nodes and the audit pass can report the ones that never resolved.
-
-/// Top-level entry point called from `extract_nodes` when language == Markdown.
-fn extract_markdown_nodes(
-    file_path: &str,
-    source: &str,
-    root: TsNode,
-    root_id: &str,
-    now_ms: i64,
-) -> (Vec<Node>, Vec<Edge>, Vec<UnresolvedReference>) {
-    let mut nodes = Vec::new();
-    let mut edges = Vec::new();
-    let mut unresolved = Vec::new();
-    // heading_stack: (level 1-6, section_node_id) – used to associate code
-    // spans with their nearest enclosing section heading.
-    let mut heading_stack: Vec<(u8, String)> = Vec::new();
-
-    walk_markdown_node(
-        root,
-        source,
-        file_path,
-        root_id,
-        &mut heading_stack,
-        &mut nodes,
-        &mut edges,
-        &mut unresolved,
-        now_ms,
-    );
-
-    (nodes, edges, unresolved)
-}
-
-/// Recursive AST walker for Markdown trees.
-///
-/// * Headings   → `NodeKind::Module` nodes linked to the file via Contains.
-/// * `code_span`  → `UnresolvedReference` (References) from the current section
-///   (or the file node when no heading has been seen yet).
-/// * Everything else is recursed into without producing nodes.
-fn walk_markdown_node(
-    node: TsNode,
-    source: &str,
-    file_path: &str,
-    file_node_id: &str,
-    heading_stack: &mut Vec<(u8, String)>,
-    nodes: &mut Vec<Node>,
-    edges: &mut Vec<Edge>,
-    unresolved: &mut Vec<UnresolvedReference>,
-    now_ms: i64,
-) {
-    match node.kind() {
-        "atx_heading" | "setext_heading" => {
-            let level = markdown_heading_level(&node);
-            if let Some(text) = markdown_heading_text(&node, source) {
-                let start = node.start_position();
-                let end = node.end_position();
-                let qualified = format!("{file_path}::{text}");
-                let id = node_id_for_symbol(
-                    file_path,
-                    "module",
-                    &qualified,
-                    start.row as i64 + 1,
-                    start.column as i64,
-                );
-                nodes.push(Node {
-                    id: id.clone(),
-                    kind: NodeKind::Module,
-                    name: text,
-                    qualified_name: qualified,
-                    file_path: file_path.to_string(),
-                    language: Language::Markdown,
-                    start_line: start.row as i64 + 1,
-                    end_line: end.row as i64 + 1,
-                    start_column: start.column as i64,
-                    end_column: end.column as i64,
-                    docstring: None,
-                    signature: Some(format!("h{level}")),
-                    visibility: None,
-                    is_exported: false,
-                    is_async: false,
-                    is_static: false,
-                    is_abstract: false,
-                    decorators: None,
-                    type_parameters: None,
-                    updated_at: now_ms,
-                });
-                edges.push(Edge {
-                    source: file_node_id.to_string(),
-                    target: id.clone(),
-                    kind: EdgeKind::Contains,
-                    metadata: None,
-                    line: Some(start.row as i64 + 1),
-                    column: Some(start.column as i64),
-                });
-                // Keep the stack tidy: pop any heading at the same or deeper level.
-                heading_stack.retain(|(l, _)| *l < level);
-                heading_stack.push((level, id));
-            }
-            // Do NOT recurse into heading children — heading text like
-            // `fn foo()` should not be treated as a symbol reference.
-        }
-        "code_span" => {
-            if let Some(raw) = markdown_code_span_text(&node, source) {
-                // Strip trailing `()` so `foo()` resolves the same as `foo`.
-                let name = raw.trim_end_matches("()").trim().to_string();
-                if looks_like_symbol(&name) {
-                    let start = node.start_position();
-                    let from_id = heading_stack
-                        .last()
-                        .map_or(file_node_id, |(_, id)| id.as_str());
-                    unresolved.push(UnresolvedReference {
-                        from_node_id: from_id.to_string(),
-                        reference_name: name,
-                        reference_kind: EdgeKind::References,
-                        line: start.row as i64 + 1,
-                        column: start.column as i64,
-                        candidates: None,
-                    });
-                }
-            }
-        }
-        _ => {
-            for child in node.children(&mut node.walk()) {
-                walk_markdown_node(
-                    child,
-                    source,
-                    file_path,
-                    file_node_id,
-                    heading_stack,
-                    nodes,
-                    edges,
-                    unresolved,
-                    now_ms,
-                );
-            }
-        }
-    }
-}
-
-/// Determine ATX / setext heading level (1–6).
-fn markdown_heading_level(node: &TsNode) -> u8 {
-    if node.kind() == "setext_heading" {
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            match child.kind() {
-                "setext_h1_underline" => return 1,
-                "setext_h2_underline" => return 2,
-                _ => {}
-            }
-        }
-        return 1;
-    }
-    // atx_heading: inspect marker children.
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        match child.kind() {
-            "atx_h1_marker" => return 1,
-            "atx_h2_marker" => return 2,
-            "atx_h3_marker" => return 3,
-            "atx_h4_marker" => return 4,
-            "atx_h5_marker" => return 5,
-            "atx_h6_marker" => return 6,
-            _ => {}
-        }
-    }
-    1
-}
-
-/// Extract the plain-text content of a heading node.
-///
-/// Returns `None` if the heading has no discernible text.
-fn markdown_heading_text(node: &TsNode, source: &str) -> Option<String> {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == "heading_content" {
-            return child
-                .utf8_text(source.as_bytes())
-                .ok()
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty());
-        }
-    }
-    None
-}
-
-/// Extract the text content from a `code_span` node, stripping the surrounding
-/// backtick delimiters.
-fn markdown_code_span_text(node: &TsNode, source: &str) -> Option<String> {
-    // Prefer explicit `text` children (avoids including delimiter backticks).
-    let mut text = String::new();
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == "text" {
-            if let Ok(t) = child.utf8_text(source.as_bytes()) {
-                text.push_str(t);
-            }
-        }
-    }
-    if !text.is_empty() {
-        return Some(text);
-    }
-    // Fallback: take the full node text and strip surrounding backticks.
-    node.utf8_text(source.as_bytes())
-        .ok()
-        .map(|s| s.trim_matches('`').trim().to_string())
-        .filter(|s| !s.is_empty())
-}
-
-/// Heuristic: does `s` look like a code symbol worth tracking?
-///
-/// Rejects:
-/// * strings with whitespace (these are phrases, not identifiers)
-/// * single characters
-/// * pure numeric literals
-/// * common value literals that aren't project-specific symbols
-fn looks_like_symbol(s: &str) -> bool {
-    if s.len() < 2 || s.contains(' ') {
-        return false;
-    }
-    if s.chars()
-        .all(|c| c.is_ascii_digit() || c == '.' || c == '_')
-    {
-        return false;
-    }
-    let first = s.chars().next().unwrap_or('\0');
-    if !first.is_alphabetic() && first != '_' {
-        return false;
-    }
-    !matches!(
-        s,
-        "true"
-            | "false"
-            | "null"
-            | "nil"
-            | "None"
-            | "Some"
-            | "Ok"
-            | "Err"
-            | "self"
-            | "super"
-            | "crate"
-            | "pub"
-            | "fn"
-            | "let"
-            | "mut"
-            | "use"
-            | "mod"
-            | "struct"
-            | "enum"
-            | "impl"
-            | "trait"
-            | "type"
-            | "async"
-            | "await"
-            | "return"
-            | "if"
-            | "else"
-            | "match"
-            | "for"
-            | "while"
-            | "loop"
-            | "break"
-            | "continue"
-    )
 }

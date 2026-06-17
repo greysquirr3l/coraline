@@ -45,20 +45,23 @@ impl Tool for SearchTool {
                     "description": "Node kind filter (function, class, method, etc.)",
                     "enum": ["function", "method", "class", "struct", "interface", "trait", "module"]
                 },
-                "file": {
-                    "type": "string",
-                    "description": "Restrict results to symbols in this file path"
-                },
                 "limit": {
                     "type": "number",
                     "description": "Maximum number of results to return",
                     "default": 10
+                },
+                "output_format": {
+                    "type": "string",
+                    "description": "Output format: 'full' (verbose) or 'compact' (65% token reduction)",
+                    "enum": ["full", "compact"],
+                    "default": "full"
                 }
             },
             "required": ["query"]
         })
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
         let query = params
             .get("query")
@@ -79,57 +82,39 @@ impl Tool for SearchTool {
                 _ => None,
             });
 
-        let limit = params
-            .get("limit")
-            .and_then(Value::as_u64)
-            .and_then(|n| usize::try_from(n).ok())
-            .unwrap_or(10);
+        let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(10) as usize;
 
-        let file_filter = params.get("file").and_then(Value::as_str);
+        let output_format = params
+            .get("output_format")
+            .and_then(Value::as_str)
+            .and_then(|s| s.parse::<super::OutputFormat>().ok())
+            .unwrap_or_default();
 
         let conn = db::open_database(&self.project_root)
             .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
 
-        // Fetch extra results when file-filtering so we still hit the requested limit.
-        let fetch_limit = if file_filter.is_some() {
-            limit * 5
-        } else {
-            limit
-        };
-        let results = db::search_nodes(&conn, query, kind, fetch_limit)
+        let results = db::search_nodes(&conn, query, kind, limit)
             .map_err(|e| ToolError::internal_error(format!("Search failed: {e}")))?;
-
-        let abs_file = file_filter.map(|f| {
-            if std::path::Path::new(f).is_absolute() {
-                f.to_string()
-            } else {
-                self.project_root.join(f).to_string_lossy().to_string()
-            }
-        });
 
         let results_json: Vec<Value> = results
             .into_iter()
-            .filter(|r| {
-                abs_file.as_ref().is_none_or(|af| {
-                    r.node.file_path == *af || file_filter.is_some_and(|f| r.node.file_path == f)
-                })
-            })
-            .take(limit)
             .map(|r| {
-                json!({
-                    "node": {
-                        "id": r.node.id,
-                        "kind": r.node.kind,
-                        "name": r.node.name,
-                        "qualified_name": r.node.qualified_name,
-                        "file_path": r.node.file_path,
-                        "start_line": r.node.start_line,
-                        "end_line": r.node.end_line,
-                        "language": r.node.language,
-                        "signature": r.node.signature,
-                    },
-                    "score": r.score,
-                })
+                let node_json = super::serialize_node(&r.node, output_format);
+                if output_format == super::OutputFormat::Compact {
+                    // Compact format: merge score into node object
+                    if let Some(obj) = node_json.as_object() {
+                        let mut obj = obj.clone();
+                        obj.insert("sc".to_string(), json!(r.score));
+                        Value::Object(obj)
+                    } else {
+                        node_json
+                    }
+                } else {
+                    json!({
+                        "node": node_json,
+                        "score": r.score,
+                    })
+                }
             })
             .collect();
 
@@ -157,7 +142,13 @@ impl Tool for CallersTool {
     }
 
     fn description(&self) -> &'static str {
-        "Find all functions/methods that call a given symbol"
+        "Find all functions/methods that call a given symbol. Filter by edge type for precise queries.\n\
+         \n\
+         Examples:\n\
+         - Find all callers: {\"node_id\": \"my_function\"}\n\
+         - Find only direct calls: {\"node_id\": \"my_function\", \"edge_kind\": \"calls\"}\n\
+         - Find classes extending: {\"node_id\": \"MyClass\", \"edge_kind\": \"extends\"}\n\
+         - Find implementers: {\"node_id\": \"MyInterface\", \"edge_kind\": \"implements\"}"
     }
 
     fn input_schema(&self) -> Value {
@@ -168,41 +159,60 @@ impl Tool for CallersTool {
                     "type": "string",
                     "description": "ID of the node to find callers for"
                 },
-                "name": {
+                "edge_kind": {
                     "type": "string",
-                    "description": "Symbol name (alternative to node_id). If ambiguous, add 'file'."
-                },
-                "file": {
-                    "type": "string",
-                    "description": "File path to disambiguate when using 'name'"
+                    "description": "Filter by edge kind (calls, imports, extends, implements, references)",
+                    "enum": ["calls", "imports", "extends", "implements", "references"]
                 },
                 "limit": {
                     "type": "number",
                     "description": "Maximum number of callers to return",
                     "default": 20
+                },
+                "output_format": {
+                    "type": "string",
+                    "description": "Output format: 'full' (verbose) or 'compact' (65% token reduction)",
+                    "enum": ["full", "compact"],
+                    "default": "full"
                 }
-            }
+            },
+            "required": ["node_id"]
         })
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
+        let node_id = params
+            .get("node_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ToolError::invalid_params("node_id must be a string"))?;
+
+        let edge_kind =
+            params
+                .get("edge_kind")
+                .and_then(Value::as_str)
+                .map_or(Some(EdgeKind::Calls), |s| match s {
+                    "calls" => Some(EdgeKind::Calls),
+                    "imports" => Some(EdgeKind::Imports),
+                    "extends" => Some(EdgeKind::Extends),
+                    "implements" => Some(EdgeKind::Implements),
+                    "references" => Some(EdgeKind::References),
+                    _ => None,
+                });
+
+        let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
+
+        let output_format = params
+            .get("output_format")
+            .and_then(Value::as_str)
+            .and_then(|s| s.parse::<super::OutputFormat>().ok())
+            .unwrap_or_default();
+
         let conn = db::open_database(&self.project_root)
             .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
 
-        let node_id = resolve_node_id(&conn, &self.project_root, &params, "node_id")?;
-
-        let limit = params
-            .get("limit")
-            .and_then(Value::as_u64)
-            .and_then(|n| usize::try_from(n).ok())
-            .unwrap_or(20);
-
-        // Get the target node for crate boundary validation
-        let to_node = db::get_node_by_id(&conn, &node_id)
-            .map_err(|e| ToolError::internal_error(format!("Failed to get target node: {e}")))?;
-
-        // Get edges where this node is the target and edge kind is "calls"
-        let edges = db::get_edges_by_target(&conn, &node_id, Some(EdgeKind::Calls), limit * 2)
+        // Get edges where this node is the target
+        let edges = db::get_edges_by_target(&conn, node_id, edge_kind, limit)
             .map_err(|e| ToolError::internal_error(format!("Failed to get edges: {e}")))?;
 
         let mut callers = Vec::new();
@@ -210,16 +220,15 @@ impl Tool for CallersTool {
             if let Some(caller) = db::get_node_by_id(&conn, &edge.source)
                 .map_err(|e| ToolError::internal_error(format!("Failed to get node: {e}")))?
             {
-                // Validate that the call edge has proper crate/import boundaries
-                let is_valid = if let Some(ref target) = to_node {
-                    db::is_valid_call_edge(&conn, &caller, target).map_err(|e| {
-                        ToolError::internal_error(format!("Failed to validate edge: {e}"))
-                    })?
+                if output_format == super::OutputFormat::Compact {
+                    let mut node_json = super::node_to_compact_json(&caller);
+                    if edge.line.is_some()
+                        && let Some(obj) = node_json.as_object_mut()
+                    {
+                        obj.insert("ln".to_string(), json!(edge.line));
+                    }
+                    callers.push(node_json);
                 } else {
-                    true // If we can't find the target node, allow the edge (shouldn't happen)
-                };
-
-                if is_valid {
                     callers.push(json!({
                         "id": caller.id,
                         "kind": caller.kind,
@@ -229,10 +238,6 @@ impl Tool for CallersTool {
                         "start_line": caller.start_line,
                         "line": edge.line,
                     }));
-
-                    if callers.len() >= limit {
-                        break;
-                    }
                 }
             }
         }
@@ -261,7 +266,13 @@ impl Tool for CalleesTool {
     }
 
     fn description(&self) -> &'static str {
-        "Find all functions/methods that a given symbol calls"
+        "Find all functions/methods that a given symbol calls. Filter by edge type for precise queries.\n\
+         \n\
+         Examples:\n\
+         - Find all callees: {\"node_id\": \"my_function\"}\n\
+         - Find only function calls: {\"node_id\": \"my_function\", \"edge_kind\": \"calls\"}\n\
+         - Find imports: {\"node_id\": \"my_module\", \"edge_kind\": \"imports\"}\n\
+         - Find references: {\"node_id\": \"MyClass\", \"edge_kind\": \"references\"}"
     }
 
     fn input_schema(&self) -> Value {
@@ -272,41 +283,60 @@ impl Tool for CalleesTool {
                     "type": "string",
                     "description": "ID of the node to find callees for"
                 },
-                "name": {
+                "edge_kind": {
                     "type": "string",
-                    "description": "Symbol name (alternative to node_id). If ambiguous, add 'file'."
-                },
-                "file": {
-                    "type": "string",
-                    "description": "File path to disambiguate when using 'name'"
+                    "description": "Filter by edge kind (calls, imports, extends, implements, references)",
+                    "enum": ["calls", "imports", "extends", "implements", "references"]
                 },
                 "limit": {
                     "type": "number",
                     "description": "Maximum number of callees to return",
                     "default": 20
+                },
+                "output_format": {
+                    "type": "string",
+                    "description": "Output format: 'full' (verbose) or 'compact' (65% token reduction)",
+                    "enum": ["full", "compact"],
+                    "default": "full"
                 }
-            }
+            },
+            "required": ["node_id"]
         })
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
+        let node_id = params
+            .get("node_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ToolError::invalid_params("node_id must be a string"))?;
+
+        let edge_kind =
+            params
+                .get("edge_kind")
+                .and_then(Value::as_str)
+                .map_or(Some(EdgeKind::Calls), |s| match s {
+                    "calls" => Some(EdgeKind::Calls),
+                    "imports" => Some(EdgeKind::Imports),
+                    "extends" => Some(EdgeKind::Extends),
+                    "implements" => Some(EdgeKind::Implements),
+                    "references" => Some(EdgeKind::References),
+                    _ => None,
+                });
+
+        let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
+
+        let output_format = params
+            .get("output_format")
+            .and_then(Value::as_str)
+            .and_then(|s| s.parse::<super::OutputFormat>().ok())
+            .unwrap_or_default();
+
         let conn = db::open_database(&self.project_root)
             .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
 
-        let node_id = resolve_node_id(&conn, &self.project_root, &params, "node_id")?;
-
-        let limit = params
-            .get("limit")
-            .and_then(Value::as_u64)
-            .and_then(|n| usize::try_from(n).ok())
-            .unwrap_or(20);
-
-        // Get the calling node for crate boundary validation
-        let from_node = db::get_node_by_id(&conn, &node_id)
-            .map_err(|e| ToolError::internal_error(format!("Failed to get source node: {e}")))?;
-
-        // Get edges where this node is the source and edge kind is "calls"
-        let edges = db::get_edges_by_source(&conn, &node_id, Some(EdgeKind::Calls), limit * 2)
+        // Get edges where this node is the source
+        let edges = db::get_edges_by_source(&conn, node_id, edge_kind, limit)
             .map_err(|e| ToolError::internal_error(format!("Failed to get edges: {e}")))?;
 
         let mut callees = Vec::new();
@@ -314,16 +344,15 @@ impl Tool for CalleesTool {
             if let Some(callee) = db::get_node_by_id(&conn, &edge.target)
                 .map_err(|e| ToolError::internal_error(format!("Failed to get node: {e}")))?
             {
-                // Validate that the call edge has proper crate/import boundaries
-                let is_valid = if let Some(ref from) = from_node {
-                    db::is_valid_call_edge(&conn, from, &callee).map_err(|e| {
-                        ToolError::internal_error(format!("Failed to validate edge: {e}"))
-                    })?
+                if output_format == super::OutputFormat::Compact {
+                    let mut node_json = super::node_to_compact_json(&callee);
+                    if edge.line.is_some()
+                        && let Some(obj) = node_json.as_object_mut()
+                    {
+                        obj.insert("ln".to_string(), json!(edge.line));
+                    }
+                    callees.push(node_json);
                 } else {
-                    true // If we can't find the source node, allow the edge (shouldn't happen)
-                };
-
-                if is_valid {
                     callees.push(json!({
                         "id": callee.id,
                         "kind": callee.kind,
@@ -333,10 +362,6 @@ impl Tool for CalleesTool {
                         "start_line": callee.start_line,
                         "line": edge.line,
                     }));
-
-                    if callees.len() >= limit {
-                        break;
-                    }
                 }
             }
         }
@@ -376,14 +401,6 @@ impl Tool for ImpactTool {
                     "type": "string",
                     "description": "ID of the node to analyze impact for"
                 },
-                "name": {
-                    "type": "string",
-                    "description": "Symbol name (alternative to node_id). If ambiguous, add 'file'."
-                },
-                "file": {
-                    "type": "string",
-                    "description": "File path to disambiguate when using 'name'"
-                },
                 "max_depth": {
                     "type": "number",
                     "description": "Maximum traversal depth",
@@ -394,24 +411,29 @@ impl Tool for ImpactTool {
                     "description": "Maximum nodes to include in result",
                     "default": 50
                 }
-            }
+            },
+            "required": ["node_id"]
         })
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
-        let conn = db::open_database(&self.project_root)
-            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
-
-        let node_id = resolve_node_id(&conn, &self.project_root, &params, "node_id")?;
+        let node_id = params
+            .get("node_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ToolError::invalid_params("node_id must be a string"))?;
 
         let max_depth = params
             .get("max_depth")
             .and_then(Value::as_u64)
-            .and_then(|n| usize::try_from(n).ok());
+            .map(|n| n as usize);
         let max_nodes = params
             .get("max_nodes")
             .and_then(Value::as_u64)
-            .and_then(|n| usize::try_from(n).ok());
+            .map(|n| n as usize);
+
+        let conn = db::open_database(&self.project_root)
+            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
 
         let traversal_options = TraversalOptions {
             max_depth,
@@ -422,7 +444,7 @@ impl Tool for ImpactTool {
             include_start: Some(true),
         };
 
-        let subgraph = graph::build_subgraph(&conn, &[node_id], &traversal_options)
+        let subgraph = graph::build_subgraph(&conn, &[node_id.to_string()], &traversal_options)
             .map_err(|e| ToolError::internal_error(format!("Failed to build subgraph: {e}")))?;
 
         let nodes: Vec<Value> = subgraph
@@ -467,6 +489,10 @@ impl Tool for ImpactTool {
             }
         }))
     }
+
+    fn timeout_hint(&self) -> Option<u64> {
+        Some(300_000)
+    }
 }
 
 /// Tool for finding a symbol by name pattern (richer than search — returns hierarchy/depth info)
@@ -502,10 +528,6 @@ impl Tool for FindSymbolTool {
                     "description": "Optional node kind filter",
                     "enum": ["function", "method", "class", "struct", "interface", "trait", "module"]
                 },
-                "file": {
-                    "type": "string",
-                    "description": "Restrict results to symbols in this file path"
-                },
                 "include_body": {
                     "type": "boolean",
                     "description": "Whether to include the source code body of the symbol",
@@ -521,6 +543,7 @@ impl Tool for FindSymbolTool {
         })
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
         let pattern = params
             .get("name_pattern")
@@ -537,42 +560,17 @@ impl Tool for FindSymbolTool {
             .and_then(Value::as_bool)
             .unwrap_or(false);
 
-        let limit = params
-            .get("limit")
-            .and_then(Value::as_u64)
-            .and_then(|n| usize::try_from(n).ok())
-            .unwrap_or(10);
-
-        let file_filter = params.get("file").and_then(Value::as_str);
+        let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(10) as usize;
 
         let conn = db::open_database(&self.project_root)
             .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
 
-        // Fetch extra results when file-filtering so we still hit the requested limit.
-        let fetch_limit = if file_filter.is_some() {
-            limit * 5
-        } else {
-            limit
-        };
-        let results = db::search_nodes(&conn, pattern, kind, fetch_limit)
+        // Use FTS search for the pattern
+        let results = db::search_nodes(&conn, pattern, kind, limit)
             .map_err(|e| ToolError::internal_error(format!("Search failed: {e}")))?;
-
-        let abs_file = file_filter.map(|f| {
-            if std::path::Path::new(f).is_absolute() {
-                f.to_string()
-            } else {
-                self.project_root.join(f).to_string_lossy().to_string()
-            }
-        });
 
         let symbols: Vec<Value> = results
             .into_iter()
-            .filter(|r| {
-                abs_file.as_ref().is_none_or(|af| {
-                    r.node.file_path == *af || file_filter.is_some_and(|f| r.node.file_path == f)
-                })
-            })
-            .take(limit)
             .map(|r| {
                 let body = if include_body {
                     read_node_source(&self.project_root, &r.node)
@@ -739,14 +737,6 @@ impl Tool for FindReferencesTool {
                     "type": "string",
                     "description": "ID of the node to find references to"
                 },
-                "name": {
-                    "type": "string",
-                    "description": "Symbol name (alternative to node_id). If ambiguous, add 'file'."
-                },
-                "file": {
-                    "type": "string",
-                    "description": "File path to disambiguate when using 'name'"
-                },
                 "edge_kind": {
                     "type": "string",
                     "description": "Filter by edge kind (calls, imports, extends, implements, references)",
@@ -757,15 +747,17 @@ impl Tool for FindReferencesTool {
                     "description": "Maximum number of references to return",
                     "default": 50
                 }
-            }
+            },
+            "required": ["node_id"]
         })
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
-        let conn = db::open_database(&self.project_root)
-            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
-
-        let node_id = resolve_node_id(&conn, &self.project_root, &params, "node_id")?;
+        let node_id = params
+            .get("node_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ToolError::invalid_params("node_id must be a string"))?;
 
         let edge_kind = params
             .get("edge_kind")
@@ -779,13 +771,12 @@ impl Tool for FindReferencesTool {
                 _ => None,
             });
 
-        let limit = params
-            .get("limit")
-            .and_then(Value::as_u64)
-            .and_then(|n| usize::try_from(n).ok())
-            .unwrap_or(50);
+        let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(50) as usize;
 
-        let edges = db::get_edges_by_target(&conn, &node_id, edge_kind, limit)
+        let conn = db::open_database(&self.project_root)
+            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
+
+        let edges = db::get_edges_by_target(&conn, node_id, edge_kind, limit)
             .map_err(|e| ToolError::internal_error(format!("Failed to get edges: {e}")))?;
 
         let mut references = Vec::new();
@@ -842,35 +833,31 @@ impl Tool for GetNodeTool {
                     "type": "string",
                     "description": "The node ID to retrieve"
                 },
-                "name": {
-                    "type": "string",
-                    "description": "Symbol name (alternative to node_id). If ambiguous, add 'file'."
-                },
-                "file": {
-                    "type": "string",
-                    "description": "File path to disambiguate when using 'name'"
-                },
                 "include_edges": {
                     "type": "boolean",
                     "description": "Whether to include outgoing and incoming edge counts",
                     "default": false
                 }
-            }
+            },
+            "required": ["node_id"]
         })
     }
 
     fn execute(&self, params: Value) -> ToolResult {
-        let conn = db::open_database(&self.project_root)
-            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
-
-        let node_id = resolve_node_id(&conn, &self.project_root, &params, "node_id")?;
+        let node_id = params
+            .get("node_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ToolError::invalid_params("node_id must be a string"))?;
 
         let include_edges = params
             .get("include_edges")
             .and_then(Value::as_bool)
             .unwrap_or(false);
 
-        let node = db::get_node_by_id(&conn, &node_id)
+        let conn = db::open_database(&self.project_root)
+            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
+
+        let node = db::get_node_by_id(&conn, node_id)
             .map_err(|e| ToolError::internal_error(format!("Failed to get node: {e}")))?
             .ok_or_else(|| ToolError::not_found(format!("Node not found: {node_id}")))?;
 
@@ -900,9 +887,9 @@ impl Tool for GetNodeTool {
         });
 
         if include_edges {
-            let out_edges = db::get_edges_by_source(&conn, &node_id, None, 200)
+            let out_edges = db::get_edges_by_source(&conn, node_id, None, 200)
                 .map_err(|e| ToolError::internal_error(format!("Failed to get edges: {e}")))?;
-            let in_edges = db::get_edges_by_target(&conn, &node_id, None, 200)
+            let in_edges = db::get_edges_by_target(&conn, node_id, None, 200)
                 .map_err(|e| ToolError::internal_error(format!("Failed to get edges: {e}")))?;
             if let Some(obj) = result.as_object_mut() {
                 obj.insert("outgoing_edge_count".to_string(), json!(out_edges.len()));
@@ -944,14 +931,6 @@ impl Tool for DependenciesTool {
                     "type": "string",
                     "description": "ID of the node to find dependencies for"
                 },
-                "name": {
-                    "type": "string",
-                    "description": "Symbol name (alternative to node_id). If ambiguous, add 'file'."
-                },
-                "file": {
-                    "type": "string",
-                    "description": "File path to disambiguate when using 'name'"
-                },
                 "depth": {
                     "type": "number",
                     "description": "Traversal depth (default 2)",
@@ -962,24 +941,29 @@ impl Tool for DependenciesTool {
                     "description": "Maximum number of nodes to return (default 50)",
                     "default": 50
                 }
-            }
+            },
+            "required": ["node_id"]
         })
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
-        let conn = db::open_database(&self.project_root)
-            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
-
-        let node_id = resolve_node_id(&conn, &self.project_root, &params, "node_id")?;
+        let node_id = params
+            .get("node_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ToolError::invalid_params("node_id must be a string"))?;
 
         let depth = params
             .get("depth")
             .and_then(Value::as_u64)
-            .and_then(|n| usize::try_from(n).ok());
+            .map(|n| n as usize);
         let limit = params
             .get("limit")
             .and_then(Value::as_u64)
-            .and_then(|n| usize::try_from(n).ok());
+            .map(|n| n as usize);
+
+        let conn = db::open_database(&self.project_root)
+            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
 
         let options = TraversalOptions {
             max_depth: depth.or(Some(2)),
@@ -990,7 +974,7 @@ impl Tool for DependenciesTool {
             include_start: Some(false),
         };
 
-        let subgraph = graph::build_subgraph(&conn, std::slice::from_ref(&node_id), &options)
+        let subgraph = graph::build_subgraph(&conn, &[node_id.to_string()], &options)
             .map_err(|e| ToolError::internal_error(format!("Graph traversal failed: {e}")))?;
 
         let nodes: Vec<Value> = subgraph
@@ -1060,14 +1044,6 @@ impl Tool for DependentsTool {
                     "type": "string",
                     "description": "ID of the node"
                 },
-                "name": {
-                    "type": "string",
-                    "description": "Symbol name (alternative to node_id). If ambiguous, add 'file'."
-                },
-                "file": {
-                    "type": "string",
-                    "description": "File path to disambiguate when using 'name'"
-                },
                 "depth": {
                     "type": "number",
                     "description": "Traversal depth (default 2)",
@@ -1078,24 +1054,29 @@ impl Tool for DependentsTool {
                     "description": "Maximum number of nodes to return (default 50)",
                     "default": 50
                 }
-            }
+            },
+            "required": ["node_id"]
         })
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
-        let conn = db::open_database(&self.project_root)
-            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
-
-        let node_id = resolve_node_id(&conn, &self.project_root, &params, "node_id")?;
+        let node_id = params
+            .get("node_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ToolError::invalid_params("node_id must be a string"))?;
 
         let depth = params
             .get("depth")
             .and_then(Value::as_u64)
-            .and_then(|n| usize::try_from(n).ok());
+            .map(|n| n as usize);
         let limit = params
             .get("limit")
             .and_then(Value::as_u64)
-            .and_then(|n| usize::try_from(n).ok());
+            .map(|n| n as usize);
+
+        let conn = db::open_database(&self.project_root)
+            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
 
         let options = TraversalOptions {
             max_depth: depth.or(Some(2)),
@@ -1106,7 +1087,7 @@ impl Tool for DependentsTool {
             include_start: Some(false),
         };
 
-        let subgraph = graph::build_subgraph(&conn, std::slice::from_ref(&node_id), &options)
+        let subgraph = graph::build_subgraph(&conn, &[node_id.to_string()], &options)
             .map_err(|e| ToolError::internal_error(format!("Graph traversal failed: {e}")))?;
 
         let nodes: Vec<Value> = subgraph
@@ -1175,87 +1156,47 @@ impl Tool for PathTool {
                     "type": "string",
                     "description": "Starting node ID"
                 },
-                "from_name": {
-                    "type": "string",
-                    "description": "Starting symbol name (alternative to from_id)"
-                },
-                "from_file": {
-                    "type": "string",
-                    "description": "File path to disambiguate from_name"
-                },
                 "to_id": {
                     "type": "string",
                     "description": "Target node ID"
-                },
-                "to_name": {
-                    "type": "string",
-                    "description": "Target symbol name (alternative to to_id)"
-                },
-                "to_file": {
-                    "type": "string",
-                    "description": "File path to disambiguate to_name"
                 },
                 "max_depth": {
                     "type": "number",
                     "description": "Maximum path length to search (default 6)",
                     "default": 6
                 }
-            }
+            },
+            "required": ["from_id", "to_id"]
         })
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
         use std::collections::{HashMap, VecDeque};
 
+        let from_id = params
+            .get("from_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ToolError::invalid_params("from_id must be a string"))?;
+
+        let to_id = params
+            .get("to_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ToolError::invalid_params("to_id must be a string"))?;
+
+        let max_depth = params.get("max_depth").and_then(Value::as_u64).unwrap_or(6) as usize;
+
         let conn = db::open_database(&self.project_root)
             .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
-
-        // Resolve from: use from_id directly, or from_name+from_file
-        let from_params = {
-            let mut p = serde_json::Map::new();
-            if let Some(v) = params.get("from_id") {
-                p.insert("node_id".to_string(), v.clone());
-            }
-            if let Some(v) = params.get("from_name") {
-                p.insert("name".to_string(), v.clone());
-            }
-            if let Some(v) = params.get("from_file") {
-                p.insert("file".to_string(), v.clone());
-            }
-            Value::Object(p)
-        };
-        let from_id = resolve_node_id(&conn, &self.project_root, &from_params, "node_id")?;
-
-        // Resolve to: use to_id directly, or to_name+to_file
-        let to_params = {
-            let mut p = serde_json::Map::new();
-            if let Some(v) = params.get("to_id") {
-                p.insert("node_id".to_string(), v.clone());
-            }
-            if let Some(v) = params.get("to_name") {
-                p.insert("name".to_string(), v.clone());
-            }
-            if let Some(v) = params.get("to_file") {
-                p.insert("file".to_string(), v.clone());
-            }
-            Value::Object(p)
-        };
-        let to_id = resolve_node_id(&conn, &self.project_root, &to_params, "node_id")?;
-
-        let max_depth = params
-            .get("max_depth")
-            .and_then(Value::as_u64)
-            .and_then(|n| usize::try_from(n).ok())
-            .unwrap_or(6);
 
         // BFS following outgoing edges, recording parents for path reconstruction.
 
         // Maps node_id → parent_id (empty string for the root).
         let mut parent: HashMap<String, String> = HashMap::new();
-        parent.insert(from_id.clone(), String::new());
+        parent.insert(from_id.to_string(), String::new());
 
         let mut queue: VecDeque<(String, usize)> = VecDeque::new();
-        queue.push_back((from_id.clone(), 0));
+        queue.push_back((from_id.to_string(), 0));
 
         let mut found = false;
         'bfs: while let Some((current, depth)) = queue.pop_front() {
@@ -1291,7 +1232,7 @@ impl Tool for PathTool {
 
         // Reconstruct path by walking parents backward from to_id.
         let mut path_ids: Vec<String> = Vec::new();
-        let mut cursor = to_id.clone();
+        let mut cursor = to_id.to_string();
         while !cursor.is_empty() {
             path_ids.push(cursor.clone());
             cursor = parent.get(&cursor).cloned().unwrap_or_default();
@@ -1436,79 +1377,6 @@ impl Tool for StatsTool {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-/// Resolve a node ID from tool params.
-///
-/// Accepts either:
-///  - `node_id` directly, **or**
-///  - `name` (+ optional `file` for disambiguation)
-///
-/// When `name` matches multiple nodes and no `file` is given, returns an error
-/// listing all candidates so the caller can retry with a `file` hint.
-fn resolve_node_id(
-    conn: &rusqlite::Connection,
-    project_root: &std::path::Path,
-    params: &Value,
-    id_field: &str,
-) -> Result<String, ToolError> {
-    // Fast path: explicit node_id
-    if let Some(id) = params
-        .get(id_field)
-        .and_then(Value::as_str)
-        .filter(|s| !s.is_empty())
-    {
-        return Ok(id.to_string());
-    }
-
-    // Slow path: resolve by name (+ optional file)
-    let name = params.get("name").and_then(Value::as_str).ok_or_else(|| {
-        ToolError::invalid_params(format!("Either '{id_field}' or 'name' must be provided"))
-    })?;
-
-    let file_hint = params.get("file").and_then(Value::as_str);
-
-    let mut candidates = db::find_nodes_by_name(conn, name)
-        .map_err(|e| ToolError::internal_error(format!("Name lookup failed: {e}")))?;
-
-    // Narrow by file if provided
-    if let Some(file) = file_hint {
-        let abs_hint = if std::path::Path::new(file).is_absolute() {
-            file.to_string()
-        } else {
-            project_root.join(file).to_string_lossy().to_string()
-        };
-        candidates.retain(|n| n.file_path == abs_hint || n.file_path == file);
-    }
-
-    match candidates.len() {
-        0 => Err(ToolError::not_found(format!(
-            "No symbol named '{name}' found{}",
-            file_hint.map_or_else(String::new, |f| format!(" in file '{f}'"))
-        ))),
-        1 => candidates
-            .into_iter()
-            .next()
-            .map(|n| n.id)
-            .ok_or_else(|| ToolError::internal_error("internal: candidate count mismatch")),
-        _ => {
-            let listing: Vec<String> = candidates
-                .iter()
-                .map(|n| {
-                    format!(
-                        "  {} ({:?}) — {}:{}",
-                        n.id, n.kind, n.file_path, n.start_line
-                    )
-                })
-                .collect();
-            Err(ToolError::invalid_params(format!(
-                "Ambiguous: {count} symbols named '{name}'. \
-                 Supply '{id_field}' or add 'file' to disambiguate:\n{list}",
-                count = candidates.len(),
-                list = listing.join("\n"),
-            )))
-        }
-    }
-}
-
 /// Read the source lines for a node from its file on disk.
 fn read_node_source(project_root: &std::path::Path, node: &crate::types::Node) -> Option<String> {
     let path = if std::path::Path::new(&node.file_path).is_absolute() {
@@ -1539,5 +1407,806 @@ fn str_to_node_kind(s: &str) -> Option<NodeKind> {
         "trait" => Some(NodeKind::Trait),
         "module" => Some(NodeKind::Module),
         _ => None,
+    }
+}
+
+/// Tool for batch fetching multiple nodes by ID (60% token savings)
+pub struct BatchGetNodesTool {
+    project_root: PathBuf,
+}
+
+impl BatchGetNodesTool {
+    pub const fn new(project_root: PathBuf) -> Self {
+        Self { project_root }
+    }
+}
+
+impl Tool for BatchGetNodesTool {
+    fn name(&self) -> &'static str {
+        "coraline_batch_get_nodes"
+    }
+
+    fn description(&self) -> &'static str {
+        "Fetch multiple nodes by ID in a single call. Reduces round-trip overhead for bulk lookups.\n\
+         \n\
+         Examples:\n\
+         - Get 5 nodes: {\"node_ids\": [\"id1\", \"id2\", \"id3\", \"id4\", \"id5\"]}\n\
+         - With code bodies: {\"node_ids\": [\"id1\", \"id2\"], \"include_body\": true}"
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "node_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Array of node IDs to fetch"
+                },
+                "include_body": {
+                    "type": "boolean",
+                    "description": "Include source code body for each node",
+                    "default": false
+                },
+                "output_format": {
+                    "type": "string",
+                    "description": "Output format: 'full' (verbose) or 'compact' (65% token reduction)",
+                    "enum": ["full", "compact"],
+                    "default": "full"
+                }
+            },
+            "required": ["node_ids"]
+        })
+    }
+
+    fn execute(&self, params: Value) -> ToolResult {
+        let node_ids = params
+            .get("node_ids")
+            .and_then(Value::as_array)
+            .ok_or_else(|| ToolError::invalid_params("node_ids must be an array"))?;
+
+        let include_body = params
+            .get("include_body")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+
+        let output_format = params
+            .get("output_format")
+            .and_then(Value::as_str)
+            .and_then(|s| s.parse::<super::OutputFormat>().ok())
+            .unwrap_or_default();
+
+        let conn = db::open_database(&self.project_root)
+            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
+
+        let mut results = Vec::new();
+        let mut not_found = Vec::new();
+
+        for id_val in node_ids {
+            let id = id_val
+                .as_str()
+                .ok_or_else(|| ToolError::invalid_params("All node_ids must be strings"))?;
+
+            match db::get_node_by_id(&conn, id) {
+                Ok(Some(node)) => {
+                    let mut node_json = super::serialize_node(&node, output_format);
+
+                    if include_body
+                        && let (Some(body), Some(obj)) = (
+                            read_node_source(&self.project_root, &node),
+                            node_json.as_object_mut(),
+                        )
+                    {
+                        let key = if output_format == super::OutputFormat::Compact {
+                            "b"
+                        } else {
+                            "body"
+                        };
+                        obj.insert(key.to_string(), json!(body));
+                    }
+
+                    results.push(node_json);
+                }
+                Ok(None) => {
+                    not_found.push(id.to_string());
+                }
+                Err(e) => {
+                    return Err(ToolError::internal_error(format!(
+                        "Failed to fetch node {id}: {e}"
+                    )));
+                }
+            }
+        }
+
+        Ok(json!({
+            "nodes": results,
+            "count": results.len(),
+            "not_found": not_found,
+        }))
+    }
+}
+
+/// Tool for batch fetching callers of multiple symbols (60% token savings)
+pub struct BatchCallersTool {
+    project_root: PathBuf,
+}
+
+impl BatchCallersTool {
+    pub const fn new(project_root: PathBuf) -> Self {
+        Self { project_root }
+    }
+}
+
+impl Tool for BatchCallersTool {
+    fn name(&self) -> &'static str {
+        "coraline_batch_callers"
+    }
+
+    fn description(&self) -> &'static str {
+        "Get callers for multiple symbols in a single call. Eliminates round-trip overhead.\n\
+         \n\
+         Examples:\n\
+         - Get callers for 3 functions: {\"node_ids\": [\"func1\", \"func2\", \"func3\"]}\n\
+         - Limit per symbol: {\"node_ids\": [\"id1\", \"id2\"], \"limit_per_node\": 10}"
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "node_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Array of node IDs to find callers for"
+                },
+                "limit_per_node": {
+                    "type": "number",
+                    "description": "Maximum callers to return per node",
+                    "default": 20
+                }
+            },
+            "required": ["node_ids"]
+        })
+    }
+
+    #[allow(clippy::cast_possible_truncation)]
+    fn execute(&self, params: Value) -> ToolResult {
+        let node_ids = params
+            .get("node_ids")
+            .and_then(Value::as_array)
+            .ok_or_else(|| ToolError::invalid_params("node_ids must be an array"))?;
+
+        let limit = params
+            .get("limit_per_node")
+            .and_then(Value::as_u64)
+            .unwrap_or(20) as usize;
+
+        let conn = db::open_database(&self.project_root)
+            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
+
+        let mut results = serde_json::Map::new();
+
+        for id_val in node_ids {
+            let id = id_val
+                .as_str()
+                .ok_or_else(|| ToolError::invalid_params("All node_ids must be strings"))?;
+
+            let edges =
+                db::get_edges_by_target(&conn, id, Some(EdgeKind::Calls), limit).map_err(|e| {
+                    ToolError::internal_error(format!("Failed to get callers for {id}: {e}"))
+                })?;
+
+            let callers: Vec<Value> = edges
+                .iter()
+                .filter_map(|edge| {
+                    db::get_node_by_id(&conn, &edge.source)
+                        .ok()
+                        .and_then(|opt| opt)
+                        .map(|node| {
+                            json!({
+                                "id": node.id,
+                                "kind": node.kind,
+                                "name": node.name,
+                                "qualified_name": node.qualified_name,
+                                "file_path": node.file_path,
+                                "start_line": node.start_line,
+                            })
+                        })
+                })
+                .collect();
+
+            results.insert(id.to_string(), json!(callers));
+        }
+
+        Ok(json!({
+            "callers": results,
+            "node_count": results.len(),
+        }))
+    }
+}
+
+/// Tool for batch fetching callees of multiple symbols (60% token savings)
+pub struct BatchCalleesTool {
+    project_root: PathBuf,
+}
+
+impl BatchCalleesTool {
+    pub const fn new(project_root: PathBuf) -> Self {
+        Self { project_root }
+    }
+}
+
+impl Tool for BatchCalleesTool {
+    fn name(&self) -> &'static str {
+        "coraline_batch_callees"
+    }
+
+    fn description(&self) -> &'static str {
+        "Get callees for multiple symbols in a single call. Eliminates round-trip overhead.\n\
+         \n\
+         Examples:\n\
+         - Get callees for 3 functions: {\"node_ids\": [\"func1\", \"func2\", \"func3\"]}\n\
+         - Limit per symbol: {\"node_ids\": [\"id1\", \"id2\"], \"limit_per_node\": 10}"
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "node_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Array of node IDs to find callees for"
+                },
+                "limit_per_node": {
+                    "type": "number",
+                    "description": "Maximum callees to return per node",
+                    "default": 20
+                }
+            },
+            "required": ["node_ids"]
+        })
+    }
+
+    #[allow(clippy::cast_possible_truncation)]
+    fn execute(&self, params: Value) -> ToolResult {
+        let node_ids = params
+            .get("node_ids")
+            .and_then(Value::as_array)
+            .ok_or_else(|| ToolError::invalid_params("node_ids must be an array"))?;
+
+        let limit = params
+            .get("limit_per_node")
+            .and_then(Value::as_u64)
+            .unwrap_or(20) as usize;
+
+        let conn = db::open_database(&self.project_root)
+            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
+
+        let mut results = serde_json::Map::new();
+
+        for id_val in node_ids {
+            let id = id_val
+                .as_str()
+                .ok_or_else(|| ToolError::invalid_params("All node_ids must be strings"))?;
+
+            let edges =
+                db::get_edges_by_source(&conn, id, Some(EdgeKind::Calls), limit).map_err(|e| {
+                    ToolError::internal_error(format!("Failed to get callees for {id}: {e}"))
+                })?;
+
+            let callees: Vec<Value> = edges
+                .iter()
+                .filter_map(|edge| {
+                    db::get_node_by_id(&conn, &edge.target)
+                        .ok()
+                        .and_then(|opt| opt)
+                        .map(|node| {
+                            json!({
+                                "id": node.id,
+                                "kind": node.kind,
+                                "name": node.name,
+                                "qualified_name": node.qualified_name,
+                                "file_path": node.file_path,
+                                "start_line": node.start_line,
+                            })
+                        })
+                })
+                .collect();
+
+            results.insert(id.to_string(), json!(callees));
+        }
+
+        Ok(json!({
+            "callees": results,
+            "node_count": results.len(),
+        }))
+    }
+}
+
+/// Tool for searching by type signature patterns (60% token savings for type lookups)
+pub struct SearchBySignatureTool {
+    project_root: PathBuf,
+}
+
+impl SearchBySignatureTool {
+    pub const fn new(project_root: PathBuf) -> Self {
+        Self { project_root }
+    }
+}
+
+impl Tool for SearchBySignatureTool {
+    fn name(&self) -> &'static str {
+        "coraline_search_by_signature"
+    }
+
+    fn description(&self) -> &'static str {
+        "Find symbols by type signature pattern. Faster than text search for finding functions by return type or parameters.\n\
+         \n\
+         Examples:\n\
+         - Find functions returning Result: {\"pattern\": \"Result<\"}\n\
+         - Find async functions: {\"pattern\": \"async fn\"}\n\
+         - Find generic functions: {\"pattern\": \"<T>\"}\n\
+         - Filter by kind: {\"pattern\": \"-> bool\", \"kind\": \"function\"}"
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "pattern": {
+                    "type": "string",
+                    "description": "Signature pattern to search for (case-insensitive substring match)"
+                },
+                "kind": {
+                    "type": "string",
+                    "description": "Node kind filter",
+                    "enum": ["function", "method", "class", "struct", "interface", "trait"]
+                },
+                "limit": {
+                    "type": "number",
+                    "description": "Maximum results to return",
+                    "default": 20
+                },
+                "output_format": {
+                    "type": "string",
+                    "description": "Output format: 'full' or 'compact' (65% token reduction)",
+                    "enum": ["full", "compact"],
+                    "default": "full"
+                }
+            },
+            "required": ["pattern"]
+        })
+    }
+
+    #[allow(clippy::cast_possible_truncation)]
+    fn execute(&self, params: Value) -> ToolResult {
+        let pattern = params
+            .get("pattern")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ToolError::invalid_params("pattern must be a string"))?;
+
+        let kind_filter = params
+            .get("kind")
+            .and_then(Value::as_str)
+            .and_then(str_to_node_kind);
+
+        let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
+        let limit_i64 = i64::try_from(limit).unwrap_or(i64::MAX);
+
+        let output_format = params
+            .get("output_format")
+            .and_then(Value::as_str)
+            .and_then(|s| s.parse::<super::OutputFormat>().ok())
+            .unwrap_or_default();
+
+        let conn = db::open_database(&self.project_root)
+            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
+
+        // SQL query to search signatures (case-insensitive)
+        let mut sql = "SELECT id, kind, name, qualified_name, file_path, language, start_line, end_line, \
+                       start_column, end_column, docstring, signature, visibility, is_exported, is_async, \
+                       is_static, is_abstract, decorators, type_parameters, updated_at \
+                       FROM nodes WHERE signature IS NOT NULL AND LOWER(signature) LIKE LOWER(?)".to_string();
+
+        if kind_filter.is_some() {
+            sql.push_str(" AND kind = ?");
+        }
+
+        sql.push_str(" LIMIT ?");
+
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(|e| ToolError::internal_error(format!("Failed to prepare query: {e}")))?;
+
+        let pattern_param = format!("%{pattern}%");
+        let rows = if let Some(kind) = kind_filter {
+            stmt.query_map(
+                rusqlite::params![&pattern_param, db::kind_to_string(kind), limit_i64],
+                db::row_to_node,
+            )
+        } else {
+            stmt.query_map(
+                rusqlite::params![&pattern_param, limit_i64],
+                db::row_to_node,
+            )
+        }
+        .map_err(|e| ToolError::internal_error(format!("Query failed: {e}")))?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            let node =
+                row.map_err(|e| ToolError::internal_error(format!("Row parsing failed: {e}")))?;
+            results.push(super::serialize_node(&node, output_format));
+        }
+
+        Ok(json!({
+            "results": results,
+            "count": results.len(),
+        }))
+    }
+}
+
+/// Tool for searching by docstring content (60% token savings for documentation lookups)
+pub struct SearchByDocstringTool {
+    project_root: PathBuf,
+}
+
+impl SearchByDocstringTool {
+    pub const fn new(project_root: PathBuf) -> Self {
+        Self { project_root }
+    }
+}
+
+impl Tool for SearchByDocstringTool {
+    fn name(&self) -> &'static str {
+        "coraline_search_by_docstring"
+    }
+
+    fn description(&self) -> &'static str {
+        "Search symbols by documentation/comment content. Find functions by what they do, not just their name.\n\
+         \n\
+         Examples:\n\
+         - Find database operations: {\"query\": \"database connection\"}\n\
+         - Find validation logic: {\"query\": \"validates input\"}\n\
+         - Find deprecated code: {\"query\": \"deprecated\"}\n\
+         - Filter by kind: {\"query\": \"calculates\", \"kind\": \"function\"}"
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Text to search for in docstrings/comments"
+                },
+                "kind": {
+                    "type": "string",
+                    "description": "Node kind filter",
+                    "enum": ["function", "method", "class", "struct", "interface", "trait"]
+                },
+                "limit": {
+                    "type": "number",
+                    "description": "Maximum results to return",
+                    "default": 20
+                },
+                "output_format": {
+                    "type": "string",
+                    "description": "Output format: 'full' or 'compact' (65% token reduction)",
+                    "enum": ["full", "compact"],
+                    "default": "full"
+                }
+            },
+            "required": ["query"]
+        })
+    }
+
+    #[allow(clippy::cast_possible_truncation)]
+    fn execute(&self, params: Value) -> ToolResult {
+        let query = params
+            .get("query")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ToolError::invalid_params("query must be a string"))?;
+
+        let kind_filter = params
+            .get("kind")
+            .and_then(Value::as_str)
+            .and_then(str_to_node_kind);
+
+        let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
+        let limit_i64 = i64::try_from(limit).unwrap_or(i64::MAX);
+
+        let output_format = params
+            .get("output_format")
+            .and_then(Value::as_str)
+            .and_then(|s| s.parse::<super::OutputFormat>().ok())
+            .unwrap_or_default();
+
+        let conn = db::open_database(&self.project_root)
+            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
+
+        // SQL query to search docstrings (case-insensitive)
+        let mut sql = "SELECT id, kind, name, qualified_name, file_path, language, start_line, end_line, \
+                       start_column, end_column, docstring, signature, visibility, is_exported, is_async, \
+                       is_static, is_abstract, decorators, type_parameters, updated_at \
+                       FROM nodes WHERE docstring IS NOT NULL AND LOWER(docstring) LIKE LOWER(?)".to_string();
+
+        if kind_filter.is_some() {
+            sql.push_str(" AND kind = ?");
+        }
+
+        sql.push_str(" LIMIT ?");
+
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(|e| ToolError::internal_error(format!("Failed to prepare query: {e}")))?;
+
+        let query_param = format!("%{query}%");
+        let rows = if let Some(kind) = kind_filter {
+            stmt.query_map(
+                rusqlite::params![&query_param, db::kind_to_string(kind), limit_i64],
+                db::row_to_node,
+            )
+        } else {
+            stmt.query_map(rusqlite::params![&query_param, limit_i64], db::row_to_node)
+        }
+        .map_err(|e| ToolError::internal_error(format!("Query failed: {e}")))?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            let node =
+                row.map_err(|e| ToolError::internal_error(format!("Row parsing failed: {e}")))?;
+            results.push(super::serialize_node(&node, output_format));
+        }
+
+        Ok(json!({
+            "results": results,
+            "count": results.len(),
+        }))
+    }
+}
+
+/// Tool for searching exported/public symbols only (60% token savings for API exploration)
+pub struct SearchExportedSymbolsTool {
+    project_root: PathBuf,
+}
+
+impl SearchExportedSymbolsTool {
+    pub const fn new(project_root: PathBuf) -> Self {
+        Self { project_root }
+    }
+}
+
+impl Tool for SearchExportedSymbolsTool {
+    fn name(&self) -> &'static str {
+        "coraline_search_exported_symbols"
+    }
+
+    fn description(&self) -> &'static str {
+        "Search only public/exported symbols (public API). Filters out internal implementation details.\n\
+         \n\
+         Examples:\n\
+         - Find public functions: {\"query\": \"create\", \"kind\": \"function\"}\n\
+         - Find public classes: {\"query\": \"User\", \"kind\": \"class\"}\n\
+         - Browse public API: {\"query\": \"*\", \"limit\": 50}"
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search query (symbol name pattern, use '*' for all)"
+                },
+                "kind": {
+                    "type": "string",
+                    "description": "Node kind filter",
+                    "enum": ["function", "method", "class", "struct", "interface", "trait", "module"]
+                },
+                "limit": {
+                    "type": "number",
+                    "description": "Maximum results to return",
+                    "default": 20
+                },
+                "output_format": {
+                    "type": "string",
+                    "description": "Output format: 'full' or 'compact' (65% token reduction)",
+                    "enum": ["full", "compact"],
+                    "default": "full"
+                }
+            },
+            "required": ["query"]
+        })
+    }
+
+    #[allow(clippy::cast_possible_truncation)]
+    fn execute(&self, params: Value) -> ToolResult {
+        let query = params
+            .get("query")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ToolError::invalid_params("query must be a string"))?;
+
+        let kind_filter = params
+            .get("kind")
+            .and_then(Value::as_str)
+            .and_then(str_to_node_kind);
+
+        let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
+        let limit_i64 = i64::try_from(limit).unwrap_or(i64::MAX);
+
+        let output_format = params
+            .get("output_format")
+            .and_then(Value::as_str)
+            .and_then(|s| s.parse::<super::OutputFormat>().ok())
+            .unwrap_or_default();
+
+        let conn = db::open_database(&self.project_root)
+            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
+
+        // Search only exported symbols
+        let kind = kind_filter;
+        let use_wildcard = query == "*";
+
+        let results = if use_wildcard {
+            // Get all exported symbols of the specified kind
+            let mut sql = "SELECT id, kind, name, qualified_name, file_path, language, start_line, end_line, \
+                           start_column, end_column, docstring, signature, visibility, is_exported, is_async, \
+                           is_static, is_abstract, decorators, type_parameters, updated_at \
+                           FROM nodes WHERE is_exported = 1".to_string();
+
+            if kind.is_some() {
+                sql.push_str(" AND kind = ?");
+            }
+
+            sql.push_str(" LIMIT ?");
+
+            let mut stmt = conn
+                .prepare(&sql)
+                .map_err(|e| ToolError::internal_error(format!("Failed to prepare query: {e}")))?;
+
+            let rows = if let Some(k) = kind {
+                stmt.query_map(
+                    rusqlite::params![db::kind_to_string(k), limit_i64],
+                    db::row_to_node,
+                )
+            } else {
+                stmt.query_map(rusqlite::params![limit_i64], db::row_to_node)
+            }
+            .map_err(|e| ToolError::internal_error(format!("Query failed: {e}")))?;
+
+            let mut nodes = Vec::new();
+            for row in rows {
+                let node =
+                    row.map_err(|e| ToolError::internal_error(format!("Row parsing failed: {e}")))?;
+                nodes.push(node);
+            }
+            nodes
+        } else {
+            // Use the existing search but filter to exported only
+            let all_results = db::search_nodes(&conn, query, kind, limit * 2)
+                .map_err(|e| ToolError::internal_error(format!("Search failed: {e}")))?;
+
+            all_results
+                .into_iter()
+                .filter(|r| r.node.is_exported)
+                .take(limit)
+                .map(|r| r.node)
+                .collect()
+        };
+
+        let serialized: Vec<Value> = results
+            .iter()
+            .map(|node| super::serialize_node(node, output_format))
+            .collect();
+
+        Ok(json!({
+            "results": serialized,
+            "count": serialized.len(),
+        }))
+    }
+}
+
+/// Tool for finding all symbols of a specific kind in a file (60% token savings for file exploration)
+pub struct FindByKindInFileTool {
+    project_root: PathBuf,
+}
+
+impl FindByKindInFileTool {
+    pub const fn new(project_root: PathBuf) -> Self {
+        Self { project_root }
+    }
+}
+
+impl Tool for FindByKindInFileTool {
+    fn name(&self) -> &'static str {
+        "coraline_find_by_kind_in_file"
+    }
+
+    fn description(&self) -> &'static str {
+        "Get all symbols of a specific kind in a file. Fast file-scoped exploration.\n\
+         \n\
+         Examples:\n\
+         - All functions in a file: {\"file_path\": \"src/main.rs\", \"kind\": \"function\"}\n\
+         - All classes in a file: {\"file_path\": \"lib/user.rb\", \"kind\": \"class\"}\n\
+         - All methods in a file: {\"file_path\": \"api.ts\", \"kind\": \"method\"}"
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Path to the file (relative to project root)"
+                },
+                "kind": {
+                    "type": "string",
+                    "description": "Node kind to filter",
+                    "enum": ["function", "method", "class", "struct", "interface", "trait", "module", "constant", "variable"]
+                },
+                "output_format": {
+                    "type": "string",
+                    "description": "Output format: 'full' or 'compact' (65% token reduction)",
+                    "enum": ["full", "compact"],
+                    "default": "full"
+                }
+            },
+            "required": ["file_path", "kind"]
+        })
+    }
+
+    fn execute(&self, params: Value) -> ToolResult {
+        let file_path = params
+            .get("file_path")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ToolError::invalid_params("file_path must be a string"))?;
+
+        let kind = params
+            .get("kind")
+            .and_then(Value::as_str)
+            .and_then(str_to_node_kind)
+            .ok_or_else(|| ToolError::invalid_params("Invalid or missing kind"))?;
+
+        let output_format = params
+            .get("output_format")
+            .and_then(Value::as_str)
+            .and_then(|s| s.parse::<super::OutputFormat>().ok())
+            .unwrap_or_default();
+
+        let conn = db::open_database(&self.project_root)
+            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
+
+        // Query nodes in the file with the specified kind
+        let sql = "SELECT id, kind, name, qualified_name, file_path, language, start_line, end_line, \
+                   start_column, end_column, docstring, signature, visibility, is_exported, is_async, \
+                   is_static, is_abstract, decorators, type_parameters, updated_at \
+                   FROM nodes WHERE file_path = ? AND kind = ? ORDER BY start_line";
+
+        let mut stmt = conn
+            .prepare(sql)
+            .map_err(|e| ToolError::internal_error(format!("Failed to prepare query: {e}")))?;
+
+        let rows = stmt
+            .query_map(
+                rusqlite::params![file_path, db::kind_to_string(kind)],
+                db::row_to_node,
+            )
+            .map_err(|e| ToolError::internal_error(format!("Query failed: {e}")))?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            let node =
+                row.map_err(|e| ToolError::internal_error(format!("Row parsing failed: {e}")))?;
+            results.push(super::serialize_node(&node, output_format));
+        }
+
+        Ok(json!({
+            "results": results,
+            "count": results.len(),
+            "file_path": file_path,
+            "kind": db::kind_to_string(kind),
+        }))
     }
 }

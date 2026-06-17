@@ -143,4 +143,8 @@ impl Tool for BuildContextTool {
             }
         }
     }
+
+    fn timeout_hint(&self) -> Option<u64> {
+        Some(180_000)
+    }
 }

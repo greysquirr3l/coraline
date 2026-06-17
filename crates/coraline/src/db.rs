@@ -813,21 +813,21 @@ fn language_to_string(language: Language) -> String {
         .unwrap_or_else(|| "unknown".to_string())
 }
 
-fn kind_to_string(kind: NodeKind) -> String {
+pub fn kind_to_string(kind: NodeKind) -> String {
     serde_json::to_value(kind)
         .ok()
         .and_then(|v| v.as_str().map(std::string::ToString::to_string))
         .unwrap_or_else(|| "file".to_string())
 }
 
-fn edge_kind_to_string(kind: EdgeKind) -> String {
+pub fn edge_kind_to_string(kind: EdgeKind) -> String {
     serde_json::to_value(kind)
         .ok()
         .and_then(|v| v.as_str().map(std::string::ToString::to_string))
         .unwrap_or_else(|| "contains".to_string())
 }
 
-fn visibility_to_string(visibility: Visibility) -> String {
+pub fn visibility_to_string(visibility: Visibility) -> String {
     serde_json::to_value(visibility)
         .ok()
         .and_then(|v| v.as_str().map(std::string::ToString::to_string))
@@ -850,7 +850,7 @@ fn parse_edge_kind(raw: &str) -> EdgeKind {
     serde_json::from_str::<EdgeKind>(&format!("\"{raw}\"")).unwrap_or(EdgeKind::Contains)
 }
 
-fn row_to_node(row: &rusqlite::Row<'_>) -> rusqlite::Result<Node> {
+pub fn row_to_node(row: &rusqlite::Row<'_>) -> rusqlite::Result<Node> {
     let kind_raw: String = row.get(1)?;
     let language_raw: String = row.get(5)?;
     let visibility_raw: Option<String> = row.get(12)?;

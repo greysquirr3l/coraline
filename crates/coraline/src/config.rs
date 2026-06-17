@@ -529,6 +529,107 @@ pub fn write_toml_template(project_root: &Path) -> std::io::Result<()> {
     fs::write(path, DEFAULT_TOML_TEMPLATE)
 }
 
+// ── Migration from config.json to config.toml ────────────────────────────────
+
+/// Check if migration from config.json to config.toml is needed.
+pub fn needs_migration(project_root: &Path) -> bool {
+    let json_path = config_path(project_root);
+    let toml_path = toml_config_path(project_root);
+    json_path.exists() && !toml_path.exists()
+}
+
+/// Convert a legacy `CodeGraphConfig` to the new `CoralineConfig` format.
+fn code_graph_to_toml_config(code_cfg: &CodeGraphConfig) -> CoralineConfig {
+    CoralineConfig {
+        indexing: IndexingConfig {
+            max_file_size: code_cfg.max_file_size,
+            batch_size: 100, // use default
+            include_patterns: code_cfg.include.clone(),
+            exclude_patterns: code_cfg.exclude.clone(),
+        },
+        context: ContextConfig::default(),
+        sync: SyncConfig::default(),
+        vectors: VectorsConfig {
+            enabled: code_cfg.enable_embeddings,
+            ..VectorsConfig::default()
+        },
+        security: SecurityConfig::default(),
+    }
+}
+
+/// Migrate config.json to config.toml, optionally backing up the JSON file.
+pub fn migrate_config(project_root: &Path, backup: bool) -> std::io::Result<()> {
+    let json_path = config_path(project_root);
+
+    // Load the old JSON config
+    let code_cfg = load_config(project_root)?;
+
+    // Convert to TOML format
+    let toml_cfg = code_graph_to_toml_config(&code_cfg);
+
+    // Save as TOML
+    save_toml_config(project_root, &toml_cfg)?;
+
+    // Optionally backup the JSON file
+    if backup && json_path.exists() {
+        let backup_path = json_path.with_extension("json.backup");
+        fs::rename(&json_path, &backup_path)?;
+    } else if json_path.exists() {
+        fs::remove_file(&json_path)?;
+    }
+
+    Ok(())
+}
+
+/// Load configuration with automatic migration from config.json if needed.
+///
+/// This function checks for the new config.toml first. If not found but
+/// config.json exists, it prompts for migration (or auto-migrates in
+/// non-interactive contexts).
+pub fn load_config_with_migration(
+    project_root: &Path,
+    auto_migrate: bool,
+) -> std::io::Result<CoralineConfig> {
+    // If TOML config exists, use it
+    if toml_config_path(project_root).exists() {
+        return load_toml_config(project_root);
+    }
+
+    // Check if migration is needed
+    if needs_migration(project_root) {
+        if auto_migrate {
+            eprintln!("⚠️  Migrating config.json → config.toml (config.json backed up)");
+            migrate_config(project_root, true)?;
+            return load_toml_config(project_root);
+        }
+        eprintln!("⚠️  Found legacy config.json. Migration to config.toml recommended.");
+        eprintln!("    Run: coraline config migrate");
+    }
+
+    // Return defaults if no config exists
+    Ok(CoralineConfig::default())
+}
+
+/// Convert `CoralineConfig` to `CodeGraphConfig` for internal use.
+pub fn toml_to_code_graph_config(
+    project_root: &Path,
+    toml_cfg: &CoralineConfig,
+) -> CodeGraphConfig {
+    CodeGraphConfig {
+        version: 1,
+        root_dir: project_root.to_string_lossy().to_string(),
+        include: toml_cfg.indexing.include_patterns.clone(),
+        exclude: toml_cfg.indexing.exclude_patterns.clone(),
+        languages: Vec::new(),
+        frameworks: Vec::new(),
+        max_file_size: toml_cfg.indexing.max_file_size,
+        extract_docstrings: true,
+        track_call_sites: true,
+        enable_embeddings: toml_cfg.vectors.enabled,
+        custom_patterns: None,
+    }
+}
+
 const DEFAULT_TOML_TEMPLATE: &str = r#"# Coraline project configuration
 # All settings are optional — defaults are shown below.
 

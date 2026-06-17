@@ -119,4 +119,9 @@ coverage/
 *.gcno
 *.gcov
 *.onnx
+
+# Documentation
 docs/book/book/
+book/book
+CLAUDE.md
+docs/IMPROVEMENT_PLAN.md

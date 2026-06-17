@@ -711,11 +711,9 @@ impl Tool for SyncTool {
     }
 
     fn execute(&self, _params: Value) -> ToolResult {
-        let mut cfg = crate::config::load_config(&self.project_root)
+        let toml_cfg = crate::config::load_config_with_migration(&self.project_root, true)
             .map_err(|e| ToolError::internal_error(format!("Failed to load config: {e}")))?;
-        if let Ok(toml_cfg) = crate::config::load_toml_config(&self.project_root) {
-            crate::config::apply_toml_to_code_graph(&mut cfg, &toml_cfg);
-        }
+        let cfg = crate::config::toml_to_code_graph_config(&self.project_root, &toml_cfg);
 
         let result = crate::extraction::sync(&self.project_root, &cfg, None)
             .map_err(|e| ToolError::internal_error(format!("Sync failed: {e}")))?;
@@ -728,6 +726,10 @@ impl Tool for SyncTool {
             "nodes_updated":  result.nodes_updated,
             "duration_ms":    result.duration_ms,
         }))
+    }
+
+    fn timeout_hint(&self) -> Option<u64> {
+        Some(600_000)
     }
 }
 
@@ -770,22 +772,22 @@ impl SemanticSearchTool {
             ..FreshnessUpdate::default()
         };
 
-        let mut cfg = crate::config::load_config(&self.project_root)
+        let toml_cfg = crate::config::load_config_with_migration(&self.project_root, true)
             .map_err(|e| ToolError::internal_error(format!("Failed to load config: {e}")))?;
-        if let Ok(toml_cfg) = crate::config::load_toml_config(&self.project_root) {
-            crate::config::apply_toml_to_code_graph(&mut cfg, &toml_cfg);
-        }
+        let cfg = crate::config::toml_to_code_graph_config(&self.project_root, &toml_cfg);
 
-        let sync_status = crate::extraction::needs_sync(&self.project_root, &cfg)
-            .map_err(|e| ToolError::internal_error(format!("Sync-state check failed: {e}")))?;
+        // Run sync to update the index if needed
+        let result = crate::extraction::sync(&self.project_root, &cfg, None)
+            .map_err(|e| ToolError::internal_error(format!("Auto-sync failed: {e}")))?;
 
-        update.stale_files_added = sync_status.files_added;
-        update.stale_files_modified = sync_status.files_modified;
-        update.stale_files_removed = sync_status.files_removed;
+        let is_stale =
+            result.files_added > 0 || result.files_modified > 0 || result.files_removed > 0;
 
-        if sync_status.is_stale() {
-            let result = crate::extraction::sync(&self.project_root, &cfg, None)
-                .map_err(|e| ToolError::internal_error(format!("Auto-sync failed: {e}")))?;
+        update.stale_files_added = result.files_added;
+        update.stale_files_modified = result.files_modified;
+        update.stale_files_removed = result.files_removed;
+
+        if is_stale {
             update.synced = true;
             update.files_added = result.files_added;
             update.files_modified = result.files_modified;
