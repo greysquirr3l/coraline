@@ -7,6 +7,76 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Batch query tools (60-90% token savings)** — New MCP tools eliminate round-trip overhead for multiple lookups:
+  - `coraline_batch_get_nodes` — Fetch multiple node details in one call (20 lookups: 1000 tokens → 100 tokens)
+  - `coraline_batch_callers` — Get callers for multiple symbols simultaneously
+  - `coraline_batch_callees` — Get callees for multiple symbols simultaneously
+- **Advanced search tools (60% token savings)** — Specialized search tools reduce iterative lookups:
+  - `coraline_search_by_signature` — Find symbols by type signature patterns
+  - `coraline_search_by_docstring` — Search within docstring/comment content
+  - `coraline_search_exported_symbols` — Filter search to public API only
+  - `coraline_find_by_kind_in_file` — Get all symbols of a specific kind in a file
+- **Compact JSON output format (25-65% token savings)** — All graph query tools now support `output_format` parameter:
+  - `full` — Verbose JSON with descriptive keys (default for compatibility)
+  - `compact` — Short keys, enums as integers, null fields omitted (350 chars → 120 chars per node)
+- **Timeout configuration for OpenCode compatibility** — MCP server now supports configurable timeouts:
+  - Default: 120 seconds (2 minutes)
+  - CLI flag: `coraline serve --mcp --timeout 300000` (5 minutes)
+  - Per-tool timeout hints in metadata (ImpactTool: 5min, BuildContextTool: 3min, SyncTool: 10min)
+  - OpenCode compatible (300s default, 600s max)
+- **Comprehensive mdbook documentation** — New 14-page documentation site with GitHub Pages deployment:
+  - Getting Started guide (installation, quick start)
+  - MCP integration for Claude Desktop, Claude Code, and OpenCode
+  - OpenCode setup guide with timeout configuration and troubleshooting
+  - CLI reference with all commands and examples
+  - Configuration reference with all TOML settings
+  - Language support matrix
+  - MCP tools reference (33 tools documented)
+  - Architecture overview
+  - Performance optimization guide
+  - Advanced usage and development docs
+
+### Changed
+
+- **MCP protocol version updated** — Upgraded from `2024-11-05` to `2025-06-18` (latest enterprise features)
+- **Configuration consolidation** — Coraline now uses only `config.toml` for all configuration. The legacy `config.json` file has been removed from new projects. Existing projects with `config.json` will be automatically migrated to `config.toml` (with backup) when running index/sync commands, or manually via `coraline config --migrate`.
+- **README simplified** — Reduced from 540 lines to 133 lines (75% reduction). Essential information retained, detailed docs moved to mdbook.
+- **Tool count increased** — 33 total MCP tools (from 26):
+  - 19 graph query tools (includes 7 new tools: 3 batch + 4 advanced search)
+  - 7 file/config tools
+  - 1 context builder
+  - 5 memory management tools
+  - 1 documentation audit tool (optional: +1 semantic search when embeddings enabled)
+- **Git hooks enhanced** — Pre-commit, pre-push, and commit-msg hooks adapted with Coraline-specific checks:
+  - Pre-commit: cargo fmt, gitleaks (secret detection), cargo audit, cargo deny
+  - Pre-push: tests, clippy, release build, docs, mdbook build
+  - Commit-msg: conventional commit format validation
+  - Installation script: `./scripts/install-hooks.sh`
+
+### Breaking Changes
+
+- **`config.json` no longer created** — `coraline init` now creates only `config.toml`. Existing projects are not affected (automatic migration preserves all settings).
+
+### Performance
+
+- **Token efficiency improvements** — Combined optimizations yield 60-95% token savings:
+  - Batch queries: 90% reduction (20 calls → 1 call)
+  - Compact output: 65% reduction per node (350 → 120 chars)
+  - Advanced search: 60% reduction (eliminates follow-up queries)
+  - Total impact: Projects using batch+compact can reduce typical graph exploration from 5000 tokens to 250 tokens
+
+### Developer Experience
+
+- **Strict clippy enforcement** — Comprehensive linting with all groups enabled (all, pedantic, nursery, cargo, perf)
+- **Project memory system** — Four detailed memory files for persistent development context:
+  - `project_overview.md` — Architecture, components, technologies, entry points
+  - `style_conventions.md` — Coding standards, clippy config, best practices
+  - `completion_checklist.md` — Feature completion requirements
+  - `suggested_commands.md` — Development workflow commands
+- **GitHub Actions workflow** — Automated mdbook deployment to GitHub Pages
+
 ## [0.9.0] - 2026-04-25
 
 ### Added
