@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-06-17
+
 ### Added
 
 - **Batch query tools (60-90% token savings)** — New MCP tools eliminate round-trip overhead for multiple lookups:
@@ -489,7 +491,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `coraline_search`, `coraline_callers`, `coraline_callees`, `coraline_impact`, `coraline_context` MCP tools
 - Git post-commit hook integration
 
-[Unreleased]: https://github.com/greysquirr3l/coraline/compare/v0.8.5...HEAD
+[Unreleased]: https://github.com/greysquirr3l/coraline/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/greysquirr3l/coraline/compare/v0.9.0...v0.10.0
 [0.8.6]: https://github.com/greysquirr3l/coraline/compare/v0.8.5...v0.8.6
 [0.8.5]: https://github.com/greysquirr3l/coraline/compare/v0.8.4...v0.8.5
 [0.8.3]: https://github.com/greysquirr3l/coraline/compare/v0.8.2...v0.8.3
