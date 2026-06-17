@@ -8,11 +8,12 @@ Coraline stores its configuration in `.coraline/config.toml` within each project
 
 | File | Purpose |
 |---|---|
-| `.coraline/config.toml` | Main user-editable configuration |
-| `.coraline/config.json` | Internal runtime config (auto-generated, do not edit) |
+| `.coraline/config.toml` | User-editable configuration (all settings) |
 | `.coraline/coraline.db` | SQLite knowledge graph (do not edit) |
 | `.coraline/memories/` | Project memory files (Markdown) |
 | `.coraline/logs/` | Daily-rotating log files |
+
+> **Migration from v0.3.x or earlier:** If you have a legacy `config.json` file, run `coraline config --migrate` to convert it to `config.toml`. The old file will be backed up as `config.json.backup`.
 
 ---
 
@@ -257,6 +258,13 @@ coraline config --set vectors.enabled=true
 ```
 
 The `--set` flag accepts `section.key=value` syntax. Values are parsed as JSON when possible (for booleans, numbers, and arrays), otherwise treated as strings.
+
+Migrate from legacy config.json:
+```bash
+coraline config --migrate
+```
+
+This converts an old `config.json` file to the new `config.toml` format and backs up the original as `config.json.backup`.
 
 ---
 
