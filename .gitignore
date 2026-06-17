@@ -7,6 +7,7 @@ docs/dev/
 .mypy_cache/
 aur/
 .mcp.json
+.coraline/
 
 # Rust
 target/
@@ -125,3 +126,5 @@ docs/book/book/
 book/book
 CLAUDE.md
 docs/IMPROVEMENT_PLAN.md
+.cargo/config.toml
+.cargo/config.toml
