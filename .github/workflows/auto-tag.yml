@@ -22,6 +22,11 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
+          # Don't persist GITHUB_TOKEN as a git credential. The checked-out
+          # commit's Cargo.toml is later read by `cargo metadata`, which
+          # doesn't execute build.rs — but a malicious build.rs would still
+          # be able to push with the token if we kept it on disk.
+          persist-credentials: false
 
       - name: Gate on release commit
         id: gate
