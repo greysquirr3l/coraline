@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Pinned all unpinned GitHub Actions in `.github/workflows/`** — resolved 9 OSSF Scorecard `Pinned-Dependencies` alerts. `dtolnay/rust-toolchain@stable` (5 occurrences in `ci.yml`) now points at `@29eef336d9b2848a0b548edc03f92a220660cdb8` (the same SHA already used in `release.yml` / `docs-pages.yml` / `security.yml`, so the toolchain is reproducible across the workspace). The 4 actions in `book.yml` are also SHA-pinned: `actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5`, `peaceiris/actions-mdbook@ee69d230fe19748b7abf22df32acaa93833fad08` (dereferenced from the v2 annotated tag, since `peaceiris` uses annotated tags), `actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa`, and `actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e`.
+- **Scoped workflow permissions to least privilege** — resolved 2 OSSF Scorecard `Token-Permissions` alerts (`score is 0: topLevel 'contents' permission set to 'write'`). `auto-tag.yml` and `dependabot-automerge.yml` now declare `contents: read` / `pull-requests: read` at workflow-level and only escalate to `write` on the specific job that needs it (the `tag` push for auto-tag, the `auto-merge` for dependabot-automerge). The remaining `score is 0: jobLevel 'contents' permission set to 'write'` alert on `release.yml`'s `github-release` job is necessary — `softprops/action-gh-release` (and every alternative — `gh release create`, `ncipollo/release-action`) requires `contents: write` to create the release, and the job's other permissions (`attestations: write`, `id-token: write`) are required by `actions/attest-build-provenance` for SLSA provenance signing.
+- **Disabled `persist-credentials` on the auto-tag checkout** — mitigates the remaining `Dangerous-Workflow` Scorecard alert by preventing the `GITHUB_TOKEN` from being persisted as a git credential when checking out `${{ github.event.workflow_run.head_sha }}`. `cargo metadata --no-deps` (the only thing the workflow runs on the checked-out commit) doesn't execute `build.rs`, but a future change that did execute the checkout would no longer inherit the token. The alert itself can't be closed while the workflow still uses `workflow_run` + `head_sha` (needed to wait for CI green before tagging); it's gated by `head_branch == 'main'` and `conclusion == 'success'` so the upstream is always a trusted push to `main`.
+
 ## [0.10.2] - 2026-06-18
 
 ### Changed
