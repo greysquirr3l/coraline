@@ -16,6 +16,7 @@ use coraline::vectors;
 use tracing::{debug, info};
 
 use clap::{Args, Parser, Subcommand};
+use indicatif::{ProgressBar, ProgressStyle};
 
 #[derive(Debug, Parser)]
 #[command(name = "coraline")]
@@ -402,18 +403,7 @@ fn run_embed(args: EmbedArgs) {
         }
     }
 
-    if !args.quiet {
-        println!("Loading embedding model…");
-    }
-
-    let mut vm = vectors::VectorManager::from_project(&project_root).unwrap_or_else(|err| {
-        eprintln!("Failed to load model: {err}");
-        eprintln!(
-            "Download model.onnx + tokenizer.json into {}",
-            vectors::default_model_dir(&project_root).display()
-        );
-        std::process::exit(1);
-    });
+    let mut vm = load_embedding_model(&project_root, args.quiet);
 
     let conn = db::open_database(&project_root).unwrap_or_else(|err| {
         eprintln!("Failed to open database: {err}");
@@ -435,8 +425,59 @@ fn run_embed(args: EmbedArgs) {
         println!("Embedding {total} nodes…");
     }
 
+    let pb = (!args.quiet)
+        .then(|| spinner_bar(total as u64, "{spinner:.cyan} Embedding {pos}/{len} {msg}"));
+
+    let (ok, skipped) = embed_nodes(
+        &nodes,
+        &mut vm,
+        &conn,
+        pb.as_ref(),
+        args.batch_size,
+        args.quiet,
+    );
+
+    if let Some(pb) = pb {
+        pb.finish_and_clear();
+    }
+    if !args.quiet {
+        println!("Embedded {ok}/{total} nodes ({skipped} skipped)");
+    }
+}
+
+#[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
+fn load_embedding_model(project_root: &Path, quiet: bool) -> vectors::VectorManager {
+    let result = if quiet {
+        vectors::VectorManager::from_project(project_root)
+    } else {
+        let pb = spinner_indefinite("Loading embedding model…");
+        let res = vectors::VectorManager::from_project(project_root);
+        pb.finish_and_clear();
+        println!("Loading embedding model…");
+        res
+    };
+    result.unwrap_or_else(|err| {
+        eprintln!("Failed to load model: {err}");
+        eprintln!(
+            "Download model.onnx + tokenizer.json into {}",
+            vectors::default_model_dir(project_root).display()
+        );
+        std::process::exit(1);
+    })
+}
+
+#[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
+fn embed_nodes(
+    nodes: &[coraline::types::Node],
+    vm: &mut vectors::VectorManager,
+    conn: &rusqlite::Connection,
+    pb: Option<&ProgressBar>,
+    batch_size: usize,
+    quiet: bool,
+) -> (usize, usize) {
     let mut ok = 0usize;
     let mut skipped = 0usize;
+    let total = nodes.len();
 
     for (i, node) in nodes.iter().enumerate() {
         let text = vectors::node_embed_text(
@@ -449,9 +490,9 @@ fn run_embed(args: EmbedArgs) {
         match vm.embed(&text) {
             Ok(embedding) => {
                 if let Err(err) =
-                    vectors::store_embedding(&conn, &node.id, &embedding, vm.model_name())
+                    vectors::store_embedding(conn, &node.id, &embedding, vm.model_name())
                 {
-                    if !args.quiet {
+                    if !quiet {
                         eprintln!(
                             "  Warning: failed to store embedding for {}: {err}",
                             node.id
@@ -463,21 +504,22 @@ fn run_embed(args: EmbedArgs) {
                 }
             }
             Err(err) => {
-                if !args.quiet {
+                if !quiet {
                     eprintln!("  Warning: failed to embed {}: {err}", node.name);
                 }
                 skipped += 1;
             }
         }
 
-        if !args.quiet && (i + 1) % args.batch_size == 0 {
+        if let Some(pb) = pb {
+            pb.set_message(format!("({:?}) {}", node.kind, node.name));
+            pb.inc(1);
+        } else if !quiet && (i + 1) % batch_size == 0 {
             print!("\r  {}/{total}", i + 1);
         }
     }
 
-    if !args.quiet {
-        println!("\rEmbedded {ok}/{total} nodes ({skipped} skipped)");
-    }
+    (ok, skipped)
 }
 
 fn cargo_bin_dir() -> PathBuf {
@@ -740,26 +782,24 @@ fn run_index(args: IndexArgs) {
     let cfg = config::toml_to_code_graph_config(&project_root, &toml_cfg);
 
     if !args.quiet {
-        println!("Indexing project...\n");
+        println!("Indexing project…");
     }
 
-    let result = extraction::index_all(
-        &project_root,
-        &cfg,
-        args.force,
-        if args.quiet {
-            None
-        } else {
-            Some(&print_progress)
-        },
-    )
+    let result = if args.quiet {
+        extraction::index_all(&project_root, &cfg, args.force, None)
+    } else {
+        let pb = spinner_bar(0, "{spinner:.cyan} {msg}");
+        let cb = |p: extraction::IndexProgress| update_index_spinner(&pb, &p);
+        let res = extraction::index_all(&project_root, &cfg, args.force, Some(&cb));
+        pb.finish_and_clear();
+        res
+    }
     .unwrap_or_else(|err| {
         eprintln!("Indexing failed: {err}");
         std::process::exit(1);
     });
 
     if !args.quiet {
-        clear_progress_line();
         println!("Indexed {} files", result.files_indexed);
         println!("Created {} nodes", result.nodes_created);
         println!("Completed in {}ms", result.duration_ms);
@@ -784,22 +824,21 @@ fn run_sync(args: SyncArgs) {
     };
     let cfg = config::toml_to_code_graph_config(&project_root, &toml_cfg);
 
-    let result = extraction::sync(
-        &project_root,
-        &cfg,
-        if args.quiet {
-            None
-        } else {
-            Some(&print_progress)
-        },
-    )
+    let result = if args.quiet {
+        extraction::sync(&project_root, &cfg, None)
+    } else {
+        let pb = spinner_bar(0, "{spinner:.cyan} {msg}");
+        let cb = |p: extraction::IndexProgress| update_index_spinner(&pb, &p);
+        let res = extraction::sync(&project_root, &cfg, Some(&cb));
+        pb.finish_and_clear();
+        res
+    }
     .unwrap_or_else(|err| {
         eprintln!("Sync failed: {err}");
         std::process::exit(1);
     });
 
     if !args.quiet {
-        clear_progress_line();
         let total_changes = result.files_added + result.files_modified + result.files_removed;
         if total_changes == 0 {
             println!("Already up to date");
@@ -1332,31 +1371,60 @@ fn create_coraline_dir(project_root: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-#[allow(clippy::needless_pass_by_value)]
-fn print_progress(progress: extraction::IndexProgress) {
-    use std::io::Write;
+/// Braille spinner frames used for indeterminate / between-update progress.
+const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+/// Steady tick interval for the spinner glyph (~12 fps).
+const SPINNER_TICK_MS: u64 = 80;
+
+/// Build a styled `ProgressBar` that animates a braille spinner while showing a
+/// counter and message. When stdout is not a TTY the bar falls back to a static
+/// line that still updates on `set_message`.
+#[allow(clippy::expect_used)] // templates are compile-time constants we control
+fn spinner_bar(len: u64, template: &str) -> ProgressBar {
+    let pb = ProgressBar::new(len);
+    pb.set_style(
+        ProgressStyle::with_template(template)
+            .expect("valid progress template")
+            .tick_strings(SPINNER_FRAMES),
+    );
+    pb.enable_steady_tick(std::time::Duration::from_millis(SPINNER_TICK_MS));
+    pb
+}
+
+/// Spinner for indeterminate operations (no known total, e.g. model download).
+#[allow(clippy::expect_used)] // template is a compile-time constant we control
+fn spinner_indefinite(message: &'static str) -> ProgressBar {
+    let pb = ProgressBar::new_spinner();
+    pb.set_style(
+        ProgressStyle::with_template("{spinner:.cyan} {msg}")
+            .expect("valid spinner template")
+            .tick_strings(SPINNER_FRAMES),
+    );
+    pb.set_message(message);
+    pb.enable_steady_tick(std::time::Duration::from_millis(SPINNER_TICK_MS));
+    pb
+}
+
+/// Push a fresh `IndexProgress` into an existing spinner bar, growing the bar
+/// if the underlying total changed (e.g. moving from Scanning -> Parsing).
+fn update_index_spinner(pb: &ProgressBar, progress: &extraction::IndexProgress) {
     let phase = match progress.phase {
         extraction::IndexPhase::Scanning => "Scanning",
         extraction::IndexPhase::Parsing => "Parsing",
         extraction::IndexPhase::Storing => "Storing",
         extraction::IndexPhase::Resolving => "Resolving",
     };
+    if pb.length() != Some(progress.total as u64) {
+        pb.set_length(progress.total as u64);
+    }
+    pb.set_position(progress.current as u64);
     let file = progress
         .current_file
         .as_ref()
         .map(|f| format!(" {f}"))
         .unwrap_or_default();
-    print!(
-        "\r\x1B[K{phase}: {}/{}{}",
-        progress.current, progress.total, file
-    );
-    let _ = std::io::stdout().flush();
-}
-
-fn clear_progress_line() {
-    use std::io::Write;
-    println!();
-    let _ = std::io::stdout().flush();
+    pb.set_message(format!("{phase} {}{file}", pb.position()));
 }
 
 fn parse_node_kind(value: &str) -> Option<NodeKind> {
