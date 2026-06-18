@@ -173,7 +173,15 @@ jobs:
 
       - name: Install cross-compilation tool
         if: matrix.use_cross
-        run: cargo install cross --git https://github.com/cross-rs/cross
+        # Pin cross-rs to the v0.2.5 tag for reproducible installs.
+        # Installing from `--git` without `--tag` follows main HEAD, which
+        # landed commits (785f3b3, 29d00c78) that emit a warning inside
+        # `cross::setup()`. Combined with `is_ci::cached()` making warnings
+        # fatal, that turns a recoverable metadata/setup error into
+        # "Errors encountered before cross compilation, aborting." on the
+        # aarch64-* targets. v0.2.5 predates that change and is known-good
+        # (it built all six release targets for v0.9.0).
+        run: cargo install cross --git https://github.com/cross-rs/cross --tag v0.2.5 --locked
 
       - name: Cache cargo registry
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -193,6 +201,11 @@ jobs:
       - name: Build release binary (cross)
         if: matrix.use_cross
         run: cross build --release --bin coraline --target ${{ matrix.target }} ${{ matrix.build_args }}
+        env:
+          # Surface the cargo metadata stderr (the "unable to get metadata
+          # for package" warning) so a future failure is diagnosable instead of
+          # the opaque "Errors encountered before cross compilation, aborting."
+          CROSS_DEBUG: "1"
 
       - name: Strip binary (Linux and macOS)
         if: runner.os != 'Windows' && matrix.use_cross == false
