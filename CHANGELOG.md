@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.2] - 2026-06-18
+
+### Changed
+
+- **`coraline sync` and `coraline index` now drive an `indicatif` braille spinner from the existing `IndexProgress` callback** — the line updates in place (`⠹ Parsing 42/100 src/foo.rs`), giving continuous visual feedback during long parses and resolving phases instead of leaving the terminal looking frozen between file updates. Bar length grows automatically when transitioning between phases (e.g. `Scanning` → `Parsing` → `Resolving`).
+- **`coraline embed` now shows a per-node spinner with the current symbol name** — replaces the previous batched `\r  {i}/{total}` counter that updated only every `batch_size` nodes; users now see `(Function) load_embedding_model` advance one node at a time, making it obvious that work is happening on large projects.
+- **`coraline embed` shows an indeterminate spinner during ONNX model load** — the multi-second tokenizer/session initialization no longer looks hung; spinner disappears once the model is ready and the per-node counter begins.
+
+### Fixed
+
+- **Release workflow `aarch64-unknown-linux-musl` cross-compile regression** — `cargo install cross --git https://github.com/cross-rs/cross` (no tag) was tracking cross-rs main HEAD, which has been moving fast. The last commit that produced a green aarch64-musl build (v0.9.0, 2026-04-26) was `cross-rs/cross@65fe72b0`. Two commits later, PR #1778 ("suggest running cargo directly for native targets") started emitting a new warning inside `cross::setup()`. Combined with `cross::shell::should_fail()` (which makes warnings fatal in CI), that turned a previously recoverable setup hiccup into the opaque `Errors encountered before cross compilation, aborting.` Pinned the install to the `v0.2.5` tag with `--locked` so future cross-rs churn can't silently break the release again, and added `CROSS_DEBUG=1` so any future failure prints the underlying `cargo metadata` stderr.
+
+### Internal
+
+- Extracted `load_embedding_model` and `embed_nodes` helpers from `run_embed` to satisfy the `clippy::too_many_lines` lint cap.
+- Removed the dead `print_progress` and `clear_progress_line` helpers from `bin/coraline.rs` (their job is now done by the spinner bar).
+
 ## [0.10.1] - 2026-06-17
 
 ### Fixed
@@ -502,7 +519,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `coraline_search`, `coraline_callers`, `coraline_callees`, `coraline_impact`, `coraline_context` MCP tools
 - Git post-commit hook integration
 
-[Unreleased]: https://github.com/greysquirr3l/coraline/compare/v0.10.1...HEAD
+[Unreleased]: https://github.com/greysquirr3l/coraline/compare/v0.10.2...HEAD
+[0.10.2]: https://github.com/greysquirr3l/coraline/compare/v0.10.1...v0.10.2
 [0.10.1]: https://github.com/greysquirr3l/coraline/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/greysquirr3l/coraline/compare/v0.9.0...v0.10.0
 [0.8.6]: https://github.com/greysquirr3l/coraline/compare/v0.8.5...v0.8.6
