@@ -215,14 +215,18 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           cd target/${{ matrix.target }}/release
-          tar czf ../../../${{ matrix.name }}.tar.gz coraline
+          cp ../../../../LICENSE-MIT .
+          cp ../../../../LICENSE-APACHE .
+          tar czf ../../../${{ matrix.name }}.tar.gz coraline LICENSE-MIT LICENSE-APACHE
           cd ../../..
 
       - name: Create archive (Windows)
         if: runner.os == 'Windows'
         run: |
           cd target/${{ matrix.target }}/release
-          7z a ../../../${{ matrix.name }}.zip coraline.exe
+          copy ..\..\..\..\LICENSE-MIT .
+          copy ..\..\..\..\LICENSE-APACHE .
+          7z a ../../../${{ matrix.name }}.zip coraline.exe LICENSE-MIT LICENSE-APACHE
           cd ../../..
 
       - name: Upload artifact
