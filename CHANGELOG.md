@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Manifest SPDX expression updated to `MIT OR Apache-2.0`** — `Cargo.toml`, `crates/coraline/Cargo.toml`, `crates/tree-sitter-blazor/Cargo.toml`, and `fuzz/Cargo.toml` all previously declared `license = "MIT"`, which understated the dual-license intent (both `LICENSE-MIT` and `LICENSE-APACHE` exist at the repo root).
 - **License files moved into `LICENSE/` directory** — `LICENSE-MIT` and `LICENSE-APACHE` now live under `LICENSE/` at the repo root (so the source-code license is maintained in a `LICENSE/` directory, as the OSPS-LE-03.01 requirement literally specifies). The README license badge target and the `release.yml` archive steps were updated to point at the new paths; release.yml's relative-path arithmetic for the license copies was also corrected (the previous `cp ../../../../LICENSE-MIT` walked one directory above the repo root).
 - **OpenSSF Baseline badge added to README** — surfaces the bestpractices.dev baseline status next to the existing license and Rust-version badges.
+- **`./LICENSE.md` pointer file added** — a top-level `LICENSE.md` now sits alongside `LICENSE-MIT` and `LICENSE-APACHE` at the repo root and links to both, so the source-code license is discoverable as a single `LICENSE`-named file at the repo root (matching OSPS-LE-03.01's "LICENSE file" reading) without conflicting with the actual license files at the same level.
 
 ## [0.10.2] - 2026-06-18
 

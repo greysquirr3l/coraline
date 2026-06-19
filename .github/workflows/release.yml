@@ -215,8 +215,8 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           cd target/${{ matrix.target }}/release
-          cp ../../../LICENSE/LICENSE-MIT .
-          cp ../../../LICENSE/LICENSE-APACHE .
+          cp ../../../LICENSE-MIT .
+          cp ../../../LICENSE-APACHE .
           tar czf ../../../${{ matrix.name }}.tar.gz coraline LICENSE-MIT LICENSE-APACHE
           cd ../../..
 
@@ -224,8 +224,8 @@ jobs:
         if: runner.os == 'Windows'
         run: |
           cd target/${{ matrix.target }}/release
-          copy ..\..\..\LICENSE\LICENSE-MIT .
-          copy ..\..\..\LICENSE\LICENSE-APACHE .
+          copy ..\..\..\LICENSE-MIT .
+          copy ..\..\..\LICENSE-APACHE .
           7z a ../../../${{ matrix.name }}.zip coraline.exe LICENSE-MIT LICENSE-APACHE
           cd ../../..
 
