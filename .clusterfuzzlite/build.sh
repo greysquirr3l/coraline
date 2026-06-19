@@ -12,6 +12,13 @@
 
 set -o pipefail
 
+# Force the nightly toolchain — libsqlite3-sys 0.38's build.rs uses
+# `cfg_select!`, which is unstable in build scripts (rust-lang/rust#115585).
+# The Dockerfile already sets RUSTUP_TOOLCHAIN=nightly, but exporting it
+# here as well makes the script self-sufficient when invoked outside the
+# image (e.g. locally).
+export RUSTUP_TOOLCHAIN=nightly
+
 cd "$SRC/coraline"
 
 # Build all fuzz targets in release mode with debug assertions enabled so
