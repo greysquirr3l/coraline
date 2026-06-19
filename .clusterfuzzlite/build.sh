@@ -27,11 +27,25 @@ cd "$SRC/coraline"
 # invariants checked.
 cargo fuzz build --fuzz-dir fuzz -O --debug-assertions
 
-FUZZ_BIN_DIR="fuzz/target/x86_64-unknown-linux-gnu/release"
-if [[ ! -d "$FUZZ_BIN_DIR" ]]; then
-    # ClusterFuzzLite uses a custom target dir when fuzz-dir is set; fall
-    # back to that layout.
-    FUZZ_BIN_DIR="fuzz/target/release"
+# Locate the compiled fuzz binaries. `cargo fuzz build` can place them in
+# different directories depending on whether the fuzz crate is a workspace
+# member (the workspace target dir is used) or standalone (cargo-fuzz falls
+# back to `fuzz/target/...`). Check the common layouts in priority order.
+FUZZ_BIN_DIR=""
+for candidate in \
+    "fuzz/target/x86_64-unknown-linux-gnu/release" \
+    "target/x86_64-unknown-linux-gnu/release" \
+    "fuzz/target/release" \
+    "target/release"; do
+    if [[ -d "$candidate" && -n "$(ls -A "$candidate" 2>/dev/null)" ]]; then
+        FUZZ_BIN_DIR="$candidate"
+        break
+    fi
+done
+
+if [[ -z "$FUZZ_BIN_DIR" ]]; then
+    echo "::error::Could not locate compiled fuzz binaries in any standard target dir" >&2
+    exit 1
 fi
 
 for src in fuzz/fuzz_targets/*.rs; do
