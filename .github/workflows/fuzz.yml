@@ -66,6 +66,10 @@ jobs:
         id: fuzz
         run: |
           FUZZ_TIME="${{ github.event.inputs.fuzz_seconds || '300' }}"
+          if ! [[ "$FUZZ_TIME" =~ ^[0-9]+$ ]] || [ "$FUZZ_TIME" -lt 1 ] || [ "$FUZZ_TIME" -gt 3600 ]; then
+            echo "::error::Invalid fuzz_seconds: must be an integer in [1, 3600], got '$FUZZ_TIME'"
+            exit 1
+          fi
           cargo +nightly fuzz run ${{ matrix.target }} \
             -- -max_total_time="${FUZZ_TIME}" -print_final_stats=1
         continue-on-error: false

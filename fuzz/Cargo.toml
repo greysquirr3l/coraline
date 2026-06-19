@@ -2,7 +2,7 @@
 name = "coraline-fuzz"
 version = "0.0.0"
 edition = "2024"
-license = "MIT"
+license = "MIT OR Apache-2.0"
 publish = false
 description = "Fuzz targets for the Coraline MCP server and SQLite query layer."
 

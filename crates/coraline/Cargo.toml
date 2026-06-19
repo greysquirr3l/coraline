@@ -2,7 +2,7 @@
 name = "coraline"
 version = "0.10.2"
 edition = "2024"
-license = "MIT"
+license = "MIT OR Apache-2.0"
 description = "Coraline: semantic code knowledge graph for faster AI-assisted development."
 repository = "https://github.com/greysquirr3l/coraline"
 readme = "../../README.md"
