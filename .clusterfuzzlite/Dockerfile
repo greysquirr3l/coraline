@@ -13,3 +13,9 @@ FROM gcr.io/oss-fuzz-base/base-builder-rust
 # is taken from the root directory, which ClusterFuzzLite uses to set
 # `$SRC/<name>` and `$OUT`).
 COPY . $SRC/coraline
+
+# ClusterFuzzLite's `compile` entrypoint invokes `bash $SRC/build.sh`,
+# but we keep the script under `.clusterfuzzlite/build.sh` in the repo
+# for organization. Symlink it into the expected location so the
+# compile step can find it without forcing a build.sh at the repo root.
+RUN ln -sf "$SRC/coraline/.clusterfuzzlite/build.sh" "$SRC/build.sh"
