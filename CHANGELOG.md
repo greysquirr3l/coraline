@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Fuzzing harness and CI jobs** — new `fuzz/` workspace member with two `cargo-fuzz` targets: `mcp_request` (drives `McpServer::handle_message` with arbitrary bytes through JSON-RPC deserialization and dispatch) and `db_search` (drives `db::search_nodes` / `find_nodes_by_name` / `find_exports_by_module` against an in-memory SQLite DB initialised with the production schema, exercising `build_fts_query` + FTS5 MATCH parsing). `McpServer::handle_message` is now `pub` so external harnesses can drive dispatch without going through stdin.
+- **`.github/workflows/fuzz.yml`** — nightly `cargo fuzz run` for each target with a configurable per-target time budget (default 300s; overridable via `workflow_dispatch` input). Uploads the corpus as a workflow artifact on success.
+- **`.github/workflows/cifuzz.yml`** + **`.clusterfuzzlite/`** — per-PR ClusterFuzzLite run with libFuzzer + AddressSanitizer on the upstream `base-builder-rust` image. Satisfies the OpenSSF Scorecard Fuzzing check (the cargo-fuzz language probe does not currently recognise Rust, but ClusterFuzzLite is detected).
+
 ### Security
 
 - **Pinned all unpinned GitHub Actions in `.github/workflows/`** — resolved 9 OSSF Scorecard `Pinned-Dependencies` alerts. `dtolnay/rust-toolchain@stable` (5 occurrences in `ci.yml`) now points at `@29eef336d9b2848a0b548edc03f92a220660cdb8` (the same SHA already used in `release.yml` / `docs-pages.yml` / `security.yml`, so the toolchain is reproducible across the workspace). The 4 actions in `book.yml` are also SHA-pinned: `actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5`, `peaceiris/actions-mdbook@ee69d230fe19748b7abf22df32acaa93833fad08` (dereferenced from the v2 annotated tag, since `peaceiris` uses annotated tags), `actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa`, and `actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e`.

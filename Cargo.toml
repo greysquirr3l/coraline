@@ -2,6 +2,7 @@
 members = [
   "crates/coraline",
   "crates/tree-sitter-blazor",
+  "fuzz",
 ]
 resolver = "2"
 

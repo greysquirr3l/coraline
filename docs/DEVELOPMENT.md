@@ -194,6 +194,8 @@ GitHub Actions workflows run on every push and pull request:
 | `release.yml` | `v*` tags | Cross-platform binary builds + GitHub release |
 | `security.yml` | daily + dep changes | `cargo-audit` (vulnerabilities) + `cargo-deny` (licenses) |
 | `codeql.yml` | weekly | CodeQL analysis |
+| `fuzz.yml` | daily + fuzz/** or surface changes | cargo-fuzz nightly run against MCP + SQLite targets |
+| `cifuzz.yml` | PR + surface changes | ClusterFuzzLite per-PR fuzzing with libFuzzer + AddressSanitizer |
 
 ### Creating a Release
 
@@ -250,3 +252,31 @@ printf '%s\n%s\n%s\n' \
 ```bash
 cargo lint && cargo test --all-features 2>&1 | grep "test result"
 ```
+
+### Run fuzzers locally
+
+Two `cargo-fuzz` targets live under `fuzz/fuzz_targets/`. They require the
+nightly toolchain because `libfuzzer-sys` depends on nightly-only features.
+
+```bash
+# One-time: install cargo-fuzz
+cargo install cargo-fuzz --locked
+
+# Run a target for 5 minutes
+cargo +nightly fuzz run mcp_request -- -max_total_time=300
+cargo +nightly fuzz run db_search -- -max_total_time=300
+
+# Reproduce a crash from CI artifacts
+cargo +nightly fuzz run mcp_request fuzz/corpus/mcp_request/crash-<id>
+```
+
+A crash report surfaces as `fuzz/artifacts/<target>/crash-<sha1>`. Open or
+attach the file in a GitHub issue; do not paste the binary contents.
+
+### ClusterFuzzLite
+
+`.github/workflows/cifuzz.yml` runs the same targets on every PR via
+[ClusterFuzzLite](https://google.github.io/clusterfuzzlite/), built on the
+upstream `base-builder-rust` image and configured under `.clusterfuzzlite/`.
+This also satisfies the OpenSSF Scorecard Fuzzing check.
+

@@ -55,6 +55,8 @@ Coraline is built with security in mind:
 
 - ✅ **No unsafe code** - `#![forbid(unsafe_code)]` throughout the codebase
 - ✅ **Dependency scanning** - Automated security audits via GitHub Actions and `cargo-deny`
+- ✅ **Fuzz testing** - `cargo-fuzz` libFuzzer targets for the MCP JSON-RPC surface and the SQLite/FTS5 query layer, exercised nightly and on every PR via ClusterFuzzLite
+- ✅ **Code scanning** - CodeQL analysis (weekly) and `cargo-audit` dependency checks (daily)
 - ✅ **Local processing** - All data stays on your machine; no external API calls
 - ✅ **Minimal dependencies** - We carefully vet all dependencies
 - ✅ **Input validation** - All user inputs are validated before processing

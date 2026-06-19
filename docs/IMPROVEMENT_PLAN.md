@@ -515,6 +515,13 @@ cargo bench --bench indexing -- search  # single group
   - cargo-audit for vulnerability scanning
   - cargo-deny for license compliance
   - Daily runs + triggers on dependency changes
+- [x] `.github/workflows/fuzz.yml` - cargo-fuzz nightly run ✅
+  - Two libFuzzer targets: `mcp_request` (JSON-RPC dispatch) and `db_search` (FTS5 query layer)
+  - Nightly schedule (04:00 UTC) + workflow_dispatch with adjustable time budget
+  - PR runs gated on changes to `crates/coraline/src/{mcp,db,security}.rs` or `fuzz/**`
+- [x] `.github/workflows/cifuzz.yml` - ClusterFuzzLite per-PR fuzzing ✅
+  - Built on upstream `gcr.io/oss-fuzz-base/base-builder-rust` via `.clusterfuzzlite/`
+  - libFuzzer + AddressSanitizer; satisfies OpenSSF Scorecard Fuzzing check
 
 **Configuration Files:**
 - [x] `deny.toml` - cargo-deny policy configuration ✅

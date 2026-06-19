@@ -1,0 +1,95 @@
+name: Fuzz
+
+on:
+  schedule:
+    - cron: "0 4 * * *" # Daily at 04:00 UTC (offset from security audit at 00:00)
+  workflow_dispatch:
+    inputs:
+      fuzz_seconds:
+        description: "Per-target fuzz duration in seconds"
+        required: false
+        default: "300"
+  push:
+    branches: [main]
+    paths:
+      - "crates/coraline/src/mcp.rs"
+      - "crates/coraline/src/db.rs"
+      - "crates/coraline/src/security.rs"
+      - "fuzz/**"
+      - ".github/workflows/fuzz.yml"
+  pull_request:
+    paths:
+      - "crates/coraline/src/mcp.rs"
+      - "crates/coraline/src/db.rs"
+      - "crates/coraline/src/security.rs"
+      - "fuzz/**"
+      - ".github/workflows/fuzz.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: cargo-fuzz (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [mcp_request, db_search]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: nightly
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-fuzz-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock', 'fuzz/**') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-fuzz-${{ matrix.target }}-
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Build fuzzer
+        run: cargo +nightly fuzz build ${{ matrix.target }}
+
+      - name: Run fuzzer
+        id: fuzz
+        run: |
+          FUZZ_TIME="${{ github.event.inputs.fuzz_seconds || '300' }}"
+          cargo +nightly fuzz run ${{ matrix.target }} \
+            -- -max_total_time="${FUZZ_TIME}" -print_final_stats=1
+        continue-on-error: false
+
+      - name: Upload corpus on success
+        if: success()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fuzz-corpus-${{ matrix.target }}
+          path: fuzz/corpus/${{ matrix.target }}
+          retention-days: 7
+          if-no-files-found: ignore
+
+  summarize:
+    name: Fuzz summary
+    needs: [fuzz]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report results
+        run: |
+          if [ "${{ needs.fuzz.result }}" = "success" ]; then
+            echo "::notice title=Fuzzing::All targets completed without crashes for ${{ github.event.inputs.fuzz_seconds || '300' }}s each."
+          else
+            echo "::error title=Fuzzing::One or more fuzz targets crashed or failed to build. See job logs and uploaded artifacts for crash reproducers."
+            exit 1
+          fi

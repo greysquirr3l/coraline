@@ -19,6 +19,11 @@ Cargo.lock
 *.dylib
 *.dll
 
+# cargo-fuzz working dirs (regenerated on every run)
+fuzz/corpus/
+fuzz/artifacts/
+fuzz/target/
+
 # Debug and release artifacts
 debug/
 release/

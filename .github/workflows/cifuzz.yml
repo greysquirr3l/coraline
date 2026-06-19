@@ -1,0 +1,70 @@
+name: CIFuzz
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "crates/coraline/src/mcp.rs"
+      - "crates/coraline/src/db.rs"
+      - "crates/coraline/src/security.rs"
+      - "fuzz/**"
+      - ".clusterfuzzlite/**"
+      - ".github/workflows/cifuzz.yml"
+  pull_request:
+    paths:
+      - "crates/coraline/src/mcp.rs"
+      - "crates/coraline/src/db.rs"
+      - "crates/coraline/src/security.rs"
+      - "fuzz/**"
+      - ".clusterfuzzlite/**"
+      - ".github/workflows/cifuzz.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build fuzzers
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Required to publish the ClusterFuzzLite build result back to the PR.
+      id-token: write
+      actions: read
+      checks: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Build fuzzers
+        uses: google/clusterfuzzlite/actions/build_fuzzers@52ecc61cb587ee99c26825a112a21abf19c7448c # main @ 2026-02-12
+        with:
+          language: rust
+          sanitizer: address
+          bad-build-check: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+  run:
+    name: Run fuzzers
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      actions: read
+      checks: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Run fuzzers
+        uses: google/clusterfuzzlite/actions/run_fuzzers@52ecc61cb587ee99c26825a112a21abf19c7448c # main @ 2026-02-12
+        with:
+          language: rust
+          sanitizer: address
+          mode: code-change
+          fuzz-seconds: 300
+          report-timeouts: false
+          report-ooms: false
+          parallel-fuzzing: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}

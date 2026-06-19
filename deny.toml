@@ -32,7 +32,11 @@ allow = [
     "Unicode-3.0",
     "0BSD",
     "CDLA-Permissive-2.0",
-]
+    # libfuzzer-sys (cargo-fuzz's libFuzzer bindings) is dual-licensed
+    # under (MIT OR Apache-2.0) AND NCSA. NCSA is OSI-approved and the
+    # Apache-2.0 / MIT terms already cover the same scope.
+    "NCSA",
+] 
 exceptions = []
 
 [[licenses.clarify]]

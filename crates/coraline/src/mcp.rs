@@ -151,7 +151,11 @@ impl McpServer {
         Ok(())
     }
 
-    fn handle_message(&mut self, message: Value) -> io::Result<()> {
+    /// Process a single parsed MCP JSON-RPC message.
+    ///
+    /// Exposed publicly so external harnesses (notably the `coraline-fuzz`
+    /// targets) can drive the dispatch logic without going through stdin.
+    pub fn handle_message(&mut self, message: Value) -> io::Result<()> {
         let method = message.get("method").and_then(|m| m.as_str()).unwrap_or("");
         let id = message.get("id").and_then(json_rpc_id_from_value);
 
