@@ -233,6 +233,75 @@ impl std::fmt::Display for ToolError {
 
 impl std::error::Error for ToolError {}
 
+/// Per-request context surfaced to tools.
+///
+/// Tools that want to react to MRTR retries, per-request log levels, OpenTelemetry
+/// trace context, or any other `_meta` field opt in by overriding
+/// [`Tool::execute_with_context`].  Tools that don't care can leave the default
+/// implementation, which forwards to [`Tool::execute`].
+#[derive(Debug, Default, Clone)]
+pub struct RequestContext {
+    /// Protocol version declared by the client in `_meta.protocolVersion`
+    /// (`None` for legacy handshake-based clients).
+    pub protocol_version: Option<String>,
+    /// Raw `_meta` map, kept verbatim so tools can inspect OpenTelemetry trace
+    /// context (`traceparent`, `tracestate`, `baggage`) and other extension
+    /// keys without round-tripping through MCP.
+    pub meta: serde_json::Map<String, Value>,
+    /// Per-request minimum log level declared in `_meta.logLevel`
+    /// (`None` when the client didn't ask).
+    pub log_level: Option<String>,
+    /// MRTR `inputResponses` echoed back from the client on a retry.
+    pub input_responses: Option<Value>,
+    /// MRTR opaque `requestState` echoed back from the client on a retry.
+    pub request_state: Option<String>,
+}
+
+impl RequestContext {
+    /// Construct a context from the `_meta` block of a parsed JSON-RPC
+    /// message.  Missing `_meta` or any individual field yields `None` /
+    /// empty defaults — no validation is performed here.
+    #[must_use]
+    pub fn from_message(message: &Value) -> Self {
+        let meta = message
+            .get("params")
+            .and_then(|p| p.get("_meta"))
+            .and_then(Value::as_object)
+            .cloned()
+            .unwrap_or_default();
+
+        let protocol_version = meta
+            .get(crate::mcp::protocol::META_PROTOCOL_VERSION)
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let log_level = meta
+            .get(crate::mcp::protocol::META_LOG_LEVEL)
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let input_responses = meta
+            .get(crate::mcp::protocol::META_INPUT_RESPONSES)
+            .cloned();
+        let request_state = meta
+            .get(crate::mcp::protocol::META_REQUEST_STATE)
+            .and_then(Value::as_str)
+            .map(str::to_string);
+
+        Self {
+            protocol_version,
+            meta,
+            log_level,
+            input_responses,
+            request_state,
+        }
+    }
+
+    /// Returns true if this request carries MRTR retry data.
+    #[must_use]
+    pub const fn is_mrtr_retry(&self) -> bool {
+        self.input_responses.is_some() || self.request_state.is_some()
+    }
+}
+
 /// Trait for MCP tools
 pub trait Tool: Send + Sync {
     /// Tool name (used in MCP protocol)
@@ -246,6 +315,15 @@ pub trait Tool: Send + Sync {
 
     /// Execute the tool with given parameters
     fn execute(&self, params: Value) -> ToolResult;
+
+    /// Execute the tool with full per-request context.
+    ///
+    /// The default implementation ignores the context and forwards to
+    /// [`Tool::execute`].  Override this to opt into MRTR retries, per-request
+    /// log levels, or any other `_meta`-derived behaviour.
+    fn execute_with_context(&self, params: Value, _ctx: &RequestContext) -> ToolResult {
+        self.execute(params)
+    }
 
     /// Optional timeout hint in milliseconds for this tool
     /// Long-running operations (indexing, impact analysis) should return a hint
