@@ -23,6 +23,12 @@ Cargo.lock
 fuzz/corpus/
 fuzz/artifacts/
 fuzz/target/
+# cargo-fuzz test-case dumps at fuzz/ root (crash-, timeout-, slow-unit-, oom-, leak-)
+fuzz/crash-*
+fuzz/timeout-*
+fuzz/slow-unit-*
+fuzz/oom-*
+fuzz/leak-*
 
 # Debug and release artifacts
 debug/
