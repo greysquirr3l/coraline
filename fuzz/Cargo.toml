@@ -1,0 +1,28 @@
+[package]
+name = "coraline-fuzz"
+version = "0.0.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Fuzz targets for the Coraline MCP server and SQLite query layer."
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+coraline = { path = "../crates/coraline", default-features = false }
+libfuzzer-sys = "0.4"
+rusqlite = { version = "0.40", features = ["bundled"] }
+serde_json = "1"
+
+[[bin]]
+name = "mcp_request"
+path = "fuzz_targets/mcp_request.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "db_search"
+path = "fuzz_targets/db_search.rs"
+test = false
+doc = false

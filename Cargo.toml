@@ -1,0 +1,14 @@
+[workspace]
+members = [
+  "crates/coraline",
+  "crates/tree-sitter-blazor",
+  "fuzz",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[workspace.lints.rust]
+unsafe_code = "deny"

@@ -1,0 +1,9 @@
+homepage: "https://github.com/greysquirr3l/coraline"
+language: rust
+primary_contact: "greysquirr3l@users.noreply.github.com"
+fuzzing_engines:
+  - libfuzzer
+sanitizers:
+  - address
+main_repo: "https://github.com/greysquirr3l/coraline"
+file_github_issue: true

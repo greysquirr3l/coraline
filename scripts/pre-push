@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Pre-push hook for coraline
+# Runs tests, lints, and build checks before pushing to remote
+
+set -e
+
+echo "Running pre-push checks..."
+
+# Run tests with all features (includes embeddings)
+echo "→ Running tests..."
+cargo test --all-features
+
+# Run clippy with warnings as errors and all features
+echo "→ Running clippy..."
+cargo clippy --all-targets --all-features -- -D warnings
+
+# Ensure release build works
+echo "→ Building release..."
+cargo build --release --all-features
+
+# Verify documentation builds
+echo "→ Building documentation..."
+cargo doc --no-deps --all-features
+
+# Build mdbook if it exists
+if [ -f "book/book.toml" ]; then
+    echo "→ Building mdbook..."
+    if ! command -v mdbook &> /dev/null; then
+        echo "⚠️  mdbook not installed, skipping book build"
+        echo "   Install with: cargo install mdbook"
+    else
+        cd book && mdbook build && cd ..
+    fi
+fi
+
+echo "✓ Pre-push checks passed"

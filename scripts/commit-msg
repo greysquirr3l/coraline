@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# Commit-msg hook for coraline
+# Enforces conventional commit message format
+
+set -e
+
+COMMIT_MSG_FILE="$1"
+COMMIT_MSG=$(cat "$COMMIT_MSG_FILE")
+
+# Skip validation for merge commits
+if grep -q "^Merge " "$COMMIT_MSG_FILE"; then
+    exit 0
+fi
+
+# Skip validation for revert commits
+if grep -q "^Revert " "$COMMIT_MSG_FILE"; then
+    exit 0
+fi
+
+# Extract the subject line (first line)
+SUBJECT=$(echo "$COMMIT_MSG" | head -n1)
+
+# Check for conventional commit format
+# Valid types: feat, fix, docs, style, refactor, test, chore, ci, perf, build
+if ! echo "$SUBJECT" | grep -qE "^(feat|fix|docs|style|refactor|test|chore|ci|perf|build)(\(.+\))?!?: .+"; then
+    echo "❌ Commit message does not follow conventional commits format"
+    echo ""
+    echo "Expected format:"
+    echo "  <type>[(scope)][!]: <description>"
+    echo ""
+    echo "Valid types:"
+    echo "  feat     - New feature"
+    echo "  fix      - Bug fix"
+    echo "  docs     - Documentation changes"
+    echo "  style    - Code style changes (formatting, etc.)"
+    echo "  refactor - Code refactoring"
+    echo "  test     - Test changes"
+    echo "  chore    - Maintenance tasks"
+    echo "  ci       - CI/CD changes"
+    echo "  perf     - Performance improvements"
+    echo "  build    - Build system changes"
+    echo ""
+    echo "Examples:"
+    echo "  feat: add user authentication"
+    echo "  fix(api): resolve null pointer error"
+    echo "  feat!: breaking change to API"
+    echo "  docs: update README with installation steps"
+    echo ""
+    echo "Your commit message:"
+    echo "  $SUBJECT"
+    exit 1
+fi
+
+# Check subject line length (72 chars max is recommended)
+SUBJECT_LENGTH=${#SUBJECT}
+if [ "$SUBJECT_LENGTH" -gt 72 ]; then
+    echo "⚠️  Warning: Subject line is $SUBJECT_LENGTH characters (recommended max: 72)"
+    echo "   Consider shortening: $SUBJECT"
+    # Don't fail, just warn
+fi
+
+# If there's a body, check for blank line after subject
+LINE_COUNT=$(echo "$COMMIT_MSG" | wc -l | tr -d ' ')
+if [ "$LINE_COUNT" -gt 1 ]; then
+    SECOND_LINE=$(echo "$COMMIT_MSG" | sed -n '2p')
+    if [ -n "$SECOND_LINE" ]; then
+        echo "❌ Commit message must have a blank line between subject and body"
+        echo ""
+        echo "Current message:"
+        echo "$COMMIT_MSG" | head -n3
+        exit 1
+    fi
+fi
+
+exit 0

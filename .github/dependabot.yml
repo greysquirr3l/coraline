@@ -1,0 +1,26 @@
+version: 2
+updates:
+  # Rust dependencies
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      rust-deps:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "deps"
+    ignore:
+      # ort is pinned to =2.0.0-rc.11; rc.12 has a VitisAI build regression.
+      # Remove this ignore once a stable release or clean rc is available.
+      - dependency-name: "ort"
+        versions: ["2.0.0-rc.12"]
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "ci"

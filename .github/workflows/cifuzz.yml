@@ -1,0 +1,63 @@
+name: CIFuzz
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "crates/coraline/src/mcp.rs"
+      - "crates/coraline/src/db.rs"
+      - "crates/coraline/src/security.rs"
+      - "fuzz/**"
+      - ".clusterfuzzlite/**"
+      - ".github/workflows/cifuzz.yml"
+  pull_request:
+    paths:
+      - "crates/coraline/src/mcp.rs"
+      - "crates/coraline/src/db.rs"
+      - "crates/coraline/src/security.rs"
+      - "fuzz/**"
+      - ".clusterfuzzlite/**"
+      - ".github/workflows/cifuzz.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  cifuzz:
+    name: ClusterFuzzLite
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Required to publish the ClusterFuzzLite build result back to the PR.
+      id-token: write
+      actions: read
+      checks: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      # Build and run MUST be in the same job on hosted runners —
+      # ClusterFuzzLite shares state between the two actions via a
+      # Docker volume on the action's host runner, and GitHub-hosted
+      # runners are ephemeral across jobs. Splitting them produced
+      # `Out directory: /github/workspace/build-out does not exist.`
+      # at run time on every PR.
+      - name: Build fuzzers
+        uses: google/clusterfuzzlite/actions/build_fuzzers@52ecc61cb587ee99c26825a112a21abf19c7448c # main @ 2026-02-12
+        with:
+          language: rust
+          sanitizer: address
+          bad-build-check: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run fuzzers
+        uses: google/clusterfuzzlite/actions/run_fuzzers@52ecc61cb587ee99c26825a112a21abf19c7448c # main @ 2026-02-12
+        with:
+          language: rust
+          sanitizer: address
+          mode: code-change
+          fuzz-seconds: 300
+          report-timeouts: false
+          report-ooms: false
+          parallel-fuzzing: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}

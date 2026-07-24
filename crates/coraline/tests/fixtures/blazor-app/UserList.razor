@@ -1,0 +1,27 @@
+@page "/users"
+@inject UserService UserService
+
+<h1>Users</h1>
+
+@if (users == null)
+{
+    <p>Loading...</p>
+}
+else
+{
+    <ul>
+        @foreach (var user in users)
+        {
+            <li>@user.Name (@user.Email)</li>
+        }
+    </ul>
+}
+
+@code {
+    private List<User>? users;
+
+    protected override async Task OnInitializedAsync()
+    {
+        users = await UserService.GetUsersAsync();
+    }
+}

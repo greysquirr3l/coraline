@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Pre-commit hook for coraline
+# Runs cargo fmt, gitleaks, and cargo audit before allowing commits
+
+set -e
+
+echo "Running pre-commit checks..."
+
+# Run cargo fmt and stage any changes
+echo "→ Running cargo fmt..."
+cargo fmt --all
+
+# Stage any formatting changes
+git diff --name-only | grep '\.rs$' | while read -r file; do
+    if [ -f "$file" ]; then
+        git add "$file"
+    fi
+done
+
+# Run gitleaks to detect secrets
+echo "→ Running gitleaks..."
+if ! command -v gitleaks &> /dev/null; then
+    echo "⚠️  gitleaks not installed, skipping secrets detection"
+    echo "   Install with: brew install gitleaks (macOS) or see https://github.com/gitleaks/gitleaks#installing"
+else
+    # Scan staged changes for secrets
+    gitleaks protect --staged --verbose
+fi
+
+# Run cargo audit for security vulnerabilities
+echo "→ Running cargo audit..."
+if ! command -v cargo-audit &> /dev/null; then
+    echo "⚠️  cargo-audit not installed, skipping security audit"
+    echo "   Install with: cargo install cargo-audit"
+else
+    cargo audit
+fi
+
+# Run cargo deny check (if deny.toml exists)
+if [ -f "deny.toml" ]; then
+    echo "→ Running cargo deny..."
+    if ! command -v cargo-deny &> /dev/null; then
+        echo "⚠️  cargo-deny not installed, skipping license/dependency checks"
+        echo "   Install with: cargo install cargo-deny"
+    else
+        cargo deny check
+    fi
+fi
+
+echo "✓ Pre-commit checks passed"

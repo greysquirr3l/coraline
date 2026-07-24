@@ -1,0 +1,491 @@
+#![forbid(unsafe_code)]
+
+//! Memory tools for MCP server.
+//!
+//! These tools provide access to the project-specific memory system,
+//! allowing persistent knowledge storage across sessions.
+
+use std::path::Path;
+
+use serde_json::{Value, json};
+
+use crate::memory::MemoryManager;
+use crate::tools::{Tool, ToolError, ToolResult};
+
+/// Tool for writing/updating memories.
+pub struct WriteMemoryTool {
+    manager: MemoryManager,
+}
+
+impl WriteMemoryTool {
+    pub fn new(project_root: &Path) -> std::io::Result<Self> {
+        Ok(Self {
+            manager: MemoryManager::new(project_root)?,
+        })
+    }
+}
+
+impl Tool for WriteMemoryTool {
+    fn name(&self) -> &'static str {
+        "coraline_write_memory"
+    }
+
+    fn description(&self) -> &'static str {
+        "Write or update a project memory. Memories persist across sessions and help maintain project context."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Memory name (without .md extension). Use descriptive names like 'project_overview', 'architecture_notes', etc."
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Memory content in markdown format."
+                }
+            },
+            "required": ["name", "content"]
+        })
+    }
+
+    fn execute(&self, params: Value) -> ToolResult {
+        let name = params
+            .get("name")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ToolError::invalid_params("Missing or invalid 'name' parameter"))?;
+
+        let content = params
+            .get("content")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ToolError::invalid_params("Missing or invalid 'content' parameter"))?;
+
+        let result = self
+            .manager
+            .write_memory(name, content)
+            .map_err(|e| ToolError::internal_error(format!("Failed to write memory: {e}")))?;
+
+        Ok(json!({ "message": result }))
+    }
+}
+
+/// Tool for reading memories.
+pub struct ReadMemoryTool {
+    manager: MemoryManager,
+}
+
+impl ReadMemoryTool {
+    pub fn new(project_root: &Path) -> std::io::Result<Self> {
+        Ok(Self {
+            manager: MemoryManager::new(project_root)?,
+        })
+    }
+}
+
+impl Tool for ReadMemoryTool {
+    fn name(&self) -> &'static str {
+        "coraline_read_memory"
+    }
+
+    fn description(&self) -> &'static str {
+        "Read a project memory by name. Only use when the memory is relevant to the current task."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Memory name to read (without .md extension)."
+                }
+            },
+            "required": ["name"]
+        })
+    }
+
+    fn execute(&self, params: Value) -> ToolResult {
+        let name = params
+            .get("name")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ToolError::invalid_params("Missing or invalid 'name' parameter"))?;
+
+        let content = self
+            .manager
+            .read_memory(name)
+            .map_err(|e| ToolError::internal_error(format!("Failed to read memory: {e}")))?;
+
+        Ok(json!({ "content": content }))
+    }
+}
+
+/// Tool for listing all memories.
+pub struct ListMemoriesTool {
+    manager: MemoryManager,
+}
+
+impl ListMemoriesTool {
+    pub fn new(project_root: &Path) -> std::io::Result<Self> {
+        Ok(Self {
+            manager: MemoryManager::new(project_root)?,
+        })
+    }
+}
+
+impl Tool for ListMemoriesTool {
+    fn name(&self) -> &'static str {
+        "coraline_list_memories"
+    }
+
+    fn description(&self) -> &'static str {
+        "List all available project memories. Use to discover what knowledge is stored."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {}
+        })
+    }
+
+    fn execute(&self, _params: Value) -> ToolResult {
+        let memories = self
+            .manager
+            .list_memories()
+            .map_err(|e| ToolError::internal_error(format!("Failed to list memories: {e}")))?;
+
+        Ok(json!({ "memories": memories }))
+    }
+}
+
+/// Tool for deleting memories.
+pub struct DeleteMemoryTool {
+    manager: MemoryManager,
+}
+
+impl DeleteMemoryTool {
+    pub fn new(project_root: &Path) -> std::io::Result<Self> {
+        Ok(Self {
+            manager: MemoryManager::new(project_root)?,
+        })
+    }
+}
+
+impl Tool for DeleteMemoryTool {
+    fn name(&self) -> &'static str {
+        "coraline_delete_memory"
+    }
+
+    fn description(&self) -> &'static str {
+        "Delete a project memory. Only use when explicitly requested or when information is outdated."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Memory name to delete (without .md extension)."
+                }
+            },
+            "required": ["name"]
+        })
+    }
+
+    fn execute(&self, params: Value) -> ToolResult {
+        let name = params
+            .get("name")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ToolError::invalid_params("Missing or invalid 'name' parameter"))?;
+
+        let result = self
+            .manager
+            .delete_memory(name)
+            .map_err(|e| ToolError::internal_error(format!("Failed to delete memory: {e}")))?;
+
+        Ok(json!({ "message": result }))
+    }
+}
+
+/// Tool for editing memories using regex replacement.
+pub struct EditMemoryTool {
+    manager: MemoryManager,
+}
+
+impl EditMemoryTool {
+    pub fn new(project_root: &Path) -> std::io::Result<Self> {
+        Ok(Self {
+            manager: MemoryManager::new(project_root)?,
+        })
+    }
+}
+
+impl Tool for EditMemoryTool {
+    fn name(&self) -> &'static str {
+        "coraline_edit_memory"
+    }
+
+    fn description(&self) -> &'static str {
+        "Edit a memory using pattern replacement. Supports both literal and regex patterns."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Memory name to edit (without .md extension)."
+                },
+                "pattern": {
+                    "type": "string",
+                    "description": "Pattern to search for (literal string or regex depending on mode)."
+                },
+                "replacement": {
+                    "type": "string",
+                    "description": "Replacement text."
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["literal", "regex"],
+                    "description": "Replacement mode: 'literal' for exact string match, 'regex' for regex pattern.",
+                    "default": "literal"
+                }
+            },
+            "required": ["name", "pattern", "replacement"]
+        })
+    }
+
+    fn execute(&self, params: Value) -> ToolResult {
+        let name = params
+            .get("name")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ToolError::invalid_params("Missing or invalid 'name' parameter"))?;
+
+        let pattern = params
+            .get("pattern")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ToolError::invalid_params("Missing or invalid 'pattern' parameter"))?;
+
+        let replacement = params
+            .get("replacement")
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                ToolError::invalid_params("Missing or invalid 'replacement' parameter")
+            })?;
+
+        let mode = params
+            .get("mode")
+            .and_then(Value::as_str)
+            .unwrap_or("literal");
+
+        // Read current content
+        let content = self
+            .manager
+            .read_memory(name)
+            .map_err(|e| ToolError::internal_error(format!("Failed to read memory: {e}")))?;
+
+        // Handle "not found" message
+        if content.contains("not found") {
+            return Err(ToolError::not_found(format!("Memory '{name}' not found")));
+        }
+
+        // Perform replacement
+        let new_content = match mode {
+            "regex" => {
+                let re = regex::Regex::new(pattern).map_err(|e| {
+                    ToolError::invalid_params(format!("Invalid regex pattern: {e}"))
+                })?;
+                re.replace_all(&content, replacement).to_string()
+            }
+            "literal" => content.replace(pattern, replacement),
+            _ => {
+                return Err(ToolError::invalid_params(
+                    "Mode must be 'literal' or 'regex'",
+                ));
+            }
+        };
+
+        // Write updated content
+        let result = self
+            .manager
+            .write_memory(name, &new_content)
+            .map_err(|e| ToolError::internal_error(format!("Failed to write memory: {e}")))?;
+
+        Ok(json!({ "message": result }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::expect_used)]
+
+    use super::*;
+    use std::fs;
+    use std::path::Path;
+    use tempfile::TempDir;
+
+    fn init_project_root(path: &Path) {
+        fs::create_dir_all(path.join(".coraline"))
+            .expect("Failed to initialize .coraline directory");
+    }
+
+    #[test]
+    fn test_write_and_read_memory_tool() {
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        let path_buf = temp_dir.path().to_path_buf();
+        init_project_root(&path_buf);
+        let write_tool = WriteMemoryTool::new(&path_buf).expect("Failed to create WriteMemoryTool");
+        let read_tool = ReadMemoryTool::new(&path_buf).expect("Failed to create ReadMemoryTool");
+
+        let params = json!({
+            "name": "test_memory",
+            "content": "This is a test memory"
+        });
+
+        let result = write_tool
+            .execute(params)
+            .expect("Failed to execute write_tool");
+        assert!(
+            result
+                .get("message")
+                .and_then(Value::as_str)
+                .expect("Result should contain message string")
+                .contains("written")
+        );
+
+        let params = json!({ "name": "test_memory" });
+        let result = read_tool
+            .execute(params)
+            .expect("Failed to execute read_tool");
+        assert_eq!(
+            result
+                .get("content")
+                .and_then(Value::as_str)
+                .expect("Result should contain content string"),
+            "This is a test memory"
+        );
+    }
+
+    #[test]
+    fn test_list_memories_tool() {
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        let path_buf = temp_dir.path().to_path_buf();
+        init_project_root(&path_buf);
+        let write_tool = WriteMemoryTool::new(&path_buf).expect("Failed to create WriteMemoryTool");
+        let list_tool =
+            ListMemoriesTool::new(&path_buf).expect("Failed to create ListMemoriesTool");
+
+        write_tool
+            .execute(json!({"name": "mem1", "content": "content1"}))
+            .expect("Failed to write memory mem1");
+        write_tool
+            .execute(json!({"name": "mem2", "content": "content2"}))
+            .expect("Failed to write memory mem2");
+
+        let result = list_tool
+            .execute(json!({}))
+            .expect("Failed to execute list_tool");
+        let memories = result
+            .get("memories")
+            .and_then(Value::as_array)
+            .expect("Result should contain memories array");
+        assert_eq!(memories.len(), 2);
+    }
+
+    #[test]
+    fn test_delete_memory_tool() {
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        let path_buf = temp_dir.path().to_path_buf();
+        init_project_root(&path_buf);
+        let write_tool = WriteMemoryTool::new(&path_buf).expect("Failed to create WriteMemoryTool");
+        let delete_tool =
+            DeleteMemoryTool::new(&path_buf).expect("Failed to create DeleteMemoryTool");
+
+        write_tool
+            .execute(json!({"name": "to_delete", "content": "content"}))
+            .expect("Failed to write memory to_delete");
+
+        let result = delete_tool
+            .execute(json!({"name": "to_delete"}))
+            .expect("Failed to execute delete_tool");
+        assert!(
+            result
+                .get("message")
+                .and_then(Value::as_str)
+                .expect("Result should contain message string")
+                .contains("deleted")
+        );
+    }
+
+    #[test]
+    fn test_edit_memory_tool_literal() {
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        let path_buf = temp_dir.path().to_path_buf();
+        init_project_root(&path_buf);
+        let write_tool = WriteMemoryTool::new(&path_buf).expect("Failed to create WriteMemoryTool");
+        let edit_tool = EditMemoryTool::new(&path_buf).expect("Failed to create EditMemoryTool");
+        let read_tool = ReadMemoryTool::new(&path_buf).expect("Failed to create ReadMemoryTool");
+
+        write_tool
+            .execute(json!({"name": "edit_test", "content": "Hello World"}))
+            .expect("Failed to write memory edit_test");
+
+        edit_tool
+            .execute(json!({
+                "name": "edit_test",
+                "pattern": "World",
+                "replacement": "Rust",
+                "mode": "literal"
+            }))
+            .expect("Failed to execute edit_tool");
+
+        let result = read_tool
+            .execute(json!({"name": "edit_test"}))
+            .expect("Failed to execute read_tool");
+        assert_eq!(
+            result
+                .get("content")
+                .and_then(Value::as_str)
+                .expect("Result should contain content string"),
+            "Hello Rust"
+        );
+    }
+
+    #[test]
+    fn test_edit_memory_tool_regex() {
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        let path_buf = temp_dir.path().to_path_buf();
+        init_project_root(&path_buf);
+        let write_tool = WriteMemoryTool::new(&path_buf).expect("Failed to create WriteMemoryTool");
+        let edit_tool = EditMemoryTool::new(&path_buf).expect("Failed to create EditMemoryTool");
+        let read_tool = ReadMemoryTool::new(&path_buf).expect("Failed to create ReadMemoryTool");
+
+        write_tool
+            .execute(json!({"name": "regex_test", "content": "version: 1.0.0"}))
+            .expect("Failed to write memory regex_test");
+
+        edit_tool
+            .execute(json!({
+                "name": "regex_test",
+                "pattern": r"version: \d+\.\d+\.\d+",
+                "replacement": "version: 2.0.0",
+                "mode": "regex"
+            }))
+            .expect("Failed to execute edit_tool with regex");
+
+        let result = read_tool
+            .execute(json!({"name": "regex_test"}))
+            .expect("Failed to execute read_tool");
+        assert_eq!(
+            result
+                .get("content")
+                .and_then(Value::as_str)
+                .expect("Result should contain content string"),
+            "version: 2.0.0"
+        );
+    }
+}
