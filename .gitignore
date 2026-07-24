@@ -140,6 +140,9 @@ docs/IMPROVEMENT_PLAN.md
 .cargo/config.toml
 .cargo/config.toml
 AGENTS.md
+.claude/
 opencode.json
 RTK.md
 notes.txt
+opencode.jsonc
+.gitignore
