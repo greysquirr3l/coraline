@@ -8,11 +8,13 @@ on:
       - "**/Cargo.lock"
       - "deny.toml"
       - ".github/workflows/security.yml"
+  # NOTE: pull_request intentionally has NO paths filter — the branch
+  # protection on `main` requires the `Check licenses and bans` check to be
+  # reported on every PR, and adding path filters here would prevent the
+  # check from running on PRs that only touch workflow files (e.g.
+  # dependabot GitHub Actions bumps). The push trigger still has path
+  # filters so main-branch pushes don't always run this workflow.
   pull_request:
-    paths:
-      - "**/Cargo.toml"
-      - "**/Cargo.lock"
-      - ".github/workflows/security.yml"
   schedule:
     - cron: "0 0 * * *" # Daily at midnight UTC
   workflow_dispatch:
