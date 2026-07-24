@@ -199,8 +199,6 @@ Debounce delay for watch mode in milliseconds.
 
 Controls vector embedding generation for semantic search.
 
-> **Status:** Infrastructure is in place. Full semantic search with ONNX model embeddings is pending availability of a stable `ort` 2.0 API. Setting `enabled = true` currently has no effect.
-
 ### `enabled`
 
 Enable vector embedding generation.
@@ -210,17 +208,23 @@ Enable vector embedding generation.
 
 ### `model`
 
-Embedding model identifier.
+Embedding model identifier. Must match one of the names returned by
+`coraline model list`. The shipped default is the general-purpose
+`nomic-embed-text-v1.5`; set this to `jina-embeddings-v2-base-code` to opt
+into a code-specialised model (see [Supported embedding models](#supported-embedding-models)
+below).
 
 - **Type:** string
 - **Default:** `"nomic-embed-text-v1.5"`
 
 ### `dimension`
 
-Embedding vector dimension. Must match the selected model.
+Embedding vector dimension. Must match the selected model. Every model
+Coraline currently supports emits 768-dim vectors, so the value rarely needs
+changing.
 
 - **Type:** integer
-- **Default:** `384`
+- **Default:** `768`
 
 ### `batch_size`
 
@@ -228,6 +232,61 @@ Number of symbols embedded per batch.
 
 - **Type:** integer
 - **Default:** `32`
+
+### `model_dir`
+
+Override the directory Coraline reads ONNX weights + tokenizer from. Defaults
+to `.coraline/models/<model>/`.
+
+### `model_file`
+
+Pin a specific ONNX filename (e.g. `model_int8.onnx`). When unset, Coraline
+auto-detects the first file from the active model's preference order.
+
+### `max_seq_len`
+
+Maximum token sequence length fed to the model. The supported models accept
+much longer sequences (up to 8192 with ALiBi); 512 covers most code snippets.
+
+- **Type:** integer
+- **Default:** `512`
+
+---
+
+## Supported embedding models
+
+| Model | Dimension | Default file | Notes |
+|---|---|---|---|
+| `nomic-embed-text-v1.5` | 768 | `model_int8.onnx` (~137 MB) | Shipped default. General-purpose English text embedder. |
+| `jina-embeddings-v2-base-code` | 768 | `model_quantized.onnx` (~162 MB) | Code-specialised. Trained on 150M+ code/docstring pairs across 30+ languages. 8192-token context via ALiBi. |
+
+List every supported model at runtime:
+
+```bash
+coraline model list
+```
+
+### Switching models
+
+Set `vectors.model` to opt into a different model:
+
+```toml
+[vectors]
+enabled = true
+model   = "jina-embeddings-v2-base-code"
+```
+
+Then download the new weights and re-embed:
+
+```bash
+coraline model download   # fetches jina tokenizer + ONNX
+coraline embed --reembed  # regenerates every node under the new model
+```
+
+`coraline_semantic_search` automatically filters by the active model — old
+`nomic-embed-text-v1.5` rows remain in the SQLite `vectors` table tagged
+with their original model name and are never compared against a jina query
+embedding. After `--reembed`, the table is fully migrated via `INSERT OR REPLACE`.
 
 ---
 

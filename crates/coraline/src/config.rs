@@ -325,11 +325,13 @@ pub struct VectorsConfig {
     /// Batch size for embedding generation.
     pub batch_size: usize,
     /// Path to the model directory (containing an ONNX file + tokenizer.json).
-    /// Defaults to `.coraline/models/nomic-embed-text-v1.5/`.
+    /// Defaults to `.coraline/models/<model>/` where `<model>` is the value of
+    /// `model`. Set this to share a single model directory across projects.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_dir: Option<String>,
     /// Specific ONNX filename to use (e.g. `model_int8.onnx`).
-    /// When unset, Coraline auto-detects the best available variant.
+    /// When unset, Coraline auto-detects the best available variant from the
+    /// active model's preference order.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_file: Option<String>,
     /// Maximum sequence length in tokens (default 512).
@@ -664,9 +666,11 @@ debounce_ms              = 500
 auto_sync_interval_secs  = 120
 
 [vectors]
-# Full vector search requires an ONNX model.
-# Download any variant from huggingface.co/nomic-ai/nomic-embed-text-v1.5
-# (also copy tokenizer.json) into the directory below:
+# Full vector search requires an ONNX model. Run `coraline model list` to see
+# every supported model; the shipped default is nomic-embed-text-v1.5.
+#
+# Active model: nomic-embed-text-v1.5
+# HuggingFace: huggingface.co/nomic-ai/nomic-embed-text-v1.5
 #   model_int8.onnx      137 MB  — int8 quantized (recommended)
 #   model_quantized.onnx 137 MB  — same as int8
 #   model_uint8.onnx     137 MB  — uint8 quantized
@@ -674,8 +678,13 @@ auto_sync_interval_secs  = 120
 #   model_q4.onnx        165 MB  — Q4 quantized
 #   model_fp16.onnx      274 MB  — fp16
 #   model.onnx           547 MB  — full f32
-# Coraline auto-selects the best available file; set model_file to override.
-# Then run: coraline embed
+#
+# To opt into the code-specialised jina-embeddings-v2-base-code instead, set
+# model = "jina-embeddings-v2-base-code" (model_quantized.onnx, 162 MB) and
+# run `coraline model download` then `coraline embed --reembed`.
+#
+# Coraline auto-selects the best available file from the active model's
+# preference order; set model_file to pin a specific variant.
 enabled    = false
 model      = "nomic-embed-text-v1.5"
 dimension  = 768

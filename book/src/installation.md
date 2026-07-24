@@ -87,9 +87,11 @@ Semantic search is included in the default build but requires downloading an ONN
 coraline model download
 ```
 
-This downloads `nomic-embed-text-v1.5` (~137 MB) to `.coraline/models/`.
+This downloads `nomic-embed-text-v1.5` (~137 MB, the shipped default) to
+`.coraline/models/nomic-embed-text-v1.5/`. Run `coraline model list` to see
+every supported model.
 
-**Available model variants:**
+**Available model variants for `nomic-embed-text-v1.5`:**
 
 | Variant | Size | Notes |
 |---|---|---|
@@ -103,6 +105,11 @@ To download a specific variant:
 ```bash
 coraline model download --variant model_fp16.onnx
 ```
+
+To opt into the code-specialised `jina-embeddings-v2-base-code` instead, set
+`vectors.model = "jina-embeddings-v2-base-code"` in `.coraline/config.toml`
+and run `coraline model download` again. After switching models, run
+`coraline embed --reembed` to regenerate every node under the new model.
 
 ### Generate Embeddings
 

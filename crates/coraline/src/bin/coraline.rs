@@ -217,6 +217,15 @@ struct EmbedArgs {
     /// ONNX variant to download when using `--download` (default: `model_int8.onnx`).
     #[arg(long = "variant", default_value = "model_int8.onnx")]
     variant: String,
+    /// Re-embed every node regardless of freshness or model name.
+    ///
+    /// By default, `coraline embed` only touches nodes whose embedding is
+    /// missing, stale (the node changed since it was embedded), or was
+    /// produced by a different model. Use `--reembed` to force a full
+    /// regeneration — typically after switching `vectors.model` in
+    /// `.coraline/config.toml` or after a model upgrade.
+    #[arg(long = "reembed")]
+    reembed: bool,
 }
 
 #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
@@ -245,6 +254,8 @@ enum ModelAction {
     },
     /// Show which model files are present in the model directory.
     Status,
+    /// List all supported embedding models with descriptions and `HuggingFace` URLs.
+    List,
 }
 
 fn main() {
@@ -332,17 +343,23 @@ fn main() {
 fn run_model(args: ModelArgs) {
     let project_root = resolve_project_root(args.path);
     let cfg = config::load_toml_config(&project_root).unwrap_or_default();
-    let model_dir = cfg
-        .vectors
-        .model_dir
-        .map_or_else(|| vectors::default_model_dir(&project_root), PathBuf::from);
+    let active_model = cfg.vectors.model.clone();
+    let model_dir = cfg.vectors.model_dir.as_deref().map_or_else(
+        || vectors::default_model_dir_for(&project_root, &active_model),
+        PathBuf::from,
+    );
 
     match args.action {
         ModelAction::Download { variant, force } => {
             if !args.quiet {
-                println!("Downloading {variant} into {} ...", model_dir.display());
+                println!(
+                    "Downloading {variant} ({active_model}) into {} ...",
+                    model_dir.display()
+                );
             }
-            if let Err(e) = vectors::download_model(&model_dir, &variant, !force, args.quiet) {
+            if let Err(e) =
+                vectors::download_model(&active_model, &model_dir, &variant, !force, args.quiet)
+            {
                 eprintln!("Download failed: {e}");
                 std::process::exit(1);
             }
@@ -351,9 +368,12 @@ fn run_model(args: ModelArgs) {
             }
         }
         ModelAction::Status => {
+            println!("Active model: {active_model}");
             println!("Model directory: {}", model_dir.display());
             println!();
-            for name in vectors::MODEL_PREFERENCE_ORDER {
+            let order = vectors::model_preference_order(&active_model)
+                .unwrap_or(vectors::MODEL_PREFERENCE_ORDER);
+            for name in order {
                 let p = model_dir.join(name);
                 if let Ok(meta) = std::fs::metadata(&p) {
                     println!("  {name:<30}  {:>6} MB  [present]", meta.len() / 1_000_000);
@@ -371,6 +391,25 @@ fn run_model(args: ModelArgs) {
                 }
             }
         }
+        ModelAction::List => {
+            println!("Supported embedding models:");
+            println!();
+            for m in vectors::SUPPORTED_MODELS {
+                let marker = if m.name == active_model {
+                    " (active)"
+                } else {
+                    ""
+                };
+                println!("  {}{marker}", m.name);
+                println!("    {}", m.description);
+                println!(
+                    "    default file: {} ({} MB class) — HF: {}",
+                    m.default_filename,
+                    m.preference_order.first().copied().unwrap_or("?"),
+                    m.hf_base_url
+                );
+            }
+        }
     }
 }
 
@@ -386,18 +425,21 @@ fn run_embed(args: EmbedArgs) {
     // Auto-download model files if requested.
     if args.download {
         let cfg = config::load_toml_config(&project_root).unwrap_or_default();
-        let model_dir = cfg
-            .vectors
-            .model_dir
-            .map_or_else(|| vectors::default_model_dir(&project_root), PathBuf::from);
+        let active_model = cfg.vectors.model.clone();
+        let model_dir = cfg.vectors.model_dir.map_or_else(
+            || vectors::default_model_dir_for(&project_root, &active_model),
+            PathBuf::from,
+        );
         if !args.quiet {
             println!(
-                "Downloading {} into {} ...",
+                "Downloading {} ({active_model}) into {} ...",
                 args.variant,
                 model_dir.display()
             );
         }
-        if let Err(e) = vectors::download_model(&model_dir, &args.variant, true, args.quiet) {
+        if let Err(e) =
+            vectors::download_model(&active_model, &model_dir, &args.variant, true, args.quiet)
+        {
             eprintln!("Download failed: {e}");
             std::process::exit(1);
         }
@@ -410,19 +452,36 @@ fn run_embed(args: EmbedArgs) {
         std::process::exit(1);
     });
 
-    let nodes = db::get_all_nodes(&conn).unwrap_or_else(|err| {
-        eprintln!("Failed to read nodes: {err}");
-        std::process::exit(1);
-    });
+    let nodes = if args.reembed {
+        db::get_all_nodes(&conn).unwrap_or_else(|err| {
+            eprintln!("Failed to read nodes: {err}");
+            std::process::exit(1);
+        })
+    } else {
+        db::get_unembedded_nodes(&conn, vm.model_name()).unwrap_or_else(|err| {
+            eprintln!("Failed to read nodes: {err}");
+            std::process::exit(1);
+        })
+    };
 
     let total = nodes.len();
     if total == 0 {
-        println!("No nodes found. Run `coraline index` first.");
+        println!(
+            "All nodes already embedded under {}. Use --reembed to force a full re-embed.",
+            vm.model_name()
+        );
         return;
     }
 
     if !args.quiet {
-        println!("Embedding {total} nodes…");
+        if args.reembed {
+            println!("Re-embedding {total} nodes…");
+        } else {
+            println!(
+                "Embedding {total} new/stale nodes under {}…",
+                vm.model_name()
+            );
+        }
     }
 
     let pb = (!args.quiet)
@@ -722,16 +781,16 @@ fn maybe_prompt_model_download(project_root: &Path) {
     use std::io::Write as _;
 
     let cfg = config::load_toml_config(project_root).unwrap_or_default();
-    let model_dir = cfg
-        .vectors
-        .model_dir
-        .map_or_else(|| vectors::default_model_dir(project_root), PathBuf::from);
+    let active_model = cfg.vectors.model.clone();
+    let model_dir = cfg.vectors.model_dir.as_deref().map_or_else(
+        || vectors::default_model_dir_for(project_root, &active_model),
+        PathBuf::from,
+    );
 
     // Nothing to do if any model variant is already present.
-    if vectors::MODEL_PREFERENCE_ORDER
-        .iter()
-        .any(|name| model_dir.join(name).exists())
-    {
+    let order =
+        vectors::model_preference_order(&active_model).unwrap_or(vectors::MODEL_PREFERENCE_ORDER);
+    if order.iter().any(|name| model_dir.join(name).exists()) {
         return;
     }
 
@@ -742,7 +801,10 @@ fn maybe_prompt_model_download(project_root: &Path) {
         return;
     }
 
-    eprint!("Download embedding model for semantic search? (~137 MB) [Y/n] ");
+    let default_variant = vectors::default_filename(&active_model).unwrap_or("model_int8.onnx");
+    eprint!(
+        "Download embedding model for semantic search? ({active_model}, {default_variant}) [Y/n] "
+    );
     let _ = std::io::stderr().flush();
     let mut input = String::new();
     if std::io::stdin().read_line(&mut input).is_err() {
@@ -750,8 +812,11 @@ fn maybe_prompt_model_download(project_root: &Path) {
     }
     let answer = input.trim();
     if answer.is_empty() || answer.eq_ignore_ascii_case("y") {
-        println!("Downloading model into {} ...", model_dir.display());
-        match vectors::download_model(&model_dir, "model_int8.onnx", true, false) {
+        println!(
+            "Downloading {default_variant} ({active_model}) into {} ...",
+            model_dir.display()
+        );
+        match vectors::download_model(&active_model, &model_dir, default_variant, true, false) {
             Ok(()) => println!("Done. Run `coraline embed` to generate embeddings."),
             Err(e) => {
                 eprintln!("Model download failed: {e}");

@@ -388,59 +388,101 @@ Logs are written to `.coraline/logs/coraline.log` (daily rotating) and to stderr
 
 Generate vector embeddings for all indexed nodes using the local ONNX model. Embeddings enable the `coraline_semantic_search` MCP tool.
 
-By default, `embed` performs a lightweight freshness check and runs incremental `sync` first when indexed state is stale. This keeps embeddings aligned with current source files without requiring a manual `coraline sync` step.
+By default, `embed` runs in **incremental mode**: it touches only nodes whose embedding is missing, stale (the node changed since it was embedded), or was produced by a different model. Use `--reembed` to force a full regeneration.
 
 **Options:**
 
 | Flag | Description |
 |---|---|
-| `--download` | Download the model automatically before embedding |
-| `--variant FILENAME` | ONNX variant to download (default: `model_int8.onnx`) |
+| `--download` | Download the active model automatically before embedding |
+| `--variant FILENAME` | ONNX variant to download (default depends on the active model) |
+| `--reembed` | Re-embed every node regardless of freshness or model name |
 | `--skip-sync` | Skip automatic pre-embed sync check (embeddings may be stale) |
 | `--batch-size N` | Nodes per progress batch (default: `50`) |
 | `-q`, `--quiet` | Suppress progress output |
 
 **Examples:**
 ```bash
-coraline embed                        # Embed using already-downloaded model
-coraline embed --skip-sync            # Skip auto-sync and embed current index state
-coraline embed --download             # Download model_int8.onnx then embed
+coraline embed                              # Embed new/stale nodes under the active model
+coraline embed --reembed                    # Force full re-embed (e.g. after switching models)
+coraline embed --skip-sync                  # Skip auto-sync and embed current index state
+coraline embed --download                   # Download the active model then embed
 coraline embed --download --variant model_fp16.onnx
 ```
 
-Run `coraline index` first. Models are stored in `.coraline/models/nomic-embed-text-v1.5/`.
+Run `coraline index` first. Models are stored in `.coraline/models/<model>/`.
 
 ---
 
 ## `coraline model [PATH]`
 
-Manage the ONNX embedding model files.
+Manage the ONNX embedding model files. The active model is read from
+`vectors.model` in `.coraline/config.toml` (default `nomic-embed-text-v1.5`).
+Run `coraline model list` to see every supported model.
 
 ### `coraline model download`
 
-Download model files from HuggingFace (`nomic-ai/nomic-embed-text-v1.5`).
+Download tokenizer + ONNX weights for the active model from HuggingFace.
 
 | Flag | Description |
 |---|---|
-| `--variant FILENAME` | ONNX variant to download (default: `model_int8.onnx`) |
+| `--variant FILENAME` | ONNX variant to download (default depends on the active model) |
 | `-f`, `--force` | Re-download even if files already exist |
 | `-q`, `--quiet` | Suppress progress output |
 
-Downloads `tokenizer.json`, `tokenizer_config.json`, and the chosen ONNX weights into `.coraline/models/nomic-embed-text-v1.5/`.
-
-**Available variants (smallest to largest):**
-
-| Variant | Size | Notes |
-|---|---|---|
-| `model_q4f16.onnx` | ~111 MB | Q4 + fp16 mixed (smallest) |
-| `model_int8.onnx` | ~137 MB | int8 quantized (recommended) |
-| `model_fp16.onnx` | ~274 MB | fp16 |
-| `model.onnx` | ~547 MB | full f32 |
+Files are written to `.coraline/models/<active-model>/`. After downloading,
+run `coraline embed` (or `coraline embed --reembed` after switching models)
+to generate embeddings.
 
 ### `coraline model status`
 
-Show which model files are present in the model directory.
+Show which model files are present in the active model directory and which
+ONNX variants Coraline will auto-detect.
 
 ```bash
 coraline model status
 ```
+
+### `coraline model list`
+
+List every supported embedding model with a one-line description, the default
+ONNX filename, and the HuggingFace URL.
+
+```bash
+coraline model list
+```
+
+Example output:
+
+```
+Supported embedding models:
+
+  nomic-embed-text-v1.5 (active)
+    General-purpose English text embeddings (137 MB int8).
+    default file: model_int8.onnx (137 MB class) — HF: https://huggingface.co/nomic-ai/nomic-embed-text-v1.5/resolve/main
+
+  jina-embeddings-v2-base-code
+    Code-specialised embeddings (162 MB int8). ...
+```
+
+### Switching models
+
+Edit `.coraline/config.toml`:
+
+```toml
+[vectors]
+enabled = true
+model   = "jina-embeddings-v2-base-code"
+```
+
+Then fetch the new weights and re-embed:
+
+```bash
+coraline model download   # fetches jina-embeddings-v2-base-code
+coraline embed --reembed  # regenerates every node under the new model
+```
+
+Old `nomic-embed-text-v1.5` rows remain in the SQLite `vectors` table tagged
+with their original model name and are never compared against a jina query
+embedding. After `--reembed`, the table is fully migrated to the new model
+via `INSERT OR REPLACE`.

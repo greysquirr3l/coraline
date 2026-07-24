@@ -361,57 +361,88 @@ Logs are written to `.coraline/logs/coraline.log` (daily rotating) and to stderr
 
 ## `coraline embed [PATH]`
 
-Generate vector embeddings for all indexed nodes using the local ONNX model. Embeddings enable the `coraline_semantic_search` MCP tool.
+Generate vector embeddings for indexed nodes using the local ONNX model. Embeddings enable the `coraline_semantic_search` MCP tool.
+
+By default, `embed` runs in **incremental mode**: only nodes whose embedding
+is missing, stale (the node changed since it was embedded), or produced by a
+different model are re-embedded. Use `--reembed` to force a full regeneration.
 
 **Options:**
 
 | Flag | Description |
 |---|---|
-| `--download` | Download the model automatically before embedding |
-| `--variant FILENAME` | ONNX variant to download (default: `model_int8.onnx`) |
+| `--download` | Download the active model automatically before embedding |
+| `--variant FILENAME` | ONNX variant to download (default depends on the active model) |
+| `--reembed` | Re-embed every node regardless of freshness or model name |
 | `--batch-size N` | Nodes per progress batch (default: `50`) |
 | `-q`, `--quiet` | Suppress progress output |
 
 **Examples:**
 ```bash
-coraline embed                        # Embed using already-downloaded model
-coraline embed --download             # Download model_int8.onnx then embed
+coraline embed                              # Embed new/stale nodes under the active model
+coraline embed --reembed                    # Force full re-embed (e.g. after switching models)
+coraline embed --download                   # Download the active model then embed
 coraline embed --download --variant model_fp16.onnx
 ```
 
-Run `coraline index` first. Models are stored in `.coraline/models/nomic-embed-text-v1.5/`.
+Run `coraline index` first. Models are stored in `.coraline/models/<active-model>/`.
 
 ---
 
 ## `coraline model [PATH]`
 
-Manage the ONNX embedding model files.
+Manage the ONNX embedding model files. The active model is read from
+`vectors.model` in `.coraline/config.toml` (default `nomic-embed-text-v1.5`).
+Run `coraline model list` to see every supported model.
 
 ### `coraline model download`
 
-Download model files from HuggingFace (`nomic-ai/nomic-embed-text-v1.5`).
+Download tokenizer + ONNX weights for the active model from HuggingFace.
 
 | Flag | Description |
 |---|---|
-| `--variant FILENAME` | ONNX variant to download (default: `model_int8.onnx`) |
+| `--variant FILENAME` | ONNX variant to download (default depends on the active model) |
 | `-f`, `--force` | Re-download even if files already exist |
 | `-q`, `--quiet` | Suppress progress output |
 
-Downloads `tokenizer.json`, `tokenizer_config.json`, and the chosen ONNX weights into `.coraline/models/nomic-embed-text-v1.5/`.
-
-**Available variants (smallest to largest):**
-
-| Variant | Size | Notes |
-|---|---|---|
-| `model_q4f16.onnx` | ~111 MB | Q4 + fp16 mixed (smallest) |
-| `model_int8.onnx` | ~137 MB | int8 quantized (recommended) |
-| `model_fp16.onnx` | ~274 MB | fp16 |
-| `model.onnx` | ~547 MB | full f32 |
+Files are written to `.coraline/models/<active-model>/`. After downloading,
+run `coraline embed` (or `coraline embed --reembed` after switching models)
+to generate embeddings.
 
 ### `coraline model status`
 
-Show which model files are present in the model directory.
+Show which model files are present in the active model directory.
 
 ```bash
 coraline model status
 ```
+
+### `coraline model list`
+
+List every supported embedding model with a one-line description, the default
+ONNX filename, and the HuggingFace URL.
+
+```bash
+coraline model list
+```
+
+### Switching models
+
+Edit `.coraline/config.toml`:
+
+```toml
+[vectors]
+enabled = true
+model   = "jina-embeddings-v2-base-code"
+```
+
+Then fetch the new weights and re-embed:
+
+```bash
+coraline model download   # fetches jina-embeddings-v2-base-code
+coraline embed --reembed  # regenerates every node under the new model
+```
+
+Old `nomic-embed-text-v1.5` rows stay in the SQLite `vectors` table tagged
+with their original model name and are never compared against a jina query
+embedding. After `--reembed`, the table is fully migrated via `INSERT OR REPLACE`.

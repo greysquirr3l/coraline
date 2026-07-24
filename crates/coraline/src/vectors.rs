@@ -13,22 +13,24 @@
 //! Vector embeddings for semantic code search.
 //!
 //! Generates 768-dimensional embeddings using a locally-stored ONNX model
-//! (nomic-embed-text-v1.5) via the `ort` ONNX Runtime bindings.
+//! via the `ort` ONNX Runtime bindings. Coraline supports multiple embedding
+//! models — see [`SupportedModel`] for the registry.
 //!
 //! ## Quick start
 //!
-//! 1. Download a model into `.coraline/models/nomic-embed-text-v1.5/`.
-//!    Any of the ONNX variants from `nomic-ai/nomic-embed-text-v1.5` work;
-//!    the smallest usable option is `model_int8.onnx` (137 MB).
-//!    Also copy `tokenizer.json` from the same HuggingFace repo.
+//! 1. Download a model into `.coraline/models/<model-name>/`.
+//!    The default model is `nomic-embed-text-v1.5`. Use `coraline model list`
+//!    to see all supported models, or override `vectors.model` in
+//!    `.coraline/config.toml` to opt into a different one (e.g.
+//!    `jina-embeddings-v2-base-code` for code-specific retrieval).
 //! 2. Run `coraline embed` to generate embeddings for all indexed nodes.
 //! 3. Use the `coraline_semantic_search` MCP tool to search by natural language.
 //!
 //! ## Model variant preference order
 //!
 //! When `model_file` is not configured, Coraline picks the first file found
-//! from [`MODEL_PREFERENCE_ORDER`].  This prefers well-quantized variants
-//! (137 MB) over the full f32 model (547 MB).
+//! from [`model_preference_order`]. This prefers well-quantized variants
+//! before falling back to the full f32 model.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -44,37 +46,154 @@ use tokenizers::Tokenizer;
 
 use crate::types::SearchResult;
 
-/// Model identifier for nomic-embed-text-v1.5
+/// Identifier for the default shipped embedding model.
 pub const DEFAULT_MODEL: &str = "nomic-embed-text-v1.5";
 
-/// Output dimension for nomic-embed-text-v1.5.
+/// Output dimension for every supported model.
+///
+/// All currently supported models emit 768-dim vectors; the constant exists so
+/// downstream code does not have to know the model name to allocate buffers.
 pub const EMBEDDING_DIM: usize = 768;
 
 /// Maximum sequence length fed to the model (tokens).
-/// nomic-embed-text-v1.5 supports up to 8192, but 512 covers most code snippets.
+///
+/// The supported models support much longer contexts (nomic-embed-text-v1.5
+/// up to 8192, jina-embeddings-v2-base-code up to 8192 via ALiBi), but 512
+/// covers most code snippets without inflating ONNX session memory.
 pub const MAX_SEQ_LEN: usize = 512;
 
-/// ONNX model file names tried in order when `model_file` is not configured.
+/// Registry of supported embedding models.
 ///
-/// Preference is given to quantized variants (smaller on disk, faster to load)
-/// before falling back to the full f32 model.
-pub const MODEL_PREFERENCE_ORDER: &[&str] = &[
-    "model_int8.onnx",      // 137 MB  — int8 quantized (recommended)
-    "model_quantized.onnx", // 137 MB  — same weights, different name
-    "model_uint8.onnx",     // 137 MB  — uint8 quantized
-    "model_q4f16.onnx",     // 111 MB  — Q4 + fp16 mixed (smallest)
-    "model_q4.onnx",        // 165 MB  — Q4 quantized
-    "model_bnb4.onnx",      // 158 MB  — 4-bit NF4
-    "model_fp16.onnx",      // 274 MB  — fp16
-    "model.onnx",           // 547 MB  — full f32 (fallback)
+/// Each entry maps a model name to the HuggingFace repo, the default ONNX
+/// filename to download, the file preference order for `find_model_file`, and
+/// the embedding dimension. Add a new model here when supporting a new HF
+/// repo — the rest of the pipeline picks it up automatically.
+#[derive(Debug, Clone, Copy)]
+pub struct SupportedModel {
+    /// Canonical model name (matches the HuggingFace repo slug).
+    pub name: &'static str,
+    /// HuggingFace `resolve/main` base URL for the repo.
+    pub hf_base_url: &'static str,
+    /// ONNX filename to download by default (e.g. when running
+    /// `coraline model download` with no `--variant`).
+    pub default_filename: &'static str,
+    /// Filenames tried in order when auto-detecting an installed variant.
+    pub preference_order: &'static [&'static str],
+    /// Embedding vector dimension produced by the model.
+    pub dimension: usize,
+    /// Short human-readable description (shown by `coraline model list`).
+    pub description: &'static str,
+}
+
+/// ONNX preference order for nomic-embed-text-v1.5.
+const NOMIC_PREFERENCE_ORDER: &[&str] = &[
+    "model_int8.onnx",      // 137 MB — int8 quantized (recommended)
+    "model_quantized.onnx", // 137 MB — same weights, different name
+    "model_uint8.onnx",     // 137 MB — uint8 quantized
+    "model_q4f16.onnx",     // 111 MB — Q4 + fp16 mixed (smallest)
+    "model_q4.onnx",        // 165 MB — Q4 quantized
+    "model_bnb4.onnx",      // 158 MB — 4-bit NF4
+    "model_fp16.onnx",      // 274 MB — fp16
+    "model.onnx",           // 547 MB — full f32 (fallback)
 ];
 
-/// Find the best available ONNX model file in `model_dir`.
+/// ONNX preference order for jina-embeddings-v2-base-code.
+const JINA_CODE_PREFERENCE_ORDER: &[&str] = &[
+    "model_quantized.onnx", // 162 MB — int8 quantized (recommended)
+    "model_fp16.onnx",      // 321 MB — fp16
+    "model.onnx",           // 642 MB — full f32 (fallback)
+];
+
+/// Registry of every model Coraline knows how to download and run.
+pub const SUPPORTED_MODELS: &[SupportedModel] = &[
+    SupportedModel {
+        name: "nomic-embed-text-v1.5",
+        hf_base_url: "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5/resolve/main",
+        default_filename: "model_int8.onnx",
+        preference_order: NOMIC_PREFERENCE_ORDER,
+        dimension: 768,
+        description: "General-purpose English text embeddings (137 MB int8).",
+    },
+    SupportedModel {
+        name: "jina-embeddings-v2-base-code",
+        hf_base_url: "https://huggingface.co/jinaai/jina-embeddings-v2-base-code/resolve/main",
+        default_filename: "model_quantized.onnx",
+        preference_order: JINA_CODE_PREFERENCE_ORDER,
+        dimension: 768,
+        description: "Code-specialised embeddings (162 MB int8). \
+                      Trained on 150M+ code/docstring pairs across 30+ languages. \
+                      8192-token context via ALiBi.",
+    },
+];
+
+/// Look up a model in [`SUPPORTED_MODELS`] by name.
+pub fn model_spec(name: &str) -> io::Result<&'static SupportedModel> {
+    SUPPORTED_MODELS
+        .iter()
+        .find(|m| m.name == name)
+        .ok_or_else(|| {
+            let known: Vec<&str> = SUPPORTED_MODELS.iter().map(|m| m.name).collect();
+            io::Error::other(format!(
+                "Unknown embedding model '{name}'. Supported models: {}",
+                known.join(", ")
+            ))
+        })
+}
+
+/// HuggingFace base URL for `model_name`.
+pub fn hf_base_url(model_name: &str) -> io::Result<&'static str> {
+    Ok(model_spec(model_name)?.hf_base_url)
+}
+
+/// Default ONNX filename for `model_name` (what `coraline model download` picks).
+pub fn default_filename(model_name: &str) -> io::Result<&'static str> {
+    Ok(model_spec(model_name)?.default_filename)
+}
+
+/// ONNX filename preference order for `model_name`.
+pub fn model_preference_order(model_name: &str) -> io::Result<&'static [&'static str]> {
+    Ok(model_spec(model_name)?.preference_order)
+}
+
+/// HuggingFace download URL for `tokenizer.json` of `model_name`.
+pub fn tokenizer_url_for(model_name: &str) -> io::Result<String> {
+    Ok(format!("{}/tokenizer.json", hf_base_url(model_name)?))
+}
+
+/// HuggingFace download URL for `tokenizer_config.json` of `model_name`.
+pub fn tokenizer_config_url_for(model_name: &str) -> io::Result<String> {
+    Ok(format!(
+        "{}/tokenizer_config.json",
+        hf_base_url(model_name)?
+    ))
+}
+
+/// HuggingFace download URL for a specific ONNX model variant of `model_name`.
+///
+/// ONNX files live under the `onnx/` subdirectory in the HF repo.
+pub fn model_url_for(model_name: &str, filename: &str) -> io::Result<String> {
+    Ok(format!("{}/onnx/{filename}", hf_base_url(model_name)?))
+}
+
+/// Default model directory for `model_name`: `.coraline/models/<model_name>/`.
+pub fn default_model_dir_for(project_root: &Path, model_name: &str) -> PathBuf {
+    project_root
+        .join(".coraline")
+        .join("models")
+        .join(model_name)
+}
+
+/// Find the best available ONNX model file in `model_dir` for `model_name`.
 ///
 /// If `preferred` is `Some(name)`, that exact filename is required (error if
-/// absent).  Otherwise, the first filename from [`MODEL_PREFERENCE_ORDER`]
-/// that exists in the directory is returned.
-pub fn find_model_file(model_dir: &Path, preferred: Option<&str>) -> io::Result<PathBuf> {
+/// absent). Otherwise, the first filename from
+/// [`model_preference_order`] for `model_name` that exists in the directory is
+/// returned.
+pub fn find_model_file(
+    model_dir: &Path,
+    model_name: &str,
+    preferred: Option<&str>,
+) -> io::Result<PathBuf> {
     if let Some(name) = preferred {
         let p = model_dir.join(name);
         if p.exists() {
@@ -85,41 +204,70 @@ pub fn find_model_file(model_dir: &Path, preferred: Option<&str>) -> io::Result<
             model_dir.display()
         )));
     }
-    for name in MODEL_PREFERENCE_ORDER {
+    let order = model_preference_order(model_name)?;
+    for name in order {
         let p = model_dir.join(name);
         if p.exists() {
             return Ok(p);
         }
     }
+    let spec = model_spec(model_name)?;
     Err(io::Error::other(format!(
         "No ONNX model file found in {}. \
-         Download a model variant (e.g. model_int8.onnx) from \
-         huggingface.co/nomic-ai/nomic-embed-text-v1.5 and copy \
-         tokenizer.json alongside it.",
-        model_dir.display()
+         Download a model variant (e.g. {}) from {} \
+         and copy tokenizer.json alongside it.",
+        model_dir.display(),
+        spec.default_filename,
+        spec.hf_base_url,
     )))
 }
 
-// ── HuggingFace download ──────────────────────────────────────────────────────
+// ── Back-compat shims ─────────────────────────────────────────────────────────
+//
+// The legacy `MODEL_PREFERENCE_ORDER` / `HF_BASE_URL` / `model_url` /
+// `tokenizer_url` / `tokenizer_config_url` / `default_model_dir` helpers are
+// retained as thin wrappers around the nomic entry of [`SUPPORTED_MODELS`] so
+// that existing callers (and tests) keep compiling. New code should use the
+// model-aware helpers above (`model_preference_order`, `hf_base_url`,
+// `default_model_dir_for`, `tokenizer_url_for`, …).
 
-/// HuggingFace repository base URL for nomic-embed-text-v1.5.
+/// ONNX filename preference order for the default (nomic) model.
+///
+/// Retained for callers that don't yet pass a model name. Prefer
+/// [`model_preference_order`].
+pub const MODEL_PREFERENCE_ORDER: &[&str] = NOMIC_PREFERENCE_ORDER;
+
+/// HuggingFace base URL for the default (nomic) model.
+///
+/// Retained for callers that don't yet pass a model name. Prefer
+/// [`hf_base_url`].
 pub const HF_BASE_URL: &str = "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5/resolve/main";
 
-/// HuggingFace download URL for `tokenizer.json`.
+/// HuggingFace download URL for `tokenizer.json` of the default model.
+///
+/// Retained for callers that don't yet pass a model name. Prefer
+/// [`tokenizer_url_for`].
 pub fn tokenizer_url() -> String {
     format!("{HF_BASE_URL}/tokenizer.json")
 }
 
-/// HuggingFace download URL for `tokenizer_config.json`.
+/// HuggingFace download URL for `tokenizer_config.json` of the default model.
 pub fn tokenizer_config_url() -> String {
     format!("{HF_BASE_URL}/tokenizer_config.json")
 }
 
-/// HuggingFace download URL for a specific ONNX model variant.
-///
-/// ONNX files live under the `onnx/` subdirectory in the HF repo.
+/// HuggingFace download URL for a specific ONNX variant of the default model.
 pub fn model_url(filename: &str) -> String {
     format!("{HF_BASE_URL}/onnx/{filename}")
+}
+
+/// Default model directory for the default (nomic) model:
+/// `.coraline/models/nomic-embed-text-v1.5/`.
+///
+/// Retained for callers that don't yet pass a model name. Prefer
+/// [`default_model_dir_for`].
+pub fn default_model_dir(project_root: &Path) -> PathBuf {
+    default_model_dir_for(project_root, DEFAULT_MODEL)
 }
 
 /// Download a single URL to a local file path with a progress indicator.
@@ -189,7 +337,7 @@ pub fn download_to_file(url: &str, dest: &Path, label: &str, quiet: bool) -> io:
     Ok(())
 }
 
-/// Download all files needed to run the embedding model into `model_dir`.
+/// Download all files needed to run `model_name` into `model_dir`.
 ///
 /// Downloads:
 /// - `tokenizer.json` and `tokenizer_config.json` (HF repo root)
@@ -200,6 +348,7 @@ pub fn download_to_file(url: &str, dest: &Path, label: &str, quiet: bool) -> io:
 /// Available with the `embeddings` and `embeddings-dynamic` features.
 #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
 pub fn download_model(
+    model_name: &str,
     model_dir: &Path,
     model_filename: &str,
     skip_existing: bool,
@@ -209,8 +358,11 @@ pub fn download_model(
 
     // Small files — always at repo root on HF
     let meta_files = [
-        ("tokenizer.json", tokenizer_url()),
-        ("tokenizer_config.json", tokenizer_config_url()),
+        ("tokenizer.json", tokenizer_url_for(model_name)?),
+        (
+            "tokenizer_config.json",
+            tokenizer_config_url_for(model_name)?,
+        ),
     ];
     for (name, url) in &meta_files {
         let dest = model_dir.join(name);
@@ -230,7 +382,7 @@ pub fn download_model(
             println!("  {model_filename}: already present, skipping");
         }
     } else {
-        let url = model_url(model_filename);
+        let url = model_url_for(model_name, model_filename)?;
         download_to_file(&url, &dest, model_filename, quiet)?;
     }
 
@@ -301,22 +453,26 @@ impl VectorManager {
     /// Load from a directory, auto-detecting the best available model variant.
     ///
     /// Uses [`find_model_file`] with no preference, so it picks the first file
-    /// from [`MODEL_PREFERENCE_ORDER`] that exists in `model_dir`.
+    /// from the model's preference order that exists in `model_dir`.
+    /// Defaults to [`DEFAULT_MODEL`] for the model name.
     pub fn from_dir(model_dir: &Path) -> io::Result<Self> {
-        let model_path = find_model_file(model_dir, None)?;
+        let model_path = find_model_file(model_dir, DEFAULT_MODEL, None)?;
         Self::new(&model_path)
     }
 
     /// Load using the project's config (falls back to default model dir).
     ///
-    /// Respects `vectors.model_dir` and `vectors.model_file` from config.toml.
+    /// Respects `vectors.model`, `vectors.model_dir`, and `vectors.model_file`
+    /// from config.toml.
     pub fn from_project(project_root: &Path) -> io::Result<Self> {
         let cfg = crate::config::load_toml_config(project_root).unwrap_or_default();
-        let model_dir = cfg
-            .vectors
-            .model_dir
-            .map_or_else(|| default_model_dir(project_root), PathBuf::from);
-        let model_path = find_model_file(&model_dir, cfg.vectors.model_file.as_deref())?;
+        let model_name = &cfg.vectors.model;
+        let model_dir = cfg.vectors.model_dir.as_deref().map_or_else(
+            || default_model_dir_for(project_root, model_name),
+            PathBuf::from,
+        );
+        let model_path =
+            find_model_file(&model_dir, model_name, cfg.vectors.model_file.as_deref())?;
         Self::new(&model_path)
     }
 
@@ -375,14 +531,6 @@ impl VectorManager {
 
         Ok(l2_normalize(embedding))
     }
-}
-
-/// Default model directory: `.coraline/models/nomic-embed-text-v1.5/`.
-pub fn default_model_dir(project_root: &Path) -> PathBuf {
-    project_root
-        .join(".coraline")
-        .join("models")
-        .join(DEFAULT_MODEL)
 }
 
 /// Mean-pool the last hidden state over non-masked positions.
@@ -551,12 +699,20 @@ pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     dot / (norm_a * norm_b)
 }
 
-/// Search for nodes similar to the query embedding.
+/// Search for nodes similar to the query embedding, restricted to the active
+/// embedding model.
+///
+/// This filters the `vectors` table by `model = ?` so that an embedding
+/// produced by model A is never compared against corpus entries produced by
+/// model B (which would yield meaningless similarity scores). Mixed-model
+/// corpora are common during a migration window.
 ///
 /// # Arguments
 ///
 /// * `conn` - Database connection
 /// * `query_embedding` - The query embedding vector
+/// * `model_name` - Active model name; only rows tagged with this name are
+///   considered.
 /// * `limit` - Maximum number of results to return
 /// * `min_similarity` - Minimum cosine similarity threshold (0.0 to 1.0)
 ///
@@ -566,6 +722,7 @@ pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
 pub fn search_similar(
     conn: &Connection,
     query_embedding: &[f32],
+    model_name: &str,
     limit: usize,
     min_similarity: f32,
 ) -> io::Result<Vec<SearchResult>> {
@@ -578,12 +735,13 @@ pub fn search_similar(
                          n.is_exported, n.is_async, n.is_static, n.is_abstract,
                          n.decorators, n.type_parameters
                   FROM vectors v
-                  JOIN nodes n ON v.node_id = n.id",
+                  JOIN nodes n ON v.node_id = n.id
+                 WHERE v.model = ?1",
         )
         .map_err(|e| io::Error::other(format!("Failed to prepare query: {}", e)))?;
 
     let rows = stmt
-        .query_map([], |row| {
+        .query_map(params![model_name], |row| {
             let embedding_bytes: Vec<u8> = row.get(1)?;
 
             // Convert bytes to f32 vector

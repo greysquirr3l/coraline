@@ -797,7 +797,10 @@ impl SemanticSearchTool {
         let conn = db::open_database(&self.project_root)
             .map_err(|e| ToolError::internal_error(format!("DB error: {e}")))?;
 
-        let stale_count = stale_embedding_count(&conn)
+        let active_model: &str = vm
+            .as_ref()
+            .map_or(crate::vectors::DEFAULT_MODEL, |v| v.model_name());
+        let stale_count = stale_embedding_count(&conn, active_model)
             .map_err(|e| ToolError::internal_error(format!("Embedding-state check failed: {e}")))?;
 
         if stale_count > 0 {
@@ -857,14 +860,16 @@ struct FreshnessUpdate {
 }
 
 #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
-fn stale_embedding_count(conn: &rusqlite::Connection) -> std::io::Result<usize> {
+fn stale_embedding_count(conn: &rusqlite::Connection, model_name: &str) -> std::io::Result<usize> {
     let count = conn
         .query_row(
             "SELECT COUNT(*)
                FROM nodes n
           LEFT JOIN vectors v ON v.node_id = n.id
-              WHERE v.created_at IS NULL OR n.updated_at > v.created_at",
-            [],
+              WHERE v.created_at IS NULL
+                 OR n.updated_at > v.created_at
+                 OR v.model != ?1",
+            rusqlite::params![model_name],
             |row| row.get::<_, i64>(0),
         )
         .map_err(std::io::Error::other)?;
@@ -880,19 +885,29 @@ fn refresh_stale_embeddings(
     conn: &rusqlite::Connection,
     vm: &mut crate::vectors::VectorManager,
 ) -> std::io::Result<usize> {
+    let model_name = vm.model_name().to_string();
     // Collect stale nodes into memory first so the statement borrow is released
     // before we open a transaction, allowing all stores to commit atomically.
+    //
+    // "Stale" means: no embedding row yet, OR the embedding was produced by an
+    // older revision of the node (n.updated_at > v.created_at), OR the
+    // embedding was produced by a different model (v.model != active model).
+    // The last clause handles migration windows where some rows are tagged
+    // with a previous model name and need to be regenerated under the active
+    // one.
     let stale_nodes: Vec<StaleNodeRow> = {
         let mut stmt = conn
             .prepare(
                 "SELECT n.id, n.name, n.qualified_name, n.docstring, n.signature
                    FROM nodes n
               LEFT JOIN vectors v ON v.node_id = n.id
-                  WHERE v.created_at IS NULL OR n.updated_at > v.created_at",
+                  WHERE v.created_at IS NULL
+                     OR n.updated_at > v.created_at
+                     OR v.model != ?1",
             )
             .map_err(std::io::Error::other)?;
 
-        stmt.query_map([], |row| {
+        stmt.query_map(rusqlite::params![model_name], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
@@ -994,8 +1009,14 @@ impl Tool for SemanticSearchTool {
         let conn = db::open_database(&self.project_root)
             .map_err(|e| ToolError::internal_error(format!("DB error: {e}")))?;
 
-        let results = crate::vectors::search_similar(&conn, &embedding, limit, min_similarity)
-            .map_err(|e| ToolError::internal_error(format!("Search failed: {e}")))?;
+        let results = crate::vectors::search_similar(
+            &conn,
+            &embedding,
+            vm.model_name(),
+            limit,
+            min_similarity,
+        )
+        .map_err(|e| ToolError::internal_error(format!("Search failed: {e}")))?;
 
         let items: Vec<Value> = results
             .into_iter()

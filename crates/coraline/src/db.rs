@@ -750,8 +750,20 @@ pub fn get_all_nodes(conn: &Connection) -> std::io::Result<Vec<Node>> {
     Ok(results)
 }
 
-/// Return nodes that have no corresponding row in the `vectors` table.
-pub fn get_unembedded_nodes(conn: &Connection) -> std::io::Result<Vec<Node>> {
+/// Return nodes that need an embedding under `model_name`.
+///
+/// "Needs an embedding" covers three cases:
+/// 1. No row exists in `vectors` for the node at all.
+/// 2. The row exists but was produced by an older revision of the node
+///    (`n.updated_at > v.created_at`).
+/// 3. The row exists but was produced by a different model
+///    (`v.model != ?`). This handles migration windows where some rows are
+///    tagged with a previous model name and need to be regenerated under the
+///    active one.
+///
+/// The result is ordered by `(file_path, start_line)` for deterministic
+/// progress output.
+pub fn get_unembedded_nodes(conn: &Connection, model_name: &str) -> std::io::Result<Vec<Node>> {
     let mut stmt = conn
         .prepare(
             "SELECT n.id, n.kind, n.name, n.qualified_name, n.file_path, n.language,
@@ -762,11 +774,15 @@ pub fn get_unembedded_nodes(conn: &Connection) -> std::io::Result<Vec<Node>> {
              FROM nodes n
              LEFT JOIN vectors v ON n.id = v.node_id
              WHERE v.node_id IS NULL
+                OR n.updated_at > v.created_at
+                OR v.model != ?1
              ORDER BY n.file_path ASC, n.start_line ASC",
         )
         .map_err(io_other)?;
 
-    let rows = stmt.query_map([], row_to_node).map_err(io_other)?;
+    let rows = stmt
+        .query_map(params![model_name], row_to_node)
+        .map_err(io_other)?;
     let mut results = Vec::new();
     for row in rows {
         results.push(row.map_err(io_other)?);

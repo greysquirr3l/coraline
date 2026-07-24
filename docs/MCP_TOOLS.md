@@ -604,14 +604,20 @@ Trigger an incremental sync of the index. Detects files added, modified, or remo
 
 ### `coraline_semantic_search`
 
-Search indexed nodes using natural-language vector similarity. Included in the default build; only registered as an MCP tool once an ONNX model is present in `.coraline/models/`. To activate:
+Search indexed nodes using natural-language vector similarity. Included in the default build; only registered as an MCP tool once an ONNX model is present in `.coraline/models/<active-model>/`. To activate the shipped default:
 
 ```bash
-coraline model download   # download nomic-embed-text-v1.5 (~137 MB)
+coraline model download   # download nomic-embed-text-v1.5 (~137 MB) by default
 coraline embed            # generate embeddings for all indexed nodes
 ```
 
-When this tool is used, Coraline periodically performs a throttled freshness check. If indexed state is stale it runs incremental sync automatically, then refreshes stale/missing embeddings before search.
+The active model is `vectors.model` in `.coraline/config.toml`. To opt into
+the code-specialised `jina-embeddings-v2-base-code` instead, set
+`vectors.model = "jina-embeddings-v2-base-code"` and re-run
+`coraline model download && coraline embed --reembed`. Run `coraline model list`
+to see every supported model.
+
+When this tool is used, Coraline periodically performs a throttled freshness check. If indexed state is stale it runs incremental sync automatically, then refreshes stale/missing embeddings before search. The search query is restricted to rows tagged with the active model — switching models won't produce cross-space cosine noise.
 
 **Input:**
 

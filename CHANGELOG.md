@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Multi-model embedding support with opt-in `jina-embeddings-v2-base-code`** — Coraline now ships a `SUPPORTED_MODELS` registry (`crates/coraline/src/vectors.rs`) that maps each known model name to its HuggingFace repo, default ONNX filename, preference order, and embedding dimension. The shipped default stays `nomic-embed-text-v1.5`; `jina-embeddings-v2-base-code` (768-dim, code-specialised, 162 MB int8, 8192-token ALiBi context) is available by setting `vectors.model = "jina-embeddings-v2-base-code"` in `.coraline/config.toml`. Use `coraline model list` to see every supported model, `coraline model status` to inspect files in the active model directory, and `coraline model download` to fetch tokenizer + ONNX weights for the configured model.
+- **`coraline embed --reembed` flag** — forces re-embedding of every node regardless of freshness or model name. Useful immediately after switching `vectors.model` or upgrading the active model. The default `coraline embed` path is now incremental (only touches missing / stale / model-mismatched rows) instead of always re-embedding everything.
+- **`where v.model = ?` filter on `coraline_semantic_search`** — the search query now restricts to rows tagged with the active model. Without this filter, switching models would silently produce cosine-similarity scores across two unrelated vector spaces (a smoke test confirms cross-model cosine is ~0.01 even for the same input text — pure noise).
+
+### Changed
+
+- **Embedding queries are now model-aware** — `vectors::search_similar`, `db::get_unembedded_nodes`, and the `stale_embedding_count` / `refresh_stale_embeddings` helpers in `file_tools.rs` all take the active model name and filter (or treat as stale) rows whose `model` column doesn't match. Mixed-model corpora are now safe: old `nomic-embed-text-v1.5` rows stay in the DB but aren't scored against a `jina` query embedding, and they get auto-regenerated on the next `coraline embed` or semantic-search freshness tick.
+
 ### Internal
 
 - **Fuzzing harness and CI jobs** — new `fuzz/` workspace member with two `cargo-fuzz` targets: `mcp_request` (drives `McpServer::handle_message` with arbitrary bytes through JSON-RPC deserialization and dispatch) and `db_search` (drives `db::search_nodes` / `find_nodes_by_name` / `find_exports_by_module` against an in-memory SQLite DB initialised with the production schema, exercising `build_fts_query` + FTS5 MATCH parsing). `McpServer::handle_message` is now `pub` so external harnesses can drive dispatch without going through stdin.
@@ -78,6 +88,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - OpenCode compatible (300s default, 600s max)
 - **Comprehensive mdbook documentation** — New 14-page documentation site with GitHub Pages deployment:
   - Getting Started guide (installation, quick start)
+  - 
   - MCP integration for Claude Desktop, Claude Code, and OpenCode
   - OpenCode setup guide with timeout configuration and troubleshooting
   - CLI reference with all commands and examples
