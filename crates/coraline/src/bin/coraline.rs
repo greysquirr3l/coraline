@@ -280,14 +280,15 @@ fn main() {
         Command::Install => None,
     };
     let project_root = resolve_project_root(project_root_hint);
-    // Don't create .coraline/logs/ before the init command runs — that would
-    // cause is_initialized() to return true and block a fresh init.
-    let log_root =
-        if matches!(command, Command::Init(_)) && !project_root.join(".coraline").is_dir() {
-            None
-        } else {
-            Some(project_root.as_path())
-        };
+    // Suppress logging entirely during a fresh `init` so stdout progress
+    // output stays clean. (logging::init independently refuses to create
+    // .coraline/logs/ for any command until the project is actually
+    // initialized, so this is a UX nicety, not the correctness guard.)
+    let log_root = if matches!(command, Command::Init(_)) && !is_initialized(&project_root) {
+        None
+    } else {
+        Some(project_root.as_path())
+    };
     let _log_guard = logging::init(log_root);
     info!("coraline starting");
     debug!(command = ?command, "dispatching command");
@@ -1356,8 +1357,11 @@ fn resolve_project_root(path: Option<PathBuf>) -> PathBuf {
 }
 
 fn is_initialized(project_root: &Path) -> bool {
-    let dir = project_root.join(".coraline");
-    dir.is_dir()
+    // `.coraline/` alone isn't a reliable signal — other code (e.g. the
+    // logger) can create it before `coraline init` has actually run.
+    // `config.toml` is only ever written by a real init, so it's the
+    // authoritative marker.
+    config::toml_config_path(project_root).is_file()
 }
 
 fn create_coraline_dir(project_root: &Path) -> std::io::Result<()> {
@@ -1506,5 +1510,37 @@ fn is_executable(path: &PathBuf) -> bool {
     #[cfg(not(unix))]
     {
         path.exists() && path.is_file()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+    /// A bare `.coraline/` directory (e.g. left behind by logging, or any
+    /// other incidental creator) must not count as "initialized" — only a
+    /// real `coraline init` writes `config.toml`.
+    #[test]
+    fn is_initialized_false_for_bare_coraline_dir() -> TestResult {
+        let temp_dir = tempfile::TempDir::new()?;
+        let root = temp_dir.path();
+        std::fs::create_dir_all(root.join(".coraline").join("logs"))?;
+
+        assert!(!is_initialized(root));
+        Ok(())
+    }
+
+    #[test]
+    fn is_initialized_true_once_config_toml_exists() -> TestResult {
+        let temp_dir = tempfile::TempDir::new()?;
+        let root = temp_dir.path();
+        let coraline_dir = root.join(".coraline");
+        std::fs::create_dir_all(&coraline_dir)?;
+        std::fs::write(coraline_dir.join("config.toml"), "")?;
+
+        assert!(is_initialized(root));
+        Ok(())
     }
 }
