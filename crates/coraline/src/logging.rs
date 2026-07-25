@@ -3,8 +3,10 @@
 //! Structured logging setup for Coraline.
 //!
 //! Initializes `tracing` with:
-//! - File output to `.coraline/logs/coraline.log` (daily rotation)
-//! - Stderr fallback when no project root is available
+//! - File output to `.coraline/logs/coraline.log` (daily rotation), only
+//!   once the project has been initialized (`.coraline/config.toml` exists)
+//! - Stderr fallback when no project root is available, or the project
+//!   hasn't been initialized yet
 //! - Log level controlled by `CORALINE_LOG` env var (default: `coraline=info`)
 
 use std::path::Path;
@@ -28,8 +30,11 @@ pub struct LogGuard {
 /// Log level is read from `CORALINE_LOG` environment variable (e.g. `debug`,
 /// `coraline=trace`). Defaults to `coraline=info`.
 ///
-/// If `project_root` is provided and `.coraline/logs/` can be created, logs
-/// are written to a daily-rotating file there. Otherwise logs go to stderr.
+/// If `project_root` is provided, the project has already been initialized
+/// (`.coraline/config.toml` exists), and `.coraline/logs/` can be created,
+/// logs are written to a daily-rotating file there. Otherwise logs go to
+/// stderr — in particular, an uninitialized project never gets
+/// `.coraline/` created just from logging.
 pub fn init(project_root: Option<&Path>) -> LogGuard {
     let env_filter =
         EnvFilter::try_from_env("CORALINE_LOG").unwrap_or_else(|_| EnvFilter::new("coraline=info"));
