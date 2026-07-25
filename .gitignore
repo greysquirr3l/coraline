@@ -139,3 +139,11 @@ CLAUDE.md
 docs/IMPROVEMENT_PLAN.md
 .cargo/config.toml
 .cargo/config.toml
+notes.txt
+opencode.jsonc
+.gitignore
+RTK.md
+.claude/
+
+# Do Not Modify Below This Line
+AGENTS.md
