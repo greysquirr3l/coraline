@@ -144,3 +144,6 @@ opencode.jsonc
 .gitignore
 RTK.md
 .claude/
+
+# Do Not Modify Below This Line
+AGENTS.md
