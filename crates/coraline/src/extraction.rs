@@ -616,7 +616,7 @@ fn language_to_parser(language: Language) -> Option<tree_sitter::Language> {
         Language::Php => Some(tree_sitter::Language::new(tree_sitter_php::LANGUAGE_PHP)),
         Language::Swift => Some(tree_sitter::Language::new(tree_sitter_swift::LANGUAGE)),
         Language::Kotlin => Some(tree_sitter::Language::new(tree_sitter_kotlin_ng::LANGUAGE)),
-        Language::Markdown => Some(tree_sitter_markdown_fork::language()),
+        Language::Markdown => Some(tree_sitter_markdown_updated::language()),
         Language::Toml => Some(tree_sitter::Language::new(tree_sitter_toml_ng::LANGUAGE)),
         // Unsupported languages
         Language::Liquid | Language::Unknown => None,
