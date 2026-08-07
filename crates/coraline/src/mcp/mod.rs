@@ -727,8 +727,7 @@ mod tests {
                 "rootUri": format!("file://{}", root.display()),
             }
         });
-        server
-            .set_writer_for_testing(Box::new(std::io::Cursor::new(Vec::new())));
+        server.set_writer_for_testing(Box::new(std::io::Cursor::new(Vec::new())));
         server.handle_message(msg).expect("handle initialize");
 
         // No `config.toml` was ever written by the MCP layer.
