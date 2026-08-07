@@ -40,6 +40,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use tracing::{debug, info, warn};
 
+use crate::config;
 use crate::tools::{RequestContext, ToolRegistry, create_default_registry};
 
 pub mod protocol;
@@ -656,7 +657,11 @@ fn strip_file_uri(uri: &str) -> String {
 }
 
 fn is_initialized(project_root: &Path) -> bool {
-    project_root.join(".coraline").is_dir()
+    // `.coraline/` alone isn't a reliable signal — other code (e.g. the
+    // logger) can create it before `coraline init` has actually run.
+    // `config.toml` is only ever written by a real init, so it's the
+    // authoritative marker.
+    config::toml_config_path(project_root).is_file()
 }
 
 #[cfg(test)]
@@ -671,6 +676,67 @@ mod tests {
     use super::*;
     use serde_json::json;
     use std::sync::{Arc, Mutex};
+
+    /// A bare `.coraline/` directory (e.g. left behind by logging, or any
+    /// other incidental creator) must not count as "initialized" — only a
+    /// real `coraline init` writes `config.toml`. Regression test for
+    /// the fix from #71: previously the MCP server returned
+    /// `init_error = None` for any project with a `.coraline/` dir,
+    /// which a real `coraline init` would then refuse to repair
+    /// without `--force`.
+    #[test]
+    fn is_initialized_false_for_bare_coraline_dir() {
+        let temp = tempfile::TempDir::new().expect("tempdir");
+        let root = temp.path();
+        std::fs::create_dir_all(root.join(".coraline").join("logs"))
+            .expect("create bare .coraline/logs");
+        assert!(!is_initialized(root));
+    }
+
+    /// Once `config.toml` exists, the project *is* initialized —
+    /// regardless of how `.coraline/` got there.
+    #[test]
+    fn is_initialized_true_once_config_toml_exists() {
+        let temp = tempfile::TempDir::new().expect("tempdir");
+        let root = temp.path();
+        let coraline_dir = root.join(".coraline");
+        std::fs::create_dir_all(&coraline_dir).expect("mkdir .coraline");
+        std::fs::write(coraline_dir.join("config.toml"), "").expect("write config.toml");
+        assert!(is_initialized(root));
+    }
+
+    /// End-to-end regression: constructing an `McpServer` for a fresh,
+    /// uninitialized project (bare `.coraline/`, no `config.toml`) and
+    /// driving an `initialize` request must report the "not
+    /// initialized" error without ever creating `.coraline/`
+    /// directory entries beyond what was already there.
+    #[test]
+    fn mcp_initialize_does_not_create_coraline_for_uninitialized_project() {
+        let temp = tempfile::TempDir::new().expect("tempdir");
+        let root = temp.path();
+        std::fs::create_dir_all(root.join(".coraline").join("logs"))
+            .expect("create bare .coraline/logs");
+
+        let mut server = McpServer::new(Some(root.to_path_buf()));
+        let msg = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": PROTOCOL_VERSION_LEGACY_2025_11_25,
+                "rootUri": format!("file://{}", root.display()),
+            }
+        });
+        server
+            .set_writer_for_testing(Box::new(std::io::Cursor::new(Vec::new())));
+        server.handle_message(msg).expect("handle initialize");
+
+        // No `config.toml` was ever written by the MCP layer.
+        assert!(
+            !root.join(".coraline").join("config.toml").exists(),
+            "MCP server must not write config.toml during initialize"
+        );
+    }
 
     fn server() -> McpServer {
         McpServer::with_timeout(None, 1_000)
