@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`coraline sync` (and any other command that parses markdown) crashed
+  on macOS 26.5.2 with `Abort trap: 6` and the dyld assertion
+  `Assertion failed: (inl_dlm.sym() == SYM_EXT_AUT_LNK_BGN ||
+  inl_dlm.sym() == SYM_EXT_AUT_LNK_CTN), function transfer_to, file
+  inline_delimiter.cc, line 240`. Root cause: the
+  `tree-sitter-markdown-fork` C scanner (a fork of
+  `ikatyang/tree-sitter-markdown`) ships autolink-section
+  discriminators that trip the stricter macOS 26.x beta dyld on
+  essentially *any* markdown input — the same assertion is reported
+  upstream in `ikatyang/tree-sitter-markdown#61`, open since Oct
+  2023 and not fixed. Fix: replaced `tree-sitter-markdown-fork` with
+  `tree-sitter-markdown-updated` 0.1.0 (a community fork that ships
+  a working grammar). The swap is contained to one line in
+  `crates/coraline/src/extraction.rs` (`Language::Markdown` arm)
+  plus the `Cargo.toml` dep. Confirmed working against the
+  morgan-bevy README and the table-heavy content from the upstream
+  issue. If the upstream `ikatyang/tree-sitter-markdown` ever ships
+  a fix, the long-term plan is to migrate back to it and drop the
+  `-updated` fork.
+
 ### Internal
 
 - **Fuzzing harness and CI jobs** — new `fuzz/` workspace member with two `cargo-fuzz` targets: `mcp_request` (drives `McpServer::handle_message` with arbitrary bytes through JSON-RPC deserialization and dispatch) and `db_search` (drives `db::search_nodes` / `find_nodes_by_name` / `find_exports_by_module` against an in-memory SQLite DB initialised with the production schema, exercising `build_fts_query` + FTS5 MATCH parsing). `McpServer::handle_message` is now `pub` so external harnesses can drive dispatch without going through stdin.
@@ -478,7 +500,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Framework-specific resolvers** — Rust, React, Blazor, Laravel
 - **CLI commands** — `callers`, `callees`, `impact`, `config`, `stats`, `embed`; `--json` flag on all query commands
 - **Criterion benchmark suite** — 9 benchmarks across indexing, search, graph traversal, and context building groups (`cargo bench --bench indexing`)
-- **CI/CD** — GitHub Actions for multiplatform builds (Linux x86\_64/ARM64, macOS x86\_64/ARM64, Windows x86\_64), crates.io publishing, CodeQL scanning, daily dependency auditing
+- **CI/CD** — GitHub Actions for multiplatform builds (Linux x86_64/ARM64, macOS x86_64/ARM64, Windows x86_64), crates.io publishing, CodeQL scanning, daily dependency auditing
 - **28+ language support** via tree-sitter: Rust, TypeScript, JavaScript, TSX, JSX, Python, Go, Java, C, C++, C#, PHP, Ruby, Swift, Kotlin, Bash, Dart, Elixir, Elm, Erlang, Fortran, Groovy, Haskell, Julia, Lua, Markdown, MATLAB, Nix, Perl, PowerShell, R, Scala, TOML, YAML, Zig, Blazor
 
 ### Fixed
