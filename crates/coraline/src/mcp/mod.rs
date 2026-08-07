@@ -85,11 +85,23 @@ struct ToolCallParams {
 }
 
 /// Legacy tool-call result envelope.
+///
+/// Matches the 2025-11-25 `CallToolResult` schema:
+/// <https://modelcontextprotocol.io/specification/2025-11-25/schema#calltoolresult>.
+///
+/// Field names use `camelCase` per the JSON-RPC 2.0 + MCP wire format;
+/// the Rust field names stay `snake_case` to match the rest of the
+/// codebase. `structuredContent` is `None` for now (no Coraline tool
+/// emits it yet) but the field is present so that a future
+/// `Tool::execute` returning `(text, structured)` can be wired in
+/// without another schema break.
 #[derive(Debug, Serialize)]
 struct ToolResult {
     content: Vec<ToolContent>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "isError")]
     is_error: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "structuredContent")]
+    structured_content: Option<Value>,
 }
 
 #[derive(Debug, Serialize)]
@@ -507,6 +519,7 @@ impl McpServer {
                         text: value.to_string(),
                     }],
                     is_error: None,
+                    structured_content: None,
                 };
                 let legacy_payload = serde_json::to_value(tool_result).unwrap_or_default();
                 self.send_result(id, era, legacy_payload)
@@ -519,6 +532,7 @@ impl McpServer {
                         text: format!("Error: {}", err.message),
                     }],
                     is_error: Some(true),
+                    structured_content: None,
                 };
                 let legacy_payload = serde_json::to_value(tool_result).unwrap_or_default();
                 self.send_result(id, era, legacy_payload)
@@ -943,5 +957,45 @@ mod tests {
             r.get("resultType").and_then(Value::as_str),
             Some("input_required")
         );
+    }
+
+    #[test]
+    fn tool_result_serializes_with_camel_case_fields_per_mcp_spec() {
+        // Regression: the legacy `ToolResult` envelope used to serialize
+        // `is_error` (snake_case), violating the MCP 2025-11-25
+        // `CallToolResult` schema which requires `isError`. Spec-compliant
+        // clients checked `result.isError` and saw nothing on success and
+        // `undefined` on error, missing tool failures entirely.
+        let success = ToolResult {
+            content: vec![ToolContent {
+                r#type: "text",
+                text: "ok".to_string(),
+            }],
+            is_error: None,
+            structured_content: None,
+        };
+        let v = serde_json::to_value(&success).expect("serialize success");
+        assert!(
+            v.get("isError").is_none(),
+            "isError must be omitted when None"
+        );
+        assert!(
+            v.get("is_error").is_none(),
+            "snake_case is_error must NEVER appear in the JSON output"
+        );
+        assert!(v.get("structuredContent").is_none());
+
+        let failure = ToolResult {
+            content: vec![ToolContent {
+                r#type: "text",
+                text: "boom".to_string(),
+            }],
+            is_error: Some(true),
+            structured_content: None,
+        };
+        let v = serde_json::to_value(&failure).expect("serialize failure");
+        assert_eq!(v["isError"], json!(true), "isError must be camelCase");
+        assert!(v.get("is_error").is_none());
+        assert!(v.get("structuredContent").is_none());
     }
 }
