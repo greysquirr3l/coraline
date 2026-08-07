@@ -28,8 +28,8 @@
 //!   Clients open the conversation with `initialize`.
 //!
 //! Each request is routed to the right code path based on the presence of
-//! `_meta.protocolVersion` (modern) or the `initialize` method (legacy).
-//! No per-connection state is consulted.
+//! `_meta["io.modelcontextprotocol/protocolVersion"]` (modern) or the
+//! `initialize` method (legacy). No per-connection state is consulted.
 
 use std::collections::HashMap;
 use std::io::{self, BufRead, Write};
@@ -309,14 +309,18 @@ impl McpServer {
             self.initialize_tools(root);
         }
 
-        // Legacy clients pin to the version they declared in `initialize`.
-        // If they sent a version we recognise, echo it back; otherwise
-        // advertise our most-capable legacy revision so they have a stable
-        // contract.
+        // Legacy `initialize`:
+        // - If the client declared a version we recognise, echo it back.
+        // - Otherwise (no version, or an unknown one), default to
+        //   `2025-06-18` — the revision the codebase was originally
+        //   targeting before the dual-era support was added. This
+        //   preserves the pre-dual-era "always returned 2025-06-18"
+        //   contract for clients that didn't pin a version, and keeps
+        //   the PR claim that legacy behaviour is preserved.
         let protocol_version = client_protocol_version
             .as_deref()
             .filter(|v| SUPPORTED_VERSIONS.contains(v))
-            .unwrap_or(PROTOCOL_VERSION_LEGACY_2025_11_25);
+            .unwrap_or(PROTOCOL_VERSION_LEGACY_2025_06_18);
 
         let response = serde_json::json!({
             "protocolVersion": protocol_version,
@@ -727,6 +731,62 @@ mod tests {
         assert_eq!(parsed["result"]["capabilities"]["tools"], json!({}));
         // Legacy responses MUST NOT carry resultType.
         assert!(parsed["result"].get("resultType").is_none());
+    }
+
+    #[test]
+    fn legacy_initialize_defaults_to_2025_06_18_when_no_version_supplied() {
+        // Copilot review follow-up: the dual-era refactor changed the
+        // `initialize` fallback for clients that don't pin a version
+        // from `2025-06-18` (the pre-dual-era default) to `2025-11-25`.
+        // That contradicted the "legacy behaviour is preserved exactly
+        // as before" claim in the PR description.  This test pins the
+        // restored behaviour: no version (or an unknown one) →
+        // server replies with `2025-06-18`.
+        let (mut s, buf) = server_with_capture();
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "rootUri": "file:///tmp/x",
+            }
+        });
+        s.handle_message(msg).expect("handle");
+        let out = captured_string(&buf);
+        let parsed: Value = serde_json::from_str(out.trim()).expect("valid JSON");
+        assert_eq!(
+            parsed["result"]["protocolVersion"],
+            json!(PROTOCOL_VERSION_LEGACY_2025_06_18),
+            "legacy initialize with no protocolVersion must default to \
+             2025-06-18 to match the pre-dual-era behaviour"
+        );
+        assert!(parsed["result"].get("resultType").is_none());
+    }
+
+    #[test]
+    fn legacy_initialize_rejects_unknown_version_with_2025_06_18_fallback() {
+        // The unknown-version branch of the same fallback: the
+        // pre-dual-era code didn't echo unknown versions (it always
+        // replied with 2025-06-18) and neither does this one.  The
+        // explicit-2025-11-25 path is covered by
+        // `legacy_initialize_echoes_protocol_version_and_capabilities`.
+        let (mut s, buf) = server_with_capture();
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "1999-01-01",
+                "rootUri": "file:///tmp/x",
+            }
+        });
+        s.handle_message(msg).expect("handle");
+        let out = captured_string(&buf);
+        let parsed: Value = serde_json::from_str(out.trim()).expect("valid JSON");
+        assert_eq!(
+            parsed["result"]["protocolVersion"],
+            json!(PROTOCOL_VERSION_LEGACY_2025_06_18),
+        );
     }
 
     #[test]

@@ -241,14 +241,16 @@ impl std::error::Error for ToolError {}
 /// implementation, which forwards to [`Tool::execute`].
 #[derive(Debug, Default, Clone)]
 pub struct RequestContext {
-    /// Protocol version declared by the client in `_meta.protocolVersion`
+    /// Protocol version declared by the client in
+    /// `_meta["io.modelcontextprotocol/protocolVersion"]`
     /// (`None` for legacy handshake-based clients).
     pub protocol_version: Option<String>,
     /// Raw `_meta` map, kept verbatim so tools can inspect OpenTelemetry trace
     /// context (`traceparent`, `tracestate`, `baggage`) and other extension
     /// keys without round-tripping through MCP.
     pub meta: serde_json::Map<String, Value>,
-    /// Per-request minimum log level declared in `_meta.logLevel`
+    /// Per-request minimum log level declared in
+    /// `_meta["io.modelcontextprotocol/logLevel"]`
     /// (`None` when the client didn't ask).
     pub log_level: Option<String>,
     /// MRTR `inputResponses` echoed back from the client on a retry.

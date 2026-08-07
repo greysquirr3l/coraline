@@ -114,6 +114,15 @@ pub const fn resource_not_found_code(era: Era) -> i64 {
 /// Modern requests carry `params._meta["io.modelcontextprotocol/protocolVersion"]`.
 /// `initialize` is always legacy because legacy clients start the conversation
 /// with it; `server/discover` is always modern.
+///
+/// Era detection is keyed on the *presence* of the
+/// `io.modelcontextprotocol/protocolVersion` key in `_meta`, not on whether
+/// its value is a non-empty string. The intent: a malformed value (empty
+/// string, wrong type, JSON `null`) still has to flow through
+/// [`validate_modern_meta`], which is where the per-field rules live. A
+/// stricter "is the value a non-empty string?" gate here would silently
+/// downgrade malformed modern requests to legacy and let them bypass
+/// `_meta` validation entirely.
 #[must_use]
 pub fn detect_era(message: &Value) -> Era {
     if let Some(method) = message.get("method").and_then(Value::as_str) {
@@ -125,13 +134,26 @@ pub fn detect_era(message: &Value) -> Era {
         }
     }
 
-    if let Some(version) = request_protocol_version(message) {
-        if !version.is_empty() {
-            return Era::Modern;
-        }
+    if modern_meta_present(message) {
+        return Era::Modern;
     }
 
     Era::Legacy
+}
+
+/// Returns `true` when `params._meta["io.modelcontextprotocol/protocolVersion"]`
+/// is present in the message — regardless of the value's type or content.
+///
+/// Used by [`detect_era`] to distinguish "this request declared itself
+/// modern (and should be validated as such)" from "this is a legacy
+/// request with no `_meta` block".
+#[must_use]
+pub fn modern_meta_present(message: &Value) -> bool {
+    message
+        .get("params")
+        .and_then(|p| p.get("_meta"))
+        .and_then(|m| m.get(META_PROTOCOL_VERSION))
+        .is_some()
 }
 
 /// Extract the protocol version declared in `_meta` (modern era only).
@@ -288,6 +310,89 @@ mod tests {
             "params": {}
         });
         assert_eq!(detect_era(&msg), Era::Legacy);
+    }
+
+    #[test]
+    fn detect_modern_when_meta_protocol_version_is_empty_string() {
+        // A present-but-empty protocolVersion must still flow through the
+        // modern validation path. Before the `modern_meta_present` fix
+        // a request like this was silently misclassified as Legacy,
+        // letting it bypass `_meta` validation entirely.
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/list",
+            "params": {
+                "_meta": {
+                    META_PROTOCOL_VERSION: "",
+                    META_CLIENT_INFO: { "name": "x", "version": "0" },
+                    META_CLIENT_CAPABILITIES: {}
+                }
+            }
+        });
+        assert_eq!(detect_era(&msg), Era::Modern);
+        // The empty string is not a supported version, so validation
+        // should reject it as `UnsupportedVersion` (-32022).
+        assert!(
+            matches!(
+                validate_modern_meta(&msg),
+                MetaValidation::UnsupportedVersion
+            ),
+            "expected UnsupportedVersion",
+        );
+    }
+
+    #[test]
+    fn detect_modern_when_meta_protocol_version_is_null() {
+        // A present-but-null protocolVersion must still flow through the
+        // modern validation path.
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/list",
+            "params": {
+                "_meta": {
+                    META_PROTOCOL_VERSION: null,
+                    META_CLIENT_INFO: { "name": "x", "version": "0" },
+                    META_CLIENT_CAPABILITIES: {}
+                }
+            }
+        });
+        assert_eq!(detect_era(&msg), Era::Modern);
+        // Null is not a string, so the protocolVersion key is treated as
+        // missing by validation (which surfaces `MissingFields`).
+        match validate_modern_meta(&msg) {
+            MetaValidation::MissingFields(missing) => {
+                assert!(missing.contains(&META_PROTOCOL_VERSION));
+            }
+            // `assert!` is used for the negative arm (the rest of the
+            // `match` is exhaustive in spirit, but the test pattern needs
+            // a fallthrough marker).  An unexpected variant is a test
+            // failure we want to fail loud on.
+            _ => unreachable!("expected MissingFields"),
+        }
+    }
+
+    #[test]
+    fn detect_modern_when_meta_protocol_version_is_wrong_type() {
+        // A present-but-wrong-type protocolVersion (e.g. a number) must
+        // still flow through the modern validation path. Before the
+        // `modern_meta_present` fix `request_protocol_version` returned
+        // None on non-strings, which silently downgraded such requests
+        // to Legacy.
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/list",
+            "params": {
+                "_meta": {
+                    META_PROTOCOL_VERSION: 42,
+                    META_CLIENT_INFO: { "name": "x", "version": "0" },
+                    META_CLIENT_CAPABILITIES: {}
+                }
+            }
+        });
+        assert_eq!(detect_era(&msg), Era::Modern);
     }
 
     #[test]
