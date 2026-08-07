@@ -7,27 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
+### Changed
 
-- **`coraline sync` (and any other command that parses markdown) crashed
-  on macOS 26.5.2 with `Abort trap: 6` and the dyld assertion
-  `Assertion failed: (inl_dlm.sym() == SYM_EXT_AUT_LNK_BGN ||
-  inl_dlm.sym() == SYM_EXT_AUT_LNK_CTN), function transfer_to, file
-  inline_delimiter.cc, line 240`. Root cause: the
-  `tree-sitter-markdown-fork` C scanner (a fork of
-  `ikatyang/tree-sitter-markdown`) ships autolink-section
-  discriminators that trip the stricter macOS 26.x beta dyld on
-  essentially *any* markdown input — the same assertion is reported
-  upstream in `ikatyang/tree-sitter-markdown#61`, open since Oct
-  2023 and not fixed. Fix: replaced `tree-sitter-markdown-fork` with
-  `tree-sitter-markdown-updated` 0.1.0 (a community fork that ships
-  a working grammar). The swap is contained to one line in
-  `crates/coraline/src/extraction.rs` (`Language::Markdown` arm)
-  plus the `Cargo.toml` dep. Confirmed working against the
-  morgan-bevy README and the table-heavy content from the upstream
-  issue. If the upstream `ikatyang/tree-sitter-markdown` ever ships
-  a fix, the long-term plan is to migrate back to it and drop the
-  `-updated` fork.
+- **CI action pins** — folded in 5 open dependabot version PRs:
+  - `actions/checkout` 6.0.3 → 7.0.1 (#76)
+  - `actions/cache` 5.0.5 → 6.1.0 (#74; cherry-picked as 7f0b700)
+  - `github/codeql-action/upload-sarif` 4.36.2 → 4.37.3 (#75)
+  - `ossf/scorecard-action` 2.4.3 → 2.4.4 (#77)
+  - `softprops/action-gh-release` 3.0.0 → 3.0.2 (#73)
+  All SHA-pinned substitutions (sed-equivalent). Where this branch was on
+  a pre-bump base (e.g. v6.0.3 checkout, v3.0.0 action-gh-release, v4
+  in book.yml), the intermediate dependabot step is skipped to land
+  on the dependabot target version directly.
+- **Cargo dependency** — `tree-sitter-erlang` 0.18.0 → 0.20.0 (#79),
+  skipping 0.19.0 since the branch's base predates that release.
 
 ### Internal
 
@@ -46,8 +39,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **License files moved into `LICENSE/` directory** — `LICENSE-MIT` and `LICENSE-APACHE` now live under `LICENSE/` at the repo root (so the source-code license is maintained in a `LICENSE/` directory, as the OSPS-LE-03.01 requirement literally specifies). The README license badge target and the `release.yml` archive steps were updated to point at the new paths; release.yml's relative-path arithmetic for the license copies was also corrected (the previous `cp ../../../../LICENSE-MIT` walked one directory above the repo root).
 - **OpenSSF Baseline badge added to README** — surfaces the bestpractices.dev baseline status next to the existing license and Rust-version badges.
 - **`./LICENSE.md` pointer file added** — a top-level `LICENSE.md` now sits alongside `LICENSE-MIT` and `LICENSE-APACHE` at the repo root and links to both, so the source-code license is discoverable as a single `LICENSE`-named file at the repo root (matching OSPS-LE-03.01's "LICENSE file" reading) without conflicting with the actual license files at the same level.
-- **Dependabot bumps (#57–#62)** — applied six queued Dependabot PRs: `actions/upload-pages-artifact` 3.0.1 → 5.0.0, `actions/deploy-pages` 4.0.5 → 5.0.0, `actions/checkout` 4.3.1 → 7.0.0, `softprops/action-gh-release` 3.0.0 → 3.0.1, `gitleaks/gitleaks-action` 2.0.8 → 3.0.0 (Node 24 runtime — GitHub deprecates Node 20 on 2026-06-02 and removes it on 2026-09-16), and `tree-sitter-erlang` 0.18.0 → 0.19.0 (`replacement_expr_guard` now requires a guard clause). All actions stay SHA-pinned; the major version bumps are Node-runtime-only and don't change action inputs or behavior.
-- **Branch protection required checks repaired** — the required check contexts on `main` (`test`, `clippy`, `fmt`, `deny`, `coverage`) were a mix of stale legacy commit-status names that no current workflow produces and an undelivered `coverage` context for which no workflow exists. Replaced with the actual GitHub Actions check-run names (`Test`, `Clippy`, `Format`) bound to the GitHub Actions app (id `15368`), and re-added `Check licenses and bans` (the `cargo-deny` job in `security.yml`) so future PRs that change `Cargo.toml` / `Cargo.lock` / `deny.toml` still gate on license/ban compliance. Required linear history and `enforce_admins` left enabled.
 
 ## [0.10.2] - 2026-06-18
 
@@ -500,7 +491,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Framework-specific resolvers** — Rust, React, Blazor, Laravel
 - **CLI commands** — `callers`, `callees`, `impact`, `config`, `stats`, `embed`; `--json` flag on all query commands
 - **Criterion benchmark suite** — 9 benchmarks across indexing, search, graph traversal, and context building groups (`cargo bench --bench indexing`)
-- **CI/CD** — GitHub Actions for multiplatform builds (Linux x86_64/ARM64, macOS x86_64/ARM64, Windows x86_64), crates.io publishing, CodeQL scanning, daily dependency auditing
+- **CI/CD** — GitHub Actions for multiplatform builds (Linux x86\_64/ARM64, macOS x86\_64/ARM64, Windows x86\_64), crates.io publishing, CodeQL scanning, daily dependency auditing
 - **28+ language support** via tree-sitter: Rust, TypeScript, JavaScript, TSX, JSX, Python, Go, Java, C, C++, C#, PHP, Ruby, Swift, Kotlin, Bash, Dart, Elixir, Elm, Erlang, Fortran, Groovy, Haskell, Julia, Lua, Markdown, MATLAB, Nix, Perl, PowerShell, R, Scala, TOML, YAML, Zig, Blazor
 
 ### Fixed

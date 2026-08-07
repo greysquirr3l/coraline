@@ -23,12 +23,13 @@ Cargo.lock
 fuzz/corpus/
 fuzz/artifacts/
 fuzz/target/
-# cargo-fuzz test-case dumps at fuzz/ root (crash-, timeout-, slow-unit-, oom-, leak-)
-fuzz/crash-*
-fuzz/timeout-*
-fuzz/slow-unit-*
-fuzz/oom-*
-fuzz/leak-*
+# libFuzzer regression inputs dropped at the fuzz/ root when the fuzzer
+# is run without `-artifact_dir` (e.g. `cargo +nightly fuzz run mcp_request`
+# with no -artifact_dir=... flag). Their canonical home is
+# `fuzz/artifacts/<target>/` (covered above), so anything left at the
+# fuzz/ root is a leak.
+/fuzz/slow-unit-*
+/fuzz/timeout-*
 
 # Debug and release artifacts
 debug/
@@ -139,11 +140,9 @@ CLAUDE.md
 docs/IMPROVEMENT_PLAN.md
 .cargo/config.toml
 .cargo/config.toml
-notes.txt
-opencode.jsonc
-.gitignore
-RTK.md
-.claude/
-
-# Do Not Modify Below This Line
 AGENTS.md
+.gitignore
+opencode.jsonc
+RTK.md
+.claude/settings.json
+notes.txt
