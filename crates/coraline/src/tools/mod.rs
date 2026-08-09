@@ -521,7 +521,12 @@ pub fn create_default_registry(project_root: &std::path::Path) -> ToolRegistry {
 
     // Register semantic search only when at least one ONNX model variant is present.
     #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
-    let model_dir = crate::vectors::default_model_dir(project_root);
+    let model_dir = {
+        let cfg = crate::config::load_toml_config(project_root).unwrap_or_default();
+        cfg.vectors
+            .model_dir
+            .map_or_else(crate::vectors::global_model_dir, std::path::PathBuf::from)
+    };
     #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
     if crate::vectors::MODEL_PREFERENCE_ORDER
         .iter()
