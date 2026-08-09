@@ -354,14 +354,41 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
-        with:
-          tag_name: ${{ needs.resolve-tag.outputs.tag }}
-          target_commitish: ${{ needs.resolve-tag.outputs.sha }}
-          body: ${{ steps.changelog.outputs.notes }}
-          files: artifacts/**/*
-          draft: false
-          prerelease: ${{ contains(needs.resolve-tag.outputs.tag, '-alpha') || contains(needs.resolve-tag.outputs.tag, '-beta') || contains(needs.resolve-tag.outputs.tag, '-rc') }}
+      - name: Create or update GitHub Release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ needs.resolve-tag.outputs.tag }}"
+          SHA="${{ needs.resolve-tag.outputs.sha }}"
+          BODY="${{ steps.changelog.outputs.notes }}"
+          PRERELEASE_FLAG=""
+          if [[ "$TAG" == *-alpha* || "$TAG" == *-beta* || "$TAG" == *-rc* ]]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
+
+          # auto-tag.yml may have already created the release via
+          # `gh release create` (it owns the tag creation now). If so,
+          # update body and assets instead of failing on duplicate create.
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "Release $TAG already exists; updating body and assets"
+            gh release edit "$TAG" --body "$BODY" $PRERELEASE_FLAG
+          else
+            echo "Creating release $TAG"
+            # No files at create time — we upload them right after.
+            gh release create "$TAG" \
+              --target "$SHA" \
+              --title "$TAG" \
+              --body "$BODY" \
+              $PRERELEASE_FLAG
+          fi
+
+          # Upload (and clobber) every artifact so re-runs don't leave stale
+          # binaries attached.
+          shopt -s globstar nullglob
+          for asset in artifacts/**/*; do
+            if [[ -f "$asset" ]]; then
+              echo "Uploading $asset"
+              gh release upload "$TAG" "$asset" --clobber
+            fi
+          done

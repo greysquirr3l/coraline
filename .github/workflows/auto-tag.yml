@@ -57,23 +57,43 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Push tag
+      - name: Create release and tag
         if: steps.gate.outputs.run == 'true' && steps.check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "${{ steps.version.outputs.tag }}" -m "${{ steps.version.outputs.tag }}"
-          if git push origin "${{ steps.version.outputs.tag }}"; then
-            echo "Pushed ${{ steps.version.outputs.tag }}"
+          TAG="${{ steps.version.outputs.tag }}"
+          SHA="${{ github.event.workflow_run.head_sha }}"
+
+          # Use gh release create instead of `git tag` + `git push`. The
+          # checkout step above uses `persist-credentials: false` (OSSF
+          # Scorecard Dangerous-Workflow fix), so a plain `git push` would
+          # fail with `could not read Username for 'https://github.com'`.
+          # `gh` re-authenticates from $GH_TOKEN for each subcommand, so
+          # the credential-persistence setting doesn't matter here.
+          #
+          # `--generate-notes` pulls PR titles + author credits from the
+          # merged commits between this tag and the previous one; release.yml
+          # overwrites the body with the curated CHANGELOG excerpt later
+          # via `gh release edit`.
+          if gh release create "$TAG" \
+              --repo "${{ github.repository }}" \
+              --target "$SHA" \
+              --generate-notes \
+              --title "$TAG" \
+              --verify-tag; then
+            echo "Created release $TAG"
             exit 0
           fi
 
-          # If a manual push raced us, treat that as success.
-          if git ls-remote --tags origin "refs/tags/${{ steps.version.outputs.tag }}" | grep -q .; then
-            echo "Tag ${{ steps.version.outputs.tag }} was created concurrently; continuing"
+          # If a manual release already exists (concurrent push), treat
+          # that as success — release.yml will still run and attach the
+          # binaries.
+          if gh release view "$TAG" --repo "${{ github.repository }}" > /dev/null 2>&1; then
+            echo "Release $TAG was created concurrently; continuing"
             exit 0
           fi
-          echo "Failed to push tag ${{ steps.version.outputs.tag }}"
+          echo "Failed to create release $TAG"
           exit 1
 
       - name: Tag already exists
