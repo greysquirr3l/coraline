@@ -1,0 +1,69 @@
+# Security audit against the BASE branch for PRs that don't touch
+# dependency manifests directly.
+#
+# Why this exists:
+#   `.github/workflows/security.yml` runs cargo-audit + cargo-deny only when
+#   a PR modifies `**/Cargo.toml`, `**/Cargo.lock`, `deny.toml`, or
+#   `.github/workflows/security.yml` (a `paths:` filter on `pull_request:`).
+#   That's the right design for PRs that *do* touch deps — it guarantees the
+#   audit runs against the PR's actual dependency state.
+#
+#   For PRs that don't touch any of those paths (e.g. PR #78, which only
+#   touches `src/**` and `tools/**`), the audit never fires. Because the
+#   branch-protection rules on `main` list `Check licenses and bans` as a
+#   required status check, GitHub's strict-mode enforcement then blocks the
+#   merge indefinitely — the check is `pending` because the workflow didn't
+#   report anything, not because it failed.
+#
+#   This workflow closes that gap by running the same audit against the
+#   BASE branch (main) on every PR, via `pull_request_target`. Since the PR
+#   doesn't modify any dep manifest, the BASE branch's dep graph IS the
+#   PR's effective dep graph — auditing main gives the same answer as
+#   auditing the PR would have. So no security relaxation, just a different
+#   "where do I read Cargo.toml from" choice.
+#
+# Security boundary (this is the important bit):
+#   `pull_request_target` runs with the BASE repository's secrets and
+#   permissions, even for PRs from forks. To stay safe, this workflow
+#   **explicitly checks out the BASE ref** and **never checks out the PR's
+#   HEAD ref or any fork code**. If you add a step that touches the PR's
+#   code (e.g. running a build/test/format on the PR), you're running
+#   attacker-controlled code with the maintainer's secrets — DON'T.
+
+name: Security Audit (PR base)
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+# Cancel any in-progress run for the same PR when a new commit is pushed —
+# the new commit won't change what main's deps look like, so the prior run's
+# result is still valid.
+concurrency:
+  group: security-pr-base-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  cargo-deny-base:
+    name: Check licenses and bans
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout base branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # CRITICAL: stay on the BASE branch. See file-level security note.
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked
+
+      - name: Run cargo deny against base branch
+        run: cargo deny check
