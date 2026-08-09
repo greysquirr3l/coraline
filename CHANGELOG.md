@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-08-09
+
+### Added
+
+- **Shared global config and ONNX model directory** (#78) — `~/.config/coraline/config.toml` and `~/.config/coraline/models/<model>/` are now the default locations, with the per-project `.coraline/` paths kept as a one-time migration source via `coraline model migrate`. Per-field merge: a local `[vectors]` section that only sets `enabled = true` still inherits `model_dir` from the global config. Generated embeddings and `.coraline/coraline.db` remain project-local — the share is the model weights file, not the vectors.
+- **Dual-era MCP server** (#56) — `McpServer` now serves both the upcoming-draft MCP spec (header-style `_meta` handshake) and the legacy handshake-based protocol (`2025-11-25` and earlier, including the `2025-06-18` revision this codebase originally targeted). Era is detected from the incoming `initialize` request shape, not from a pinned protocol version, so the same binary negotiates with both classes of client. `mcp/mod.rs` and `mcp/protocol.rs` split out the era dispatch from the JSON-RPC plumbing; `mcp_request` fuzz harness drives dispatch through arbitrary bytes.
+- **`.github/workflows/security-pr-base.yml`** — `pull_request_target` worker that audits the BASE branch via `cargo deny check` on every PR, satisfying the required `Check licenses and bans` status check on PRs that don't modify any dependency manifest. Explicitly checks out `${{ github.event.pull_request.base.sha }}` and never touches fork code.
+
+### Fixed
+
+- **MCP server no longer creates `.coraline/` before a project is initialized** (#71) — `McpServer` previously materialised the project directory as a side-effect of starting up, which broke tooling that distinguished "indexed" from "uninitialised" by directory presence. Initialisation now happens only on an explicit `coraline init` or on the first indexing call.
+- **`tree-sitter-markdown` upstream fork swap** (#80) — `tree-sitter-markdown-fork` → `tree-sitter-markdown-updated` to pick up maintenance fixes and avoid the unmaintained crate surfacing as a `cargo audit` warning.
+
 ### Changed
 
 - **CI action pins** — folded in 5 open dependabot version PRs:
@@ -15,10 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `github/codeql-action/upload-sarif` 4.36.2 → 4.37.3 (#75)
   - `ossf/scorecard-action` 2.4.3 → 2.4.4 (#77)
   - `softprops/action-gh-release` 3.0.0 → 3.0.2 (#73)
-  All SHA-pinned substitutions (sed-equivalent). Where this branch was on
-  a pre-bump base (e.g. v6.0.3 checkout, v3.0.0 action-gh-release, v4
-  in book.yml), the intermediate dependabot step is skipped to land
-  on the dependabot target version directly.
+    All SHA-pinned substitutions (sed-equivalent). Where this branch was on
+    a pre-bump base (e.g. v6.0.3 checkout, v3.0.0 action-gh-release, v4
+    in book.yml), the intermediate dependabot step is skipped to land
+    on the dependabot target version directly.
 - **Cargo dependency** — `tree-sitter-erlang` 0.18.0 → 0.20.0 (#79),
   skipping 0.19.0 since the branch's base predates that release.
 
@@ -491,7 +504,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Framework-specific resolvers** — Rust, React, Blazor, Laravel
 - **CLI commands** — `callers`, `callees`, `impact`, `config`, `stats`, `embed`; `--json` flag on all query commands
 - **Criterion benchmark suite** — 9 benchmarks across indexing, search, graph traversal, and context building groups (`cargo bench --bench indexing`)
-- **CI/CD** — GitHub Actions for multiplatform builds (Linux x86\_64/ARM64, macOS x86\_64/ARM64, Windows x86\_64), crates.io publishing, CodeQL scanning, daily dependency auditing
+- **CI/CD** — GitHub Actions for multiplatform builds (Linux x86_64/ARM64, macOS x86_64/ARM64, Windows x86_64), crates.io publishing, CodeQL scanning, daily dependency auditing
 - **28+ language support** via tree-sitter: Rust, TypeScript, JavaScript, TSX, JSX, Python, Go, Java, C, C++, C#, PHP, Ruby, Swift, Kotlin, Bash, Dart, Elixir, Elm, Erlang, Fortran, Groovy, Haskell, Julia, Lua, Markdown, MATLAB, Nix, Perl, PowerShell, R, Scala, TOML, YAML, Zig, Blazor
 
 ### Fixed
@@ -552,7 +565,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `coraline_search`, `coraline_callers`, `coraline_callees`, `coraline_impact`, `coraline_context` MCP tools
 - Git post-commit hook integration
 
-[Unreleased]: https://github.com/greysquirr3l/coraline/compare/v0.10.2...HEAD
+[Unreleased]: https://github.com/greysquirr3l/coraline/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/greysquirr3l/coraline/compare/v0.10.2...v0.11.0
 [0.10.2]: https://github.com/greysquirr3l/coraline/compare/v0.10.1...v0.10.2
 [0.10.1]: https://github.com/greysquirr3l/coraline/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/greysquirr3l/coraline/compare/v0.9.0...v0.10.0
