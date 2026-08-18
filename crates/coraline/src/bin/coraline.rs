@@ -1028,6 +1028,22 @@ fn run_status(args: StatusArgs) {
     println!("Config:  {}", cfg_path.display());
     println!("Database: {} ({} bytes)", db_path.display(), db_size);
 
+    let model_dir = resolve_status_model_dir(&project_root);
+    match compute_model_state(&model_dir) {
+        ModelState::Present {
+            ref name,
+            size_bytes,
+        } => {
+            let size_mb = size_bytes / 1_000_000;
+            println!("Embeddings: {name} ({size_mb} MB)");
+        }
+        ModelState::Absent => {
+            println!("Embeddings: not present");
+            println!("            Run `coraline model download` to enable semantic search.");
+        }
+    }
+    println!("Model dir:  {}", model_dir.display());
+
     let hooks = GitHooksManager::new(&project_root);
     if hooks.is_git_repository() {
         if hooks.is_hook_installed() {
@@ -1038,6 +1054,39 @@ fn run_status(args: StatusArgs) {
     } else {
         println!("Git hooks: not a git repository");
     }
+}
+
+/// Resolve the embedding-model directory for the given project, honouring
+/// `vectors.model_dir` in `config.toml` when set, falling back to the global
+/// default (`~/.config/coraline/models/nomic-embed-text-v1.5/`).
+fn resolve_status_model_dir(project_root: &Path) -> PathBuf {
+    let cfg = config::load_toml_config(project_root).unwrap_or_default();
+    cfg.vectors
+        .model_dir
+        .map_or_else(|| vectors::default_model_dir(project_root), PathBuf::from)
+}
+
+/// Pure lookup of which (if any) model variant is present on disk.
+fn compute_model_state(model_dir: &Path) -> ModelState {
+    for name in vectors::MODEL_PREFERENCE_ORDER {
+        let p = model_dir.join(name);
+        if let Ok(meta) = std::fs::metadata(&p) {
+            return ModelState::Present {
+                name: (*name).to_string(),
+                size_bytes: meta.len(),
+            };
+        }
+    }
+    ModelState::Absent
+}
+
+/// Embedding-model state, as surfaced by `coraline status`.
+#[derive(Debug, PartialEq, Eq)]
+enum ModelState {
+    /// At least one variant in `MODEL_PREFERENCE_ORDER` is present.
+    Present { name: String, size_bytes: u64 },
+    /// No model file exists in the directory.
+    Absent,
 }
 
 fn run_query(args: QueryArgs) {
@@ -1691,6 +1740,61 @@ mod tests {
         std::fs::write(coraline_dir.join("config.toml"), "")?;
 
         assert!(is_initialized(root));
+        Ok(())
+    }
+
+    #[test]
+    fn model_state_absent_when_no_files() -> TestResult {
+        let temp_dir = tempfile::TempDir::new()?;
+        let state = compute_model_state(temp_dir.path());
+        assert_eq!(state, ModelState::Absent);
+        Ok(())
+    }
+
+    #[test]
+    fn model_state_present_picks_first_preferred_variant() -> TestResult {
+        let temp_dir = tempfile::TempDir::new()?;
+        std::fs::write(temp_dir.path().join("model_int8.onnx"), vec![0u8; 42])?;
+        let state = compute_model_state(temp_dir.path());
+        assert_eq!(
+            state,
+            ModelState::Present {
+                name: "model_int8.onnx".to_string(),
+                size_bytes: 42,
+            }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn model_state_present_records_actual_size() -> TestResult {
+        let temp_dir = tempfile::TempDir::new()?;
+        let bytes = vec![0u8; 1_500_000];
+        std::fs::write(temp_dir.path().join("model_int8.onnx"), &bytes)?;
+        let state = compute_model_state(temp_dir.path());
+        assert_eq!(
+            state,
+            ModelState::Present {
+                name: "model_int8.onnx".to_string(),
+                size_bytes: 1_500_000,
+            }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn status_respects_model_dir_override() -> TestResult {
+        let temp_dir = tempfile::TempDir::new()?;
+        let root = temp_dir.path();
+        let coraline_dir = root.join(".coraline");
+        std::fs::create_dir_all(&coraline_dir)?;
+        let custom_dir = root.join("custom-models");
+        std::fs::create_dir_all(&custom_dir)?;
+        let config = format!("[vectors]\nmodel_dir = \"{}\"\n", custom_dir.display());
+        std::fs::write(coraline_dir.join("config.toml"), config)?;
+
+        let resolved = resolve_status_model_dir(root);
+        assert_eq!(resolved, custom_dir);
         Ok(())
     }
 }
