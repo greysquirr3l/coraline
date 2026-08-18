@@ -6,6 +6,7 @@ pub mod audit;
 pub mod config;
 pub mod context;
 pub mod db;
+pub mod doctor;
 pub mod extraction;
 pub mod graph;
 pub mod logging;

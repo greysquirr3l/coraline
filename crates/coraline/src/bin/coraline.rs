@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use coraline::config;
 use coraline::context;
 use coraline::db;
+use coraline::doctor;
 use coraline::extraction;
 use coraline::logging;
 use coraline::mcp::McpServer;
@@ -35,6 +36,7 @@ enum Command {
     Sync(SyncArgs),
     Status(StatusArgs),
     Stats(StatsArgs),
+    Doctor(DoctorArgs),
     Query(QueryArgs),
     Context(ContextArgs),
     Callers(CallersArgs),
@@ -96,6 +98,21 @@ struct SyncArgs {
 #[derive(Debug, Args)]
 struct StatusArgs {
     path: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+struct DoctorArgs {
+    /// Project root (defaults to current directory).
+    path: Option<PathBuf>,
+    /// Skip slow model-load + inference probes.
+    #[arg(long = "quick", conflicts_with = "deep")]
+    quick: bool,
+    /// Explicit deep mode (default): include model load + inference + coverage probes.
+    #[arg(long = "deep", conflicts_with = "quick")]
+    deep: bool,
+    /// Output report as JSON for machine consumption.
+    #[arg(long = "json")]
+    json: bool,
 }
 
 #[derive(Debug, Args)]
@@ -283,6 +300,7 @@ fn main() {
         Command::Sync(a) => a.path.clone(),
         Command::Status(a) => a.path.clone(),
         Command::Stats(a) => a.path.clone(),
+        Command::Doctor(a) => a.path.clone(),
         Command::Query(a) => a.path.clone(),
         Command::Context(a) => a.path.clone(),
         Command::Callers(a) => a.path.clone(),
@@ -318,6 +336,7 @@ fn main() {
         Command::Sync(args) => run_sync(args),
         Command::Status(args) => run_status(args),
         Command::Stats(args) => run_stats(args),
+        Command::Doctor(args) => run_doctor(args),
         Command::Query(args) => run_query(args),
         Command::Context(args) => run_context(args),
         Command::Callers(args) => run_callers(args),
@@ -1028,16 +1047,16 @@ fn run_status(args: StatusArgs) {
     println!("Config:  {}", cfg_path.display());
     println!("Database: {} ({} bytes)", db_path.display(), db_size);
 
-    let model_dir = resolve_status_model_dir(&project_root);
-    match compute_model_state(&model_dir) {
-        ModelState::Present {
+    let model_dir = doctor::resolve_status_model_dir(&project_root);
+    match doctor::compute_model_state(&model_dir) {
+        doctor::ModelState::Present {
             ref name,
             size_bytes,
         } => {
             let size_mb = size_bytes / 1_000_000;
             println!("Embeddings: {name} ({size_mb} MB)");
         }
-        ModelState::Absent => {
+        doctor::ModelState::Absent => {
             println!("Embeddings: not present");
             println!("            Run `coraline model download` to enable semantic search.");
         }
@@ -1056,37 +1075,50 @@ fn run_status(args: StatusArgs) {
     }
 }
 
-/// Resolve the embedding-model directory for the given project, honouring
-/// `vectors.model_dir` in `config.toml` when set, falling back to the global
-/// default (`~/.config/coraline/models/nomic-embed-text-v1.5/`).
-fn resolve_status_model_dir(project_root: &Path) -> PathBuf {
-    let cfg = config::load_toml_config(project_root).unwrap_or_default();
-    cfg.vectors
-        .model_dir
-        .map_or_else(|| vectors::default_model_dir(project_root), PathBuf::from)
+fn run_doctor(args: DoctorArgs) {
+    let project_root = resolve_project_root(args.path);
+    let deep = !args.quick;
+    let report = doctor::run_all(&project_root, deep);
+
+    if args.json {
+        match serde_json::to_string_pretty(&report) {
+            Ok(json) => println!("{json}"),
+            Err(e) => {
+                eprintln!("Failed to serialize report: {e}");
+                std::process::exit(1);
+            }
+        }
+    } else {
+        print_doctor_report(&report, deep);
+    }
+
+    std::process::exit(report.exit_code);
 }
 
-/// Pure lookup of which (if any) model variant is present on disk.
-fn compute_model_state(model_dir: &Path) -> ModelState {
-    for name in vectors::MODEL_PREFERENCE_ORDER {
-        let p = model_dir.join(name);
-        if let Ok(meta) = std::fs::metadata(&p) {
-            return ModelState::Present {
-                name: (*name).to_string(),
-                size_bytes: meta.len(),
-            };
+fn print_doctor_report(report: &doctor::Report, deep: bool) {
+    if deep {
+        let pb = spinner_indefinite("Running doctor probes…");
+        for probe in &report.probes {
+            let mark = if probe.ok { "✔" } else { "✘" };
+            pb.println(format!("{mark}  {}", probe.name));
+            if !probe.ok
+                && let Some(fix) = &probe.fix
+            {
+                pb.println(format!("    → {fix}"));
+            }
+        }
+        pb.finish_and_clear();
+    } else {
+        for probe in &report.probes {
+            let mark = if probe.ok { "✔" } else { "✘" };
+            println!("{mark}  {}", probe.name);
+            if !probe.ok
+                && let Some(fix) = &probe.fix
+            {
+                println!("    → {fix}");
+            }
         }
     }
-    ModelState::Absent
-}
-
-/// Embedding-model state, as surfaced by `coraline status`.
-#[derive(Debug, PartialEq, Eq)]
-enum ModelState {
-    /// At least one variant in `MODEL_PREFERENCE_ORDER` is present.
-    Present { name: String, size_bytes: u64 },
-    /// No model file exists in the directory.
-    Absent,
 }
 
 fn run_query(args: QueryArgs) {
@@ -1746,8 +1778,8 @@ mod tests {
     #[test]
     fn model_state_absent_when_no_files() -> TestResult {
         let temp_dir = tempfile::TempDir::new()?;
-        let state = compute_model_state(temp_dir.path());
-        assert_eq!(state, ModelState::Absent);
+        let state = doctor::compute_model_state(temp_dir.path());
+        assert_eq!(state, doctor::ModelState::Absent);
         Ok(())
     }
 
@@ -1755,28 +1787,12 @@ mod tests {
     fn model_state_present_picks_first_preferred_variant() -> TestResult {
         let temp_dir = tempfile::TempDir::new()?;
         std::fs::write(temp_dir.path().join("model_int8.onnx"), vec![0u8; 42])?;
-        let state = compute_model_state(temp_dir.path());
+        let state = doctor::compute_model_state(temp_dir.path());
         assert_eq!(
             state,
-            ModelState::Present {
+            doctor::ModelState::Present {
                 name: "model_int8.onnx".to_string(),
                 size_bytes: 42,
-            }
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn model_state_present_records_actual_size() -> TestResult {
-        let temp_dir = tempfile::TempDir::new()?;
-        let bytes = vec![0u8; 1_500_000];
-        std::fs::write(temp_dir.path().join("model_int8.onnx"), &bytes)?;
-        let state = compute_model_state(temp_dir.path());
-        assert_eq!(
-            state,
-            ModelState::Present {
-                name: "model_int8.onnx".to_string(),
-                size_bytes: 1_500_000,
             }
         );
         Ok(())
@@ -1793,7 +1809,7 @@ mod tests {
         let config = format!("[vectors]\nmodel_dir = \"{}\"\n", custom_dir.display());
         std::fs::write(coraline_dir.join("config.toml"), config)?;
 
-        let resolved = resolve_status_model_dir(root);
+        let resolved = doctor::resolve_status_model_dir(root);
         assert_eq!(resolved, custom_dir);
         Ok(())
     }
