@@ -62,6 +62,19 @@ struct InitArgs {
         help = "Overwrite existing .coraline directory without prompting"
     )]
     force: bool,
+    #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
+    /// Download the embedding model during init (skips the TTY prompt).
+    #[arg(long = "embed")]
+    embed: bool,
+    #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
+    /// Skip the embedding model entirely (no prompt, no download).
+    /// Conflicts with `--embed`.
+    #[arg(long = "no-embed", conflicts_with = "embed")]
+    no_embed: bool,
+    #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
+    /// Non-interactive mode. Auto-accepts the model download prompt.
+    #[arg(short = 'y', long = "yes")]
+    yes: bool,
 }
 
 #[derive(Debug, Args)]
@@ -675,7 +688,7 @@ fn run_init(args: InitArgs) {
                 project_root.display()
             );
             #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
-            maybe_prompt_model_download(&project_root);
+            init_model::handle_model_decision(&project_root, args.embed, args.no_embed, args.yes);
             run_index(IndexArgs {
                 path: Some(project_root),
                 force: false,
@@ -753,7 +766,7 @@ fn run_init(args: InitArgs) {
     }
 
     #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
-    maybe_prompt_model_download(&project_root);
+    init_model::handle_model_decision(&project_root, args.embed, args.no_embed, args.yes);
 
     if args.index {
         run_index(IndexArgs {
@@ -764,52 +777,140 @@ fn run_init(args: InitArgs) {
     }
 }
 
-/// After a fresh `init`, offer to download the embedding model when stdin is a
-/// terminal.  If the user declines (or is non-interactive), we print a hint and
-/// continue — all non-embedding tools remain fully functional.
 #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
-fn maybe_prompt_model_download(project_root: &Path) {
-    use std::io::Write as _;
+mod init_model {
+    use super::{Path, PathBuf, config, vectors};
 
-    let cfg = config::load_toml_config(project_root).unwrap_or_default();
-    let model_dir = cfg
-        .vectors
-        .model_dir
-        .map_or_else(|| vectors::default_model_dir(project_root), PathBuf::from);
-
-    // Nothing to do if any model variant is already present.
-    if vectors::MODEL_PREFERENCE_ORDER
-        .iter()
-        .any(|name| model_dir.join(name).exists())
-    {
-        return;
+    /// Inputs to the embedding-model decision.
+    ///
+    /// Bundled in a struct so the decision function takes a single argument
+    /// (and to keep `clippy::fn_params_excessive_bools` happy).
+    /// `struct_excessive_bools` is allow-by-default in this project.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+    pub struct ModelInputs {
+        pub model_present: bool,
+        pub no_embed: bool,
+        pub embed: bool,
+        pub yes: bool,
+        pub is_tty: bool,
     }
 
-    if !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
-        eprintln!(
-            "Tip: run `coraline model download` then `coraline embed` to enable semantic search."
-        );
-        return;
+    /// After a fresh `init`, decide what to do about the embedding model and
+    /// execute the chosen action. Behaviour is sum of the `InitArgs` flags
+    /// (`--embed`, `--no-embed`, `--yes`) plus the TTY state and whether the
+    /// model is already on disk. All non-embedding tools remain fully
+    /// functional regardless of the chosen action.
+    pub fn handle_model_decision(project_root: &Path, embed: bool, no_embed: bool, yes: bool) {
+        let model_dir = resolve_model_dir(project_root);
+        let model_present = vectors::MODEL_PREFERENCE_ORDER
+            .iter()
+            .any(|name| model_dir.join(name).exists());
+        let is_tty = std::io::IsTerminal::is_terminal(&std::io::stdin());
+        let inputs = ModelInputs {
+            model_present,
+            no_embed,
+            embed,
+            yes,
+            is_tty,
+        };
+        let action = decide_model_action(inputs);
+        execute_model_action(project_root, &action);
     }
 
-    eprint!("Download embedding model for semantic search? (~137 MB) [Y/n] ");
-    let _ = std::io::stderr().flush();
-    let mut input = String::new();
-    if std::io::stdin().read_line(&mut input).is_err() {
-        return;
+    /// What action to take regarding the embedding model after `init`.
+    ///
+    /// The decision is pure: it takes the inputs and returns the action. The
+    /// IO/execution side is in [`execute_model_action`].
+    #[derive(Debug, PartialEq, Eq)]
+    pub enum ModelAction {
+        /// Model already present; nothing to do.
+        NoOp,
+        /// User opted out (`--no-embed` or declined the TTY prompt).
+        Skip,
+        /// Download the model now.
+        Download,
+        /// Interactive prompt needed.
+        Prompt,
+        /// Non-interactive, no explicit decision; print a hint.
+        Hint,
     }
-    let answer = input.trim();
-    if answer.is_empty() || answer.eq_ignore_ascii_case("y") {
+
+    /// Pure decision function for the post-init model action.
+    ///
+    /// Precedence:
+    /// 1. Model present → `NoOp`
+    /// 2. `--no-embed` → `Skip`
+    /// 3. `--embed` or `--yes` → `Download`
+    /// 4. TTY → `Prompt`
+    /// 5. Otherwise → `Hint`
+    pub const fn decide_model_action(inputs: ModelInputs) -> ModelAction {
+        if inputs.model_present {
+            return ModelAction::NoOp;
+        }
+        if inputs.no_embed {
+            return ModelAction::Skip;
+        }
+        if inputs.embed || inputs.yes {
+            return ModelAction::Download;
+        }
+        if inputs.is_tty {
+            return ModelAction::Prompt;
+        }
+        ModelAction::Hint
+    }
+
+    pub fn resolve_model_dir(project_root: &Path) -> PathBuf {
+        let cfg = config::load_toml_config(project_root).unwrap_or_default();
+        cfg.vectors
+            .model_dir
+            .map_or_else(|| vectors::default_model_dir(project_root), PathBuf::from)
+    }
+
+    pub fn execute_model_action(project_root: &Path, action: &ModelAction) {
+        use std::io::Write as _;
+        let model_dir = resolve_model_dir(project_root);
+
+        match action {
+            ModelAction::NoOp => {}
+            ModelAction::Skip => {
+                println!("Skipped. Run `coraline model download` later to enable semantic search.");
+            }
+            ModelAction::Download => {
+                download_model_and_report(&model_dir);
+            }
+            ModelAction::Prompt => {
+                eprint!("Download embedding model for semantic search? (~137 MB) [Y/n] ");
+                let _ = std::io::stderr().flush();
+                let mut input = String::new();
+                if std::io::stdin().read_line(&mut input).is_err() {
+                    return;
+                }
+                let answer = input.trim();
+                if answer.is_empty() || answer.eq_ignore_ascii_case("y") {
+                    download_model_and_report(&model_dir);
+                } else {
+                    println!(
+                        "Skipped. Run `coraline model download` later to enable semantic search."
+                    );
+                }
+            }
+            ModelAction::Hint => {
+                eprintln!(
+                    "Tip: run `coraline model download` then `coraline embed` to enable semantic search."
+                );
+            }
+        }
+    }
+
+    fn download_model_and_report(model_dir: &Path) {
         println!("Downloading model into {} ...", model_dir.display());
-        match vectors::download_model(&model_dir, "model_int8.onnx", true, false) {
+        match vectors::download_model(model_dir, "model_int8.onnx", true, false) {
             Ok(()) => println!("Done. Run `coraline embed` to generate embeddings."),
             Err(e) => {
                 eprintln!("Model download failed: {e}");
                 eprintln!("You can retry later with: coraline model download");
             }
         }
-    } else {
-        println!("Skipped. Run `coraline model download` later to enable semantic search.");
     }
 }
 
@@ -1591,5 +1692,116 @@ mod tests {
 
         assert!(is_initialized(root));
         Ok(())
+    }
+}
+
+#[cfg(all(test, any(feature = "embeddings", feature = "embeddings-dynamic")))]
+mod init_flag_tests {
+    use super::init_model::*;
+
+    #[test]
+    fn model_present_is_noop() {
+        let m = ModelInputs {
+            model_present: true,
+            is_tty: true,
+            ..Default::default()
+        };
+        assert_eq!(decide_model_action(m), ModelAction::NoOp);
+        let m = ModelInputs {
+            model_present: true,
+            ..Default::default()
+        };
+        assert_eq!(decide_model_action(m), ModelAction::NoOp);
+    }
+
+    #[test]
+    fn model_present_short_circuits_all_flags() {
+        // Even with --embed and --yes, model present is NoOp.
+        let m = ModelInputs {
+            model_present: true,
+            embed: true,
+            yes: true,
+            ..Default::default()
+        };
+        assert_eq!(decide_model_action(m), ModelAction::NoOp);
+        // --no-embed is irrelevant when model is present.
+        let m = ModelInputs {
+            model_present: true,
+            no_embed: true,
+            is_tty: true,
+            ..Default::default()
+        };
+        assert_eq!(decide_model_action(m), ModelAction::NoOp);
+    }
+
+    #[test]
+    fn no_embed_skips() {
+        let m = ModelInputs {
+            no_embed: true,
+            is_tty: true,
+            ..Default::default()
+        };
+        assert_eq!(decide_model_action(m), ModelAction::Skip);
+        let m = ModelInputs {
+            no_embed: true,
+            ..Default::default()
+        };
+        assert_eq!(decide_model_action(m), ModelAction::Skip);
+    }
+
+    #[test]
+    fn embed_downloads_regardless_of_tty() {
+        let m = ModelInputs {
+            embed: true,
+            is_tty: true,
+            ..Default::default()
+        };
+        assert_eq!(decide_model_action(m), ModelAction::Download);
+        let m = ModelInputs {
+            embed: true,
+            ..Default::default()
+        };
+        assert_eq!(decide_model_action(m), ModelAction::Download);
+    }
+
+    #[test]
+    fn yes_auto_downloads() {
+        let m = ModelInputs {
+            yes: true,
+            is_tty: true,
+            ..Default::default()
+        };
+        assert_eq!(decide_model_action(m), ModelAction::Download);
+        let m = ModelInputs {
+            yes: true,
+            ..Default::default()
+        };
+        assert_eq!(decide_model_action(m), ModelAction::Download);
+    }
+
+    #[test]
+    fn no_embed_wins_over_yes() {
+        let m = ModelInputs {
+            no_embed: true,
+            yes: true,
+            is_tty: true,
+            ..Default::default()
+        };
+        assert_eq!(decide_model_action(m), ModelAction::Skip);
+    }
+
+    #[test]
+    fn no_flags_tty_prompts() {
+        let m = ModelInputs {
+            is_tty: true,
+            ..Default::default()
+        };
+        assert_eq!(decide_model_action(m), ModelAction::Prompt);
+    }
+
+    #[test]
+    fn no_flags_non_tty_hints() {
+        let m = ModelInputs::default();
+        assert_eq!(decide_model_action(m), ModelAction::Hint);
     }
 }
