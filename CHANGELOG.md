@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-08-19
+
+### Added
+
+- **`coraline doctor`** — new diagnostic subcommand that checks config presence, database health, git hook installation, and embedding-model state, printing a `✔`/`✘` report with a remediation hint per failing check. `--quick` skips the three slow model-load/inference/embed-coverage probes (deep mode is the default); `--json` emits a machine-readable report for CI gating. Exits `0` only if every check passed.
+- **`coraline init --embed` / `--no-embed` / `--yes`** — explicit, non-interactive control over the post-init embedding-model download decision, replacing the TTY-only prompt as the sole path. `--no-embed` always wins over `--yes`; the interactive prompt remains the fallback when no flag is given and stdin is a TTY.
+- **`coraline status` embedding-model line** — status output now shows the model file (name + size) or a "not present" hint, plus the resolved model name and directory, so `coraline_semantic_search` readiness is visible without running `doctor`.
+- **Multi-model embedding support** — `vectors.model` in `config.toml` (previously present but unused) now actually selects which embedding model Coraline downloads, loads, and stores against. Ships with `nomic-embed-text-v1.5` (general-purpose, default) and `jina-embeddings-v2-base-code` (code-specialised, opt-in), both 768-dim. New `coraline model list` shows the registry; `coraline model download`/`status` accept `--model <name>` to target a non-default model (defaulting to `vectors.model` from config). Switching models on a project with existing embeddings requires re-running `coraline embed` — every read path (`coraline_semantic_search`, `doctor`'s coverage probe, staleness checks) filters by the `model` column already present in the `vectors` table schema, so a switch is self-healing rather than mixing scores across models.
+- **Structured `EMBEDDING_MODEL_MISSING` MCP error** — `coraline_semantic_search` failures from a missing/unloadable model now return a typed error envelope (`code`, `message`, `recover: { command, docs }`) in `structuredContent` instead of only free-form text, so an MCP agent can branch on `code` and act on `recover.command` directly.
+
+### Fixed
+
+- **Restored `coraline_audit_docs`, `coraline_find_file` (MCP), and `coraline audit-docs` (CLI)** — a prior refactor (`b079ac5`, config.toml consolidation) silently dropped the `tools::audit_tools` module declaration, the `FindFileTool` registration, and the `audit-docs` CLI subcommand, while leaving the fully-implemented code and its documentation in place. All three are wired back in; `docs/MCP_TOOLS.md` now lists all 35 actually-registered MCP tools (up from an undercounted 29), including the batch (`coraline_batch_*`) and advanced-search (`coraline_search_by_*`, `coraline_find_by_kind_in_file`) tool groups that were implemented but never documented. The `coraline_session_security_status` pseudo-tool, documented but removed in the same refactor (its `SessionSecurityState` tracking no longer exists on `McpServer`), and the "Background Auto-Sync" background thread, documented but never present in the current dual-era `McpServer`, are removed from the docs rather than restored — both are real feature gaps tracked separately, not doc errors.
+
 ## [0.11.0] - 2026-08-09
 
 ### Added
@@ -565,7 +579,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `coraline_search`, `coraline_callers`, `coraline_callees`, `coraline_impact`, `coraline_context` MCP tools
 - Git post-commit hook integration
 
-[Unreleased]: https://github.com/greysquirr3l/coraline/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/greysquirr3l/coraline/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/greysquirr3l/coraline/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/greysquirr3l/coraline/compare/v0.10.2...v0.11.0
 [0.10.2]: https://github.com/greysquirr3l/coraline/compare/v0.10.1...v0.10.2
 [0.10.1]: https://github.com/greysquirr3l/coraline/compare/v0.10.0...v0.10.1
