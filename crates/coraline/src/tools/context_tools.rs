@@ -75,7 +75,6 @@ impl Tool for BuildContextTool {
         })
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
         let task = params
             .get("task")
@@ -85,20 +84,20 @@ impl Tool for BuildContextTool {
         let max_nodes = params
             .get("max_nodes")
             .and_then(Value::as_u64)
-            .map(|n| n as usize);
+            .map(|n| usize::try_from(n).unwrap_or(usize::MAX));
         let max_code_blocks = params
             .get("max_code_blocks")
             .and_then(Value::as_u64)
-            .map(|n| n as usize);
+            .map(|n| usize::try_from(n).unwrap_or(usize::MAX));
         let max_code_block_size = params
             .get("max_code_block_size")
             .and_then(Value::as_u64)
-            .map(|n| n as usize);
+            .map(|n| usize::try_from(n).unwrap_or(usize::MAX));
         let include_code = params.get("include_code").and_then(Value::as_bool);
         let traversal_depth = params
             .get("traversal_depth")
             .and_then(Value::as_u64)
-            .map(|n| n as usize);
+            .map(|n| usize::try_from(n).unwrap_or(usize::MAX));
 
         let format = match params.get("format").and_then(Value::as_str) {
             Some("json") => Some(ContextFormat::Json),
@@ -116,7 +115,11 @@ impl Tool for BuildContextTool {
             search_limit: params
                 .get("search_limit")
                 .and_then(Value::as_u64)
-                .map(|n| n as usize),
+                .map(|n| usize::try_from(n).unwrap_or(usize::MAX)),
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "f64 -> f32: no checked TryFrom<f64> for f32 in std"
+            )]
             min_score: params
                 .get("min_score")
                 .and_then(Value::as_f64)

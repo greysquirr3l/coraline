@@ -321,7 +321,10 @@ impl Tool for EditMemoryTool {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::expect_used)]
+    #![expect(
+        clippy::expect_used,
+        reason = "test assertions: panicking on setup failure is the correct behavior"
+    )]
 
     use super::*;
     use std::fs;

@@ -248,7 +248,10 @@ When implementing a new feature, ensure:
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::expect_used)]
+    #![expect(
+        clippy::expect_used,
+        reason = "test assertions: panicking on setup failure is the correct behavior"
+    )]
 
     use super::*;
     use tempfile::TempDir;
