@@ -111,7 +111,7 @@ struct ToolContent {
     text: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(untagged)]
 enum JsonRpcId {
     String(String),
@@ -435,37 +435,51 @@ impl McpServer {
         }
     }
 
-    fn handle_tools_call(&mut self, id: JsonRpcId, message: &Value, era: Era) -> io::Result<()> {
-        let params = message.get("params");
-
-        if matches!(era, protocol::Era::Modern) {
-            match validate_modern_meta(message) {
-                MetaValidation::Ok => {}
-                MetaValidation::MissingFields(_) => {
-                    return self.send_error(
-                        Some(id),
-                        era,
-                        protocol::codes::INVALID_PARAMS,
-                        "Missing required _meta fields for modern tools/call",
-                        None,
-                    );
-                }
-                MetaValidation::UnsupportedVersion => {
-                    let data = serde_json::json!({
-                        "supported": SUPPORTED_VERSIONS,
-                        "requested": protocol::request_protocol_version(message).unwrap_or(""),
-                    });
-                    return self.send_error(
-                        Some(id),
-                        era,
-                        protocol::codes::UNSUPPORTED_PROTOCOL_VERSION_MODERN,
-                        "Unsupported protocol version",
-                        Some(data),
-                    );
-                }
+    /// Validates `_meta` requirements for a modern-era request.
+    ///
+    /// Returns `Some(result)` when validation failed and an error response
+    /// has already been sent (the caller should return that result
+    /// immediately); returns `None` when the request may proceed.
+    fn check_modern_meta(
+        &mut self,
+        id: &JsonRpcId,
+        message: &Value,
+        era: Era,
+    ) -> Option<io::Result<()>> {
+        if !matches!(era, protocol::Era::Modern) {
+            return None;
+        }
+        match validate_modern_meta(message) {
+            MetaValidation::Ok => None,
+            MetaValidation::MissingFields(_) => Some(self.send_error(
+                Some(id.clone()),
+                era,
+                protocol::codes::INVALID_PARAMS,
+                "Missing required _meta fields for modern tools/call",
+                None,
+            )),
+            MetaValidation::UnsupportedVersion => {
+                let data = serde_json::json!({
+                    "supported": SUPPORTED_VERSIONS,
+                    "requested": protocol::request_protocol_version(message).unwrap_or(""),
+                });
+                Some(self.send_error(
+                    Some(id.clone()),
+                    era,
+                    protocol::codes::UNSUPPORTED_PROTOCOL_VERSION_MODERN,
+                    "Unsupported protocol version",
+                    Some(data),
+                ))
             }
         }
+    }
 
+    fn handle_tools_call(&mut self, id: JsonRpcId, message: &Value, era: Era) -> io::Result<()> {
+        if let Some(result) = self.check_modern_meta(&id, message, era) {
+            return result;
+        }
+
+        let params = message.get("params");
         let Some(params) = params else {
             return self.send_error(
                 Some(id),
@@ -531,13 +545,23 @@ impl McpServer {
             }
             Err(err) => {
                 warn!(tool = %parsed.name, error = %err.message, "tool call failed");
+                let structured = err.recover.as_ref().map(|recover| {
+                    serde_json::json!({
+                        "code": err.code,
+                        "message": err.message,
+                        "recover": {
+                            "command": recover.command,
+                            "docs": recover.docs,
+                        },
+                    })
+                });
                 let tool_result = ToolResult {
                     content: vec![ToolContent {
                         r#type: "text",
                         text: format!("Error: {}", err.message),
                     }],
                     is_error: Some(true),
-                    structured_content: None,
+                    structured_content: structured,
                 };
                 let legacy_payload = serde_json::to_value(tool_result).unwrap_or_default();
                 self.send_result(id, era, legacy_payload)

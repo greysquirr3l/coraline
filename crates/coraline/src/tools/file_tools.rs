@@ -798,12 +798,18 @@ impl SemanticSearchTool {
         let conn = db::open_database(&self.project_root)
             .map_err(|e| ToolError::internal_error(format!("DB error: {e}")))?;
 
-        let stale_count = stale_embedding_count(&conn)
+        let toml_vectors_cfg = crate::config::load_toml_config(&self.project_root)
+            .unwrap_or_default()
+            .vectors;
+        let (model_name, _) = crate::vectors::resolve_model_dir(&toml_vectors_cfg)
+            .map_err(|e| ToolError::internal_error(format!("Model config error: {e}")))?;
+
+        let stale_count = stale_embedding_count(&conn, &model_name)
             .map_err(|e| ToolError::internal_error(format!("Embedding-state check failed: {e}")))?;
 
         if stale_count > 0 {
             let refreshed = if let Some(vm) = vm {
-                refresh_stale_embeddings(&conn, vm).map_err(|e| {
+                refresh_stale_embeddings(&conn, vm, &model_name).map_err(|e| {
                     ToolError::internal_error(format!("Embedding refresh failed: {e}"))
                 })?
             } else {
@@ -812,7 +818,7 @@ impl SemanticSearchTool {
                         "Could not load embedding model: {e}. Download the model and run 'coraline embed' first."
                     ))
                 })?;
-                refresh_stale_embeddings(&conn, &mut vm).map_err(|e| {
+                refresh_stale_embeddings(&conn, &mut vm, &model_name).map_err(|e| {
                     ToolError::internal_error(format!("Embedding refresh failed: {e}"))
                 })?
             };
@@ -858,14 +864,14 @@ struct FreshnessUpdate {
 }
 
 #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
-fn stale_embedding_count(conn: &rusqlite::Connection) -> std::io::Result<usize> {
+fn stale_embedding_count(conn: &rusqlite::Connection, model: &str) -> std::io::Result<usize> {
     let count = conn
         .query_row(
             "SELECT COUNT(*)
                FROM nodes n
-          LEFT JOIN vectors v ON v.node_id = n.id
+          LEFT JOIN vectors v ON v.node_id = n.id AND v.model = ?1
               WHERE v.created_at IS NULL OR n.updated_at > v.created_at",
-            [],
+            rusqlite::params![model],
             |row| row.get::<_, i64>(0),
         )
         .map_err(std::io::Error::other)?;
@@ -880,6 +886,7 @@ type StaleNodeRow = (String, String, String, Option<String>, Option<String>);
 fn refresh_stale_embeddings(
     conn: &rusqlite::Connection,
     vm: &mut crate::vectors::VectorManager,
+    model: &str,
 ) -> std::io::Result<usize> {
     // Collect stale nodes into memory first so the statement borrow is released
     // before we open a transaction, allowing all stores to commit atomically.
@@ -888,12 +895,12 @@ fn refresh_stale_embeddings(
             .prepare(
                 "SELECT n.id, n.name, n.qualified_name, n.docstring, n.signature
                    FROM nodes n
-              LEFT JOIN vectors v ON v.node_id = n.id
+              LEFT JOIN vectors v ON v.node_id = n.id AND v.model = ?1
                   WHERE v.created_at IS NULL OR n.updated_at > v.created_at",
             )
             .map_err(std::io::Error::other)?;
 
-        stmt.query_map([], |row| {
+        stmt.query_map(rusqlite::params![model], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
@@ -972,7 +979,10 @@ impl Tool for SemanticSearchTool {
             .and_then(Value::as_u64)
             .and_then(|n| usize::try_from(n).ok())
             .unwrap_or(10);
-        #[allow(clippy::cast_possible_truncation)] // f64→f32: no lossless conversion in std
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "f64->f32: no lossless conversion in std"
+        )]
         let min_similarity = params
             .get("min_similarity")
             .and_then(Value::as_f64)
@@ -980,10 +990,16 @@ impl Tool for SemanticSearchTool {
 
         let mut vm =
             crate::vectors::VectorManager::from_project(&self.project_root).map_err(|e| {
-                ToolError::internal_error(format!(
-                    "Could not load embedding model: {e}. \
-                         Download the model and run 'coraline embed' first."
-                ))
+                let mut err = ToolError::embedding_model_missing(crate::tools::RecoverInfo {
+                    command: "coraline model download".to_string(),
+                    docs: "https://github.com/greysquirr3l/coraline#embeddings".to_string(),
+                });
+                // Attach the underlying error message so the agent can see
+                // WHY the load failed (e.g. tokenizer.json missing).
+                if let Some(r) = err.recover.as_mut() {
+                    r.docs = format!("{} (debug: load failed: {e})", r.docs);
+                }
+                err
             })?;
 
         let freshness = self.maybe_refresh_index_and_embeddings(Some(&mut vm))?;
@@ -995,8 +1011,14 @@ impl Tool for SemanticSearchTool {
         let conn = db::open_database(&self.project_root)
             .map_err(|e| ToolError::internal_error(format!("DB error: {e}")))?;
 
-        let results = crate::vectors::search_similar(&conn, &embedding, limit, min_similarity)
-            .map_err(|e| ToolError::internal_error(format!("Search failed: {e}")))?;
+        let results = crate::vectors::search_similar(
+            &conn,
+            &embedding,
+            vm.model_name(),
+            limit,
+            min_similarity,
+        )
+        .map_err(|e| ToolError::internal_error(format!("Search failed: {e}")))?;
 
         let items: Vec<Value> = results
             .into_iter()
@@ -1032,5 +1054,62 @@ impl Tool for SemanticSearchTool {
             },
             "results": items
         }))
+    }
+}
+
+#[cfg(all(test, any(feature = "embeddings", feature = "embeddings-dynamic")))]
+mod tests {
+    #![expect(
+        clippy::expect_used,
+        reason = "test assertions: panicking on setup failure is the correct behavior"
+    )]
+    use super::stale_embedding_count;
+    use rusqlite::Connection;
+
+    fn seed_node(conn: &Connection, id: &str) {
+        conn.execute(
+            "INSERT INTO nodes (id, kind, name, qualified_name, file_path, language,
+                start_line, end_line, start_column, end_column, updated_at)
+             VALUES (?1, 'function', ?1, ?1, 'src/lib.rs', 'rust', 1, 1, 0, 0, 100)",
+            [id],
+        )
+        .expect("insert node");
+    }
+
+    fn seed_vector(conn: &Connection, node_id: &str, model: &str, created_at: i64) {
+        conn.execute(
+            "INSERT INTO vectors (node_id, embedding, model, created_at)
+             VALUES (?1, x'00', ?2, ?3)",
+            rusqlite::params![node_id, model, created_at],
+        )
+        .expect("insert vector");
+    }
+
+    #[test]
+    fn stale_embedding_count_ignores_fresh_rows_from_other_models() {
+        let conn = Connection::open_in_memory().expect("open in-memory db");
+        conn.execute_batch(crate::db::SCHEMA_SQL)
+            .expect("apply schema");
+
+        seed_node(&conn, "node_a");
+        // Fresh (not stale by timestamp) embedding, but from a different
+        // model — must still count as stale for the model we're checking.
+        seed_vector(&conn, "node_a", "other-model", 200);
+
+        let count = stale_embedding_count(&conn, "nomic-embed-text-v1.5").expect("count stale");
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn stale_embedding_count_zero_when_matching_model_is_fresh() {
+        let conn = Connection::open_in_memory().expect("open in-memory db");
+        conn.execute_batch(crate::db::SCHEMA_SQL)
+            .expect("apply schema");
+
+        seed_node(&conn, "node_a");
+        seed_vector(&conn, "node_a", "nomic-embed-text-v1.5", 200);
+
+        let count = stale_embedding_count(&conn, "nomic-embed-text-v1.5").expect("count stale");
+        assert_eq!(count, 0);
     }
 }

@@ -148,11 +148,11 @@ pub fn check_hooks(project_root: &Path) -> Probe {
     }
 }
 
-/// Check that at least one model variant from `MODEL_PREFERENCE_ORDER` is
-/// present on disk.
+/// Check that at least one model variant of the configured model is present
+/// on disk.
 pub fn check_model_presence(project_root: &Path) -> Probe {
-    let model_dir = resolve_status_model_dir(project_root);
-    match compute_model_state(&model_dir) {
+    let (model_name, model_dir) = resolve_status_model(project_root);
+    match compute_model_state(&model_dir, &model_name) {
         ModelState::Present { name, size_bytes } => {
             let size_mb = size_bytes / 1_000_000;
             Probe {
@@ -165,7 +165,10 @@ pub fn check_model_presence(project_root: &Path) -> Probe {
         ModelState::Absent => Probe {
             name: "model file",
             ok: false,
-            detail: "no model file in MODEL_PREFERENCE_ORDER".to_string(),
+            detail: format!(
+                "no model file for '{model_name}' in {}",
+                model_dir.display()
+            ),
             fix: Some("Run `coraline model download`.".to_string()),
         },
     }
@@ -257,7 +260,8 @@ pub fn check_embed_coverage(project_root: &Path) -> Probe {
             };
         }
     };
-    let unembedded = match db::get_unembedded_nodes(&conn) {
+    let (model_name, _) = resolve_status_model(project_root);
+    let unembedded = match db::get_unembedded_nodes(&conn, &model_name) {
         Ok(nodes) => nodes.len(),
         Err(e) => {
             return Probe {
@@ -287,15 +291,18 @@ pub fn check_embed_coverage(project_root: &Path) -> Probe {
 /// Embedding-model state, as surfaced by `coraline status`.
 #[derive(Debug, PartialEq, Eq)]
 pub enum ModelState {
-    /// At least one variant in `MODEL_PREFERENCE_ORDER` is present.
+    /// At least one variant in the model's preference order is present.
     Present { name: String, size_bytes: u64 },
     /// No model file exists in the directory.
     Absent,
 }
 
-/// Pure lookup of which (if any) model variant is present on disk.
-pub fn compute_model_state(model_dir: &Path) -> ModelState {
-    for name in vectors::MODEL_PREFERENCE_ORDER {
+/// Pure lookup of which (if any) variant of `model_name` is present on disk.
+pub fn compute_model_state(model_dir: &Path, model_name: &str) -> ModelState {
+    let Ok(spec) = vectors::model_spec(model_name) else {
+        return ModelState::Absent;
+    };
+    for name in spec.preference_order {
         let p = model_dir.join(name);
         if let Ok(meta) = std::fs::metadata(&p) {
             return ModelState::Present {
@@ -307,15 +314,21 @@ pub fn compute_model_state(model_dir: &Path) -> ModelState {
     ModelState::Absent
 }
 
-/// Resolve the embedding-model directory for the given project.
+/// Resolve the configured model name and its on-disk directory for the
+/// given project.
 ///
-/// Honours `vectors.model_dir` in `config.toml` when set; falls back to the
-/// global default (`~/.config/coraline/models/nomic-embed-text-v1.5/`).
-pub fn resolve_status_model_dir(project_root: &Path) -> PathBuf {
+/// Honours `vectors.model` and `vectors.model_dir` in `config.toml`; falls
+/// back to the default model's global directory
+/// (`~/.config/coraline/models/nomic-embed-text-v1.5/`) if config is
+/// missing, unreadable, or names an unknown model.
+pub fn resolve_status_model(project_root: &Path) -> (String, PathBuf) {
     let cfg = config::load_toml_config(project_root).unwrap_or_default();
-    cfg.vectors
-        .model_dir
-        .map_or_else(|| vectors::default_model_dir(project_root), PathBuf::from)
+    vectors::resolve_model_dir(&cfg.vectors).unwrap_or_else(|_| {
+        (
+            vectors::DEFAULT_MODEL.to_string(),
+            vectors::global_model_dir(),
+        )
+    })
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -413,7 +426,15 @@ mod tests {
         let models_dir = root.path().join("models");
         fs::create_dir_all(&models_dir)?;
         fs::write(models_dir.join("model_int8.onnx"), vec![0u8; 1_000_000])?;
-        let config = format!("[vectors]\nmodel_dir = \"{}\"\n", models_dir.display());
+        // Pin `model` explicitly (not just `model_dir`) so this test is
+        // deterministic regardless of the developer's real global
+        // ~/.config/coraline/config.toml, which may set `vectors.model` to
+        // a different supported model (e.g. jina-embeddings-v2-base-code)
+        // with its own, non-overlapping variant filenames.
+        let config = format!(
+            "[vectors]\nmodel = \"nomic-embed-text-v1.5\"\nmodel_dir = \"{}\"\n",
+            models_dir.display()
+        );
         fs::write(coraline_dir.join("config.toml"), config)?;
         let probe = check_model_presence(root.path());
         assert_eq!(probe.name, "model file");
@@ -424,7 +445,7 @@ mod tests {
     #[test]
     fn model_state_absent_when_empty_dir() -> TestResult {
         let root = empty_temp()?;
-        let state = compute_model_state(root.path());
+        let state = compute_model_state(root.path(), vectors::DEFAULT_MODEL);
         assert_eq!(state, ModelState::Absent);
         Ok(())
     }
@@ -433,7 +454,7 @@ mod tests {
     fn model_state_present_picks_first_preferred() -> TestResult {
         let root = empty_temp()?;
         fs::write(root.path().join("model_int8.onnx"), vec![0u8; 42])?;
-        let state = compute_model_state(root.path());
+        let state = compute_model_state(root.path(), vectors::DEFAULT_MODEL);
         assert_eq!(
             state,
             ModelState::Present {
@@ -445,6 +466,15 @@ mod tests {
     }
 
     #[test]
+    fn model_state_absent_for_unknown_model() -> TestResult {
+        let root = empty_temp()?;
+        fs::write(root.path().join("model_int8.onnx"), vec![0u8; 42])?;
+        let state = compute_model_state(root.path(), "not-a-real-model");
+        assert_eq!(state, ModelState::Absent);
+        Ok(())
+    }
+
+    #[test]
     fn resolve_status_returns_a_non_empty_path() -> TestResult {
         // We can't assert a specific default model here because `load_toml_config`
         // merges in the user's global `~/.config/coraline/config.toml`, which
@@ -452,7 +482,7 @@ mod tests {
         // is also not cross-platform (see config.rs). The override path is
         // covered separately; here we just verify the function returns a path.
         let root = empty_temp()?;
-        let resolved = resolve_status_model_dir(root.path());
+        let (_, resolved) = resolve_status_model(root.path());
         assert!(resolved.file_name().is_some());
         Ok(())
     }
@@ -466,8 +496,21 @@ mod tests {
         fs::create_dir_all(&custom)?;
         let config = format!("[vectors]\nmodel_dir = \"{}\"\n", custom.display());
         fs::write(coraline_dir.join("config.toml"), config)?;
-        let resolved = resolve_status_model_dir(root.path());
+        let (_, resolved) = resolve_status_model(root.path());
         assert_eq!(resolved, custom);
+        Ok(())
+    }
+
+    #[test]
+    fn resolve_status_respects_configured_model() -> TestResult {
+        let root = empty_temp()?;
+        let coraline_dir = root.path().join(".coraline");
+        fs::create_dir_all(&coraline_dir)?;
+        let config = "[vectors]\nmodel = \"jina-embeddings-v2-base-code\"\n";
+        fs::write(coraline_dir.join("config.toml"), config)?;
+        let (model_name, resolved) = resolve_status_model(root.path());
+        assert_eq!(model_name, "jina-embeddings-v2-base-code");
+        assert!(resolved.ends_with("jina-embeddings-v2-base-code"));
         Ok(())
     }
 

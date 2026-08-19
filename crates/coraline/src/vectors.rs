@@ -13,22 +13,38 @@
 //! Vector embeddings for semantic code search.
 //!
 //! Generates 768-dimensional embeddings using a locally-stored ONNX model
-//! (nomic-embed-text-v1.5) via the `ort` ONNX Runtime bindings.
+//! via the `ort` ONNX Runtime bindings. Coraline supports multiple embedding
+//! models — see [`SupportedModel`] for the registry.
 //!
 //! ## Quick start
 //!
-//! 1. Download a model into `~/.config/coraline/models/nomic-embed-text-v1.5/`.
-//!    Any of the ONNX variants from `nomic-ai/nomic-embed-text-v1.5` work;
-//!    the smallest usable option is `model_int8.onnx` (137 MB).
-//!    Also copy `tokenizer.json` from the same HuggingFace repo.
+//! 1. Run `coraline model list` to see supported models, then
+//!    `coraline model download` to fetch the default
+//!    (`nomic-embed-text-v1.5`) into `~/.config/coraline/models/<model>/`.
+//!    Pass `--model jina-embeddings-v2-base-code` to opt into the
+//!    code-specialised model instead.
 //! 2. Run `coraline embed` to generate embeddings for all indexed nodes.
 //! 3. Use the `coraline_semantic_search` MCP tool to search by natural language.
+//!
+//! Run `coraline doctor` at any point to check model presence, that it
+//! loads and runs inference, and embed coverage in one pass.
+//!
+//! ## Switching models
+//!
+//! Setting `vectors.model` in `.coraline/config.toml` to a different
+//! supported model does not retroactively re-embed existing nodes. Every
+//! read path (`coraline_semantic_search`, `coraline doctor`'s coverage
+//! probe, staleness checks) filters on the `model` column already stored
+//! per-embedding, so a switch makes every node look unembedded *for the
+//! newly configured model* until `coraline embed` is re-run — the system
+//! self-heals rather than mixing scores across models, but the re-embed
+//! step is not automatic.
 //!
 //! ## Model variant preference order
 //!
 //! When `model_file` is not configured, Coraline picks the first file found
-//! from [`MODEL_PREFERENCE_ORDER`].  This prefers well-quantized variants
-//! (137 MB) over the full f32 model (547 MB).
+//! from the configured model's preference order (see [`SupportedModel`]).
+//! This prefers well-quantized variants over the full f32 model.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -42,23 +58,29 @@ use ort::{
 use rusqlite::{Connection, params};
 use tokenizers::Tokenizer;
 
+use crate::config::VectorsConfig;
 use crate::types::SearchResult;
 
-/// Model identifier for nomic-embed-text-v1.5
+/// Identifier for the default shipped embedding model.
 pub const DEFAULT_MODEL: &str = "nomic-embed-text-v1.5";
 
-/// Output dimension for nomic-embed-text-v1.5.
+/// Output dimension for every currently supported model.
+///
+/// Both `nomic-embed-text-v1.5` and `jina-embeddings-v2-base-code` emit
+/// 768-dim vectors; the constant exists so downstream code doesn't have to
+/// know the model name to allocate buffers.
 pub const EMBEDDING_DIM: usize = 768;
 
 /// Maximum sequence length fed to the model (tokens).
-/// nomic-embed-text-v1.5 supports up to 8192, but 512 covers most code snippets.
+/// Supported models handle much longer contexts, but 512 covers most code
+/// snippets without inflating ONNX session memory.
 pub const MAX_SEQ_LEN: usize = 512;
 
-/// ONNX model file names tried in order when `model_file` is not configured.
+/// ONNX preference order for nomic-embed-text-v1.5.
 ///
-/// Preference is given to quantized variants (smaller on disk, faster to load)
-/// before falling back to the full f32 model.
-pub const MODEL_PREFERENCE_ORDER: &[&str] = &[
+/// Preference is given to quantized variants (smaller on disk, faster to
+/// load) before falling back to the full f32 model.
+const NOMIC_PREFERENCE_ORDER: &[&str] = &[
     "model_int8.onnx",      // 137 MB  — int8 quantized (recommended)
     "model_quantized.onnx", // 137 MB  — same weights, different name
     "model_uint8.onnx",     // 137 MB  — uint8 quantized
@@ -69,12 +91,107 @@ pub const MODEL_PREFERENCE_ORDER: &[&str] = &[
     "model.onnx",           // 547 MB  — full f32 (fallback)
 ];
 
-/// Find the best available ONNX model file in `model_dir`.
+/// ONNX preference order for jina-embeddings-v2-base-code.
+const JINA_CODE_PREFERENCE_ORDER: &[&str] = &[
+    "model_quantized.onnx", // 162 MB — int8 quantized (recommended)
+    "model_fp16.onnx",      // 321 MB — fp16
+    "model.onnx",           // 642 MB — full f32 (fallback)
+];
+
+/// Retained for backward compatibility with callers that assume the
+/// default (nomic) model. Prefer calling [`model_spec`] and reading
+/// `preference_order` off the result.
+pub const MODEL_PREFERENCE_ORDER: &[&str] = NOMIC_PREFERENCE_ORDER;
+
+/// One entry in the embedding-model registry: everything needed to
+/// download and run a supported ONNX model.
+#[derive(Debug, Clone, Copy)]
+pub struct SupportedModel {
+    /// Canonical model name (matches the `HuggingFace` repo slug and the
+    /// `vectors.model` config value).
+    pub name: &'static str,
+    /// `HuggingFace` `resolve/main` base URL for the repo.
+    pub hf_base_url: &'static str,
+    /// ONNX filename to download by default (e.g. when running
+    /// `coraline model download` with no `--variant`).
+    pub default_filename: &'static str,
+    /// Filenames tried in order when auto-detecting an installed variant.
+    pub preference_order: &'static [&'static str],
+    /// Embedding vector dimension produced by the model.
+    pub dimension: usize,
+    /// Short human-readable description (shown by `coraline model list`).
+    pub description: &'static str,
+}
+
+/// Registry of every model Coraline knows how to download and run.
+///
+/// `nomic-embed-text-v1.5` is the default; other entries are opt-in via
+/// `vectors.model` in `.coraline/config.toml`.
+pub const SUPPORTED_MODELS: &[SupportedModel] = &[
+    SupportedModel {
+        name: DEFAULT_MODEL,
+        hf_base_url: "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5/resolve/main",
+        default_filename: "model_int8.onnx",
+        preference_order: NOMIC_PREFERENCE_ORDER,
+        dimension: 768,
+        description: "General-purpose English text embeddings (137 MB int8, default).",
+    },
+    SupportedModel {
+        name: "jina-embeddings-v2-base-code",
+        hf_base_url: "https://huggingface.co/jinaai/jina-embeddings-v2-base-code/resolve/main",
+        default_filename: "model_quantized.onnx",
+        preference_order: JINA_CODE_PREFERENCE_ORDER,
+        dimension: 768,
+        description: "Code-specialised embeddings (162 MB int8). \
+                       Trained on code/docstring pairs across 30+ languages.",
+    },
+];
+
+/// Look up a model in [`SUPPORTED_MODELS`] by name.
+pub fn model_spec(name: &str) -> io::Result<&'static SupportedModel> {
+    SUPPORTED_MODELS
+        .iter()
+        .find(|m| m.name == name)
+        .ok_or_else(|| {
+            let known: Vec<&str> = SUPPORTED_MODELS.iter().map(|m| m.name).collect();
+            io::Error::other(format!(
+                "Unknown embedding model '{name}'. Supported models: {}",
+                known.join(", ")
+            ))
+        })
+}
+
+/// Resolve the configured model name and its on-disk directory.
+///
+/// This is the single source of truth for "which model, and where are its
+/// files": every model-aware call site (`coraline doctor`, `coraline
+/// status`, `coraline model`, `coraline embed`, semantic search
+/// registration) should go through this instead of duplicating the
+/// override-else-default pattern.
+///
+/// Validates `cfg.model` against [`SUPPORTED_MODELS`] (a typo surfaces here,
+/// not as a confusing download/load failure downstream). Directory
+/// resolution: `cfg.model_dir` override if set, else
+/// `~/.config/coraline/models/<model>/`.
+pub fn resolve_model_dir(cfg: &VectorsConfig) -> io::Result<(String, PathBuf)> {
+    model_spec(&cfg.model)?;
+    let dir = cfg
+        .model_dir
+        .as_deref()
+        .map_or_else(|| global_model_dir_for(&cfg.model), PathBuf::from);
+    Ok((cfg.model.clone(), dir))
+}
+
+/// Find the best available ONNX model file in `model_dir` for `model_name`.
 ///
 /// If `preferred` is `Some(name)`, that exact filename is required (error if
-/// absent).  Otherwise, the first filename from [`MODEL_PREFERENCE_ORDER`]
-/// that exists in the directory is returned.
-pub fn find_model_file(model_dir: &Path, preferred: Option<&str>) -> io::Result<PathBuf> {
+/// absent). Otherwise, the first filename from `model_name`'s preference
+/// order that exists in the directory is returned.
+pub fn find_model_file(
+    model_dir: &Path,
+    model_name: &str,
+    preferred: Option<&str>,
+) -> io::Result<PathBuf> {
     if let Some(name) = preferred {
         let p = model_dir.join(name);
         if p.exists() {
@@ -85,7 +202,8 @@ pub fn find_model_file(model_dir: &Path, preferred: Option<&str>) -> io::Result<
             model_dir.display()
         )));
     }
-    for name in MODEL_PREFERENCE_ORDER {
+    let spec = model_spec(model_name)?;
+    for name in spec.preference_order {
         let p = model_dir.join(name);
         if p.exists() {
             return Ok(p);
@@ -93,31 +211,65 @@ pub fn find_model_file(model_dir: &Path, preferred: Option<&str>) -> io::Result<
     }
     Err(io::Error::other(format!(
         "No ONNX model file found in {}. \
-         Download a model variant (e.g. model_int8.onnx) from \
-         huggingface.co/nomic-ai/nomic-embed-text-v1.5 and copy \
-         tokenizer.json alongside it.",
-        model_dir.display()
+         Download a model variant (e.g. {}) from {} \
+         and copy tokenizer.json alongside it.",
+        model_dir.display(),
+        spec.default_filename,
+        spec.hf_base_url,
     )))
 }
 
 // ── HuggingFace download ──────────────────────────────────────────────────────
 
 /// HuggingFace repository base URL for nomic-embed-text-v1.5.
+///
+/// Retained for callers that don't pass a model name. Prefer looking up
+/// `model_spec(name).hf_base_url`.
 pub const HF_BASE_URL: &str = "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5/resolve/main";
 
-/// HuggingFace download URL for `tokenizer.json`.
+/// HuggingFace download URL for `tokenizer.json` of `model_name`.
+pub fn tokenizer_url_for(model_name: &str) -> io::Result<String> {
+    Ok(format!(
+        "{}/tokenizer.json",
+        model_spec(model_name)?.hf_base_url
+    ))
+}
+
+/// HuggingFace download URL for `tokenizer_config.json` of `model_name`.
+pub fn tokenizer_config_url_for(model_name: &str) -> io::Result<String> {
+    Ok(format!(
+        "{}/tokenizer_config.json",
+        model_spec(model_name)?.hf_base_url
+    ))
+}
+
+/// HuggingFace download URL for a specific ONNX model variant of `model_name`.
+///
+/// ONNX files live under the `onnx/` subdirectory in the HF repo.
+pub fn model_url_for(model_name: &str, filename: &str) -> io::Result<String> {
+    Ok(format!(
+        "{}/onnx/{filename}",
+        model_spec(model_name)?.hf_base_url
+    ))
+}
+
+/// HuggingFace download URL for `tokenizer.json` of the default model.
+///
+/// Retained for callers that don't pass a model name. Prefer [`tokenizer_url_for`].
 pub fn tokenizer_url() -> String {
     format!("{HF_BASE_URL}/tokenizer.json")
 }
 
-/// HuggingFace download URL for `tokenizer_config.json`.
+/// HuggingFace download URL for `tokenizer_config.json` of the default model.
+///
+/// Retained for callers that don't pass a model name. Prefer [`tokenizer_config_url_for`].
 pub fn tokenizer_config_url() -> String {
     format!("{HF_BASE_URL}/tokenizer_config.json")
 }
 
-/// HuggingFace download URL for a specific ONNX model variant.
+/// HuggingFace download URL for a specific ONNX variant of the default model.
 ///
-/// ONNX files live under the `onnx/` subdirectory in the HF repo.
+/// Retained for callers that don't pass a model name. Prefer [`model_url_for`].
 pub fn model_url(filename: &str) -> String {
     format!("{HF_BASE_URL}/onnx/{filename}")
 }
@@ -189,28 +341,44 @@ pub fn download_to_file(url: &str, dest: &Path, label: &str, quiet: bool) -> io:
     Ok(())
 }
 
-/// Download all files needed to run the embedding model into `model_dir`.
+/// Download all files needed to run `model_name` into `model_dir`.
 ///
 /// Downloads:
 /// - `tokenizer.json` and `tokenizer_config.json` (HF repo root)
 /// - `<model_filename>` ONNX weights (HF `onnx/` subdirectory)
+///
+/// `model_filename` must be one of `model_spec(model_name)?.preference_order`
+/// — a filename from a different model family will fail with a clear error
+/// before any network request is made.
 ///
 /// Set `skip_existing = true` to skip files that are already present on disk.
 ///
 /// Available with the `embeddings` and `embeddings-dynamic` features.
 #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
 pub fn download_model(
+    model_name: &str,
     model_dir: &Path,
     model_filename: &str,
     skip_existing: bool,
     quiet: bool,
 ) -> io::Result<()> {
+    let spec = model_spec(model_name)?;
+    if !spec.preference_order.contains(&model_filename) {
+        return Err(io::Error::other(format!(
+            "'{model_filename}' is not a known variant of '{model_name}'. Valid variants: {}",
+            spec.preference_order.join(", ")
+        )));
+    }
+
     std::fs::create_dir_all(model_dir)?;
 
     // Small files — always at repo root on HF
     let meta_files = [
-        ("tokenizer.json", tokenizer_url()),
-        ("tokenizer_config.json", tokenizer_config_url()),
+        ("tokenizer.json", tokenizer_url_for(model_name)?),
+        (
+            "tokenizer_config.json",
+            tokenizer_config_url_for(model_name)?,
+        ),
     ];
     for (name, url) in &meta_files {
         let dest = model_dir.join(name);
@@ -230,7 +398,7 @@ pub fn download_model(
             println!("  {model_filename}: already present, skipping");
         }
     } else {
-        let url = model_url(model_filename);
+        let url = model_url_for(model_name, model_filename)?;
         download_to_file(&url, &dest, model_filename, quiet)?;
     }
 
@@ -255,7 +423,11 @@ impl VectorManager {
     /// Load the manager from an ONNX model file.
     ///
     /// Expects `tokenizer.json` in the same directory as `model_path`.
-    pub fn new(model_path: &Path) -> io::Result<Self> {
+    /// `model_name` is stored so [`store_embedding`] tags rows with the
+    /// model that actually produced them — critical for `search_similar`,
+    /// staleness, and coverage filters to stay correct across model
+    /// switches.
+    pub fn new(model_path: &Path, model_name: &str) -> io::Result<Self> {
         let session = Session::builder()
             .map_err(io::Error::other)?
             .with_optimization_level(GraphOptimizationLevel::Level3)
@@ -292,37 +464,38 @@ impl VectorManager {
         Ok(Self {
             session,
             tokenizer,
-            model_name: DEFAULT_MODEL.to_string(),
+            model_name: model_name.to_string(),
             output_name,
             has_token_type_ids,
         })
     }
 
-    /// Load from a directory, auto-detecting the best available model variant.
+    /// Load from a directory, auto-detecting the best available model variant
+    /// of `model_name`.
     ///
-    /// Uses [`find_model_file`] with no preference, so it picks the first file
-    /// from [`MODEL_PREFERENCE_ORDER`] that exists in `model_dir`.
-    pub fn from_dir(model_dir: &Path) -> io::Result<Self> {
-        let model_path = find_model_file(model_dir, None)?;
-        Self::new(&model_path)
+    /// Uses [`find_model_file`] with no preference, so it picks the first
+    /// file from `model_name`'s preference order that exists in `model_dir`.
+    pub fn from_dir(model_dir: &Path, model_name: &str) -> io::Result<Self> {
+        let model_path = find_model_file(model_dir, model_name, None)?;
+        Self::new(&model_path, model_name)
     }
 
-    /// Load using the project's config (falls back to [`global_model_dir`]).
+    /// Load using the project's config (falls back to the default model's
+    /// global directory).
     ///
-    /// Respects `vectors.model_dir` and `vectors.model_file` from config.toml.
-    /// Lazily migrates model files from the legacy per-project location when
-    /// the global directory has no model yet.
+    /// Respects `vectors.model`, `vectors.model_dir`, and `vectors.model_file`
+    /// from config.toml via [`resolve_model_dir`]. Lazily migrates model
+    /// files from the legacy per-project nomic location when the global
+    /// nomic directory has no model yet.
     pub fn from_project(project_root: &Path) -> io::Result<Self> {
         let cfg = crate::config::load_toml_config(project_root).unwrap_or_default();
-        let model_dir = cfg
-            .vectors
-            .model_dir
-            .map_or_else(global_model_dir, PathBuf::from);
+        let (model_name, model_dir) = resolve_model_dir(&cfg.vectors)?;
 
         maybe_migrate_legacy_model(&global_model_dir(), project_root);
 
-        let model_path = find_model_file(&model_dir, cfg.vectors.model_file.as_deref())?;
-        Self::new(&model_path)
+        let model_path =
+            find_model_file(&model_dir, &model_name, cfg.vectors.model_file.as_deref())?;
+        Self::new(&model_path, &model_name)
     }
 
     /// Generate a normalised embedding vector for `text`.
@@ -382,14 +555,21 @@ impl VectorManager {
     }
 }
 
-/// Shared model directory: `$XDG_CONFIG_HOME/coraline/models/nomic-embed-text-v1.5/`.
+/// Shared model directory: `$XDG_CONFIG_HOME/coraline/models/<model_name>/`.
 ///
-/// Falls back to `~/.config/coraline/models/nomic-embed-text-v1.5/` when
+/// Falls back to `~/.config/coraline/models/<model_name>/` when
 /// `XDG_CONFIG_HOME` is not set.
-pub fn global_model_dir() -> PathBuf {
+pub fn global_model_dir_for(model_name: &str) -> PathBuf {
     crate::config::global_config_dir()
         .join("models")
-        .join(DEFAULT_MODEL)
+        .join(model_name)
+}
+
+/// Shared model directory for the default (nomic) model.
+///
+/// Retained for callers that don't pass a model name. Prefer [`global_model_dir_for`].
+pub fn global_model_dir() -> PathBuf {
+    global_model_dir_for(DEFAULT_MODEL)
 }
 
 /// Default model directory for a project.
@@ -406,6 +586,10 @@ pub fn default_model_dir(_project_root: &Path) -> PathBuf {
 /// tokenizer files. If `global_dir` already contains any model file the function
 /// returns immediately. Prints one informational message when files are copied so
 /// users know where the model now lives and how to clean up the old location.
+///
+/// This is deliberately nomic-only: the legacy per-project model layout
+/// predates multi-model support entirely, so there is nothing to migrate
+/// for any other model.
 pub fn maybe_migrate_legacy_model(global_dir: &Path, project_root: &Path) {
     let already_present = MODEL_PREFERENCE_ORDER
         .iter()
@@ -648,6 +832,10 @@ pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
 ///
 /// * `conn` - Database connection
 /// * `query_embedding` - The query embedding vector
+/// * `model` - Model name to restrict results to (matches the `vectors.model`
+///   column stored by [`store_embedding`]); prevents comparing a query
+///   embedding against rows written by a different, previously-configured
+///   model
 /// * `limit` - Maximum number of results to return
 /// * `min_similarity` - Minimum cosine similarity threshold (0.0 to 1.0)
 ///
@@ -657,6 +845,7 @@ pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
 pub fn search_similar(
     conn: &Connection,
     query_embedding: &[f32],
+    model: &str,
     limit: usize,
     min_similarity: f32,
 ) -> io::Result<Vec<SearchResult>> {
@@ -669,12 +858,13 @@ pub fn search_similar(
                          n.is_exported, n.is_async, n.is_static, n.is_abstract,
                          n.decorators, n.type_parameters
                   FROM vectors v
-                  JOIN nodes n ON v.node_id = n.id",
+                  JOIN nodes n ON v.node_id = n.id
+                  WHERE v.model = ?1",
         )
         .map_err(|e| io::Error::other(format!("Failed to prepare query: {}", e)))?;
 
     let rows = stmt
-        .query_map([], |row| {
+        .query_map(params![model], |row| {
             let embedding_bytes: Vec<u8> = row.get(1)?;
 
             // Convert bytes to f32 vector
@@ -875,5 +1065,74 @@ mod tests {
         let b: Vec<f32> = vec![];
         let sim = cosine_similarity(&a, &b);
         assert_eq!(sim, 0.0);
+    }
+
+    // ── Model registry ───────────────────────────────────────────────────────
+
+    #[test]
+    fn model_spec_finds_known_models() {
+        assert!(model_spec(DEFAULT_MODEL).is_ok());
+        assert!(model_spec("jina-embeddings-v2-base-code").is_ok());
+    }
+
+    #[test]
+    fn model_spec_errors_on_unknown_model_with_known_list() {
+        let err = model_spec("not-a-real-model").unwrap_err().to_string();
+        assert!(err.contains("not-a-real-model"));
+        assert!(err.contains(DEFAULT_MODEL));
+        assert!(err.contains("jina-embeddings-v2-base-code"));
+    }
+
+    #[test]
+    fn resolve_model_dir_uses_configured_model_by_default() {
+        let cfg = VectorsConfig {
+            model: "jina-embeddings-v2-base-code".to_string(),
+            model_dir: None,
+            ..VectorsConfig::default()
+        };
+        let (name, dir) = resolve_model_dir(&cfg).unwrap();
+        assert_eq!(name, "jina-embeddings-v2-base-code");
+        assert!(dir.ends_with("jina-embeddings-v2-base-code"));
+    }
+
+    #[test]
+    fn resolve_model_dir_respects_model_dir_override() {
+        let cfg = VectorsConfig {
+            model: DEFAULT_MODEL.to_string(),
+            model_dir: Some("/tmp/custom-model-dir".to_string()),
+            ..VectorsConfig::default()
+        };
+        let (name, dir) = resolve_model_dir(&cfg).unwrap();
+        assert_eq!(name, DEFAULT_MODEL);
+        assert_eq!(dir, PathBuf::from("/tmp/custom-model-dir"));
+    }
+
+    #[test]
+    fn resolve_model_dir_errors_on_unknown_model() {
+        let cfg = VectorsConfig {
+            model: "not-a-real-model".to_string(),
+            ..VectorsConfig::default()
+        };
+        assert!(resolve_model_dir(&cfg).is_err());
+    }
+
+    #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
+    #[test]
+    fn download_model_rejects_variant_from_a_different_model_family() {
+        let dir = std::env::temp_dir().join("coraline-test-download-model-mismatch");
+        // A nomic-only filename passed for the jina model must be rejected
+        // before any network request is attempted (no files should appear).
+        let err = download_model(
+            "jina-embeddings-v2-base-code",
+            &dir,
+            "model_int8.onnx",
+            true,
+            true,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("model_int8.onnx"));
+        assert!(err.contains("jina-embeddings-v2-base-code"));
+        assert!(!dir.exists());
     }
 }

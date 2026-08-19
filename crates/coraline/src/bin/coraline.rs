@@ -1,6 +1,10 @@
-#![allow(clippy::multiple_crate_versions)]
+#![expect(
+    clippy::multiple_crate_versions,
+    reason = "transitive dependency version conflicts we can't control (base64, getrandom, hashbrown)"
+)]
 use std::path::{Path, PathBuf};
 
+use coraline::audit;
 use coraline::config;
 use coraline::context;
 use coraline::db;
@@ -45,6 +49,8 @@ enum Command {
     Config(ConfigArgs),
     Hooks(HooksArgs),
     Serve(ServeArgs),
+    /// Audit documentation accuracy and coverage against the code graph.
+    AuditDocs(AuditDocsArgs),
     #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
     Embed(EmbedArgs),
     #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
@@ -230,6 +236,24 @@ struct ServeArgs {
     timeout_ms: u64,
 }
 
+#[derive(Debug, Args)]
+struct AuditDocsArgs {
+    #[arg(short = 'p', long = "path")]
+    path: Option<PathBuf>,
+    /// Hide stale-reference findings.
+    #[arg(long = "no-stale")]
+    no_stale: bool,
+    /// Hide undocumented-export findings.
+    #[arg(long = "no-undocumented")]
+    no_undocumented: bool,
+    /// Maximum items to display per category.
+    #[arg(short = 'l', long = "limit", default_value_t = 50)]
+    limit: usize,
+    /// Output raw JSON instead of formatted text.
+    #[arg(short = 'j', long = "json")]
+    json: bool,
+}
+
 #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
 #[derive(Debug, Args)]
 struct EmbedArgs {
@@ -244,9 +268,10 @@ struct EmbedArgs {
     /// Download the model from `HuggingFace` if not already present.
     #[arg(long = "download")]
     download: bool,
-    /// ONNX variant to download when using `--download` (default: `model_int8.onnx`).
-    #[arg(long = "variant", default_value = "model_int8.onnx")]
-    variant: String,
+    /// ONNX variant to download when using `--download`.
+    /// Defaults to the configured model's recommended variant.
+    #[arg(long = "variant")]
+    variant: Option<String>,
 }
 
 #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
@@ -266,20 +291,35 @@ struct ModelArgs {
 enum ModelAction {
     /// Download model files from `HuggingFace` (tokenizer + ONNX weights).
     Download {
+        /// Which supported model to download (see `coraline model list`).
+        /// Defaults to `vectors.model` from config.toml.
+        #[arg(long = "model")]
+        model: Option<String>,
         /// ONNX variant filename to download.
-        #[arg(long = "variant", default_value = "model_int8.onnx")]
-        variant: String,
+        /// Defaults to the model's recommended variant.
+        #[arg(long = "variant")]
+        variant: Option<String>,
         /// Re-download even if the file already exists.
         #[arg(short = 'f', long = "force")]
         force: bool,
     },
     /// Show which model files are present in the model directory.
-    Status,
+    Status {
+        /// Which supported model to inspect. Defaults to `vectors.model`.
+        #[arg(long = "model")]
+        model: Option<String>,
+    },
     /// Copy model files from the legacy per-project location to the shared global directory.
     ///
     /// The legacy location is `.coraline/models/nomic-embed-text-v1.5/` inside the
     /// project root. After migration the old directory can be removed manually.
+    ///
+    /// This is deliberately nomic-only: the legacy per-project layout predates
+    /// multi-model support entirely, so there is nothing to migrate for any
+    /// other model.
     Migrate,
+    /// List every embedding model Coraline knows how to download and run.
+    List,
 }
 
 fn main() {
@@ -309,6 +349,7 @@ fn main() {
         Command::Config(a) => a.path.clone(),
         Command::Hooks(a) => a.path.clone(),
         Command::Serve(a) => a.path.clone(),
+        Command::AuditDocs(a) => a.path.clone(),
         #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
         Command::Embed(a) => a.path.clone(),
         #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
@@ -359,6 +400,7 @@ fn main() {
                 println!("Use --mcp to start the MCP server.");
             }
         }
+        Command::AuditDocs(args) => run_audit_docs(args),
         #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
         Command::Embed(args) => run_embed(args),
         #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
@@ -366,35 +408,61 @@ fn main() {
     }
 }
 
+/// Resolve which model a `coraline model` subcommand should act on: the
+/// `--model` flag if given, else `vectors.model` from config.toml.
 #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
-fn run_model(args: ModelArgs) {
-    let project_root = resolve_project_root(args.path);
-    let cfg = config::load_toml_config(&project_root).unwrap_or_default();
-    let model_dir = cfg
-        .vectors
-        .model_dir
-        .map_or_else(vectors::global_model_dir, PathBuf::from);
+fn resolve_action_model(project_root: &Path, model_flag: Option<&str>) -> (String, PathBuf) {
+    let mut cfg = config::load_toml_config(project_root).unwrap_or_default();
+    if let Some(m) = model_flag {
+        cfg.vectors.model = m.to_string();
+        cfg.vectors.model_dir = None;
+    }
+    vectors::resolve_model_dir(&cfg.vectors)
+        .unwrap_or_else(|_| (cfg.vectors.model.clone(), vectors::global_model_dir()))
+}
 
-    // Lazily migrate any model files found in the legacy per-project location.
-    vectors::maybe_migrate_legacy_model(&vectors::global_model_dir(), &project_root);
-
-    match args.action {
-        ModelAction::Download { variant, force } => {
-            if !args.quiet {
-                println!("Downloading {variant} into {} ...", model_dir.display());
-            }
-            if let Err(e) = vectors::download_model(&model_dir, &variant, !force, args.quiet) {
-                eprintln!("Download failed: {e}");
-                std::process::exit(1);
-            }
-            if !args.quiet {
-                println!("Done. Run `coraline embed` to generate embeddings.");
-            }
+#[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
+fn run_model_download(
+    project_root: &Path,
+    quiet: bool,
+    model: Option<&str>,
+    variant: Option<String>,
+    force: bool,
+) {
+    let (model_name, model_dir) = resolve_action_model(project_root, model);
+    let spec = match vectors::model_spec(&model_name) {
+        Ok(spec) => spec,
+        Err(e) => {
+            eprintln!("{e}");
+            std::process::exit(1);
         }
-        ModelAction::Status => {
-            println!("Model directory: {}", model_dir.display());
-            println!();
-            for name in vectors::MODEL_PREFERENCE_ORDER {
+    };
+    let variant = variant.unwrap_or_else(|| spec.default_filename.to_string());
+
+    if !quiet {
+        println!(
+            "Downloading {model_name} ({variant}) into {} ...",
+            model_dir.display()
+        );
+    }
+    if let Err(e) = vectors::download_model(&model_name, &model_dir, &variant, !force, quiet) {
+        eprintln!("Download failed: {e}");
+        std::process::exit(1);
+    }
+    if !quiet {
+        println!("Done. Run `coraline embed` to generate embeddings.");
+    }
+}
+
+#[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
+fn run_model_status(project_root: &Path, model: Option<&str>) {
+    let (model_name, model_dir) = resolve_action_model(project_root, model);
+    println!("Model:           {model_name}");
+    println!("Model directory: {}", model_dir.display());
+    println!();
+    match vectors::model_spec(&model_name) {
+        Ok(spec) => {
+            for name in spec.preference_order {
                 let p = model_dir.join(name);
                 if let Ok(meta) = std::fs::metadata(&p) {
                     println!("  {name:<30}  {:>6} MB  [present]", meta.len() / 1_000_000);
@@ -402,57 +470,99 @@ fn run_model(args: ModelArgs) {
                     println!("  {name:<30}  (not present)");
                 }
             }
-            println!();
-            for name in &["tokenizer.json", "tokenizer_config.json"] {
-                let p = model_dir.join(name);
-                if p.exists() {
-                    println!("  {name:<30}  [present]");
-                } else {
-                    println!("  {name:<30}  (not present)");
-                }
-            }
         }
-        ModelAction::Migrate => {
-            let global_dir = vectors::global_model_dir();
-            let legacy_dir = project_root
-                .join(".coraline")
-                .join("models")
-                .join(vectors::DEFAULT_MODEL);
-
-            let global_has_model = vectors::MODEL_PREFERENCE_ORDER
-                .iter()
-                .any(|name| global_dir.join(name).exists());
-
-            if global_has_model {
-                println!(
-                    "Shared model directory already populated: {}",
-                    global_dir.display()
-                );
-                println!("Nothing to migrate.");
-
-                return;
-            }
-
-            let legacy_has_model = vectors::MODEL_PREFERENCE_ORDER
-                .iter()
-                .any(|name| legacy_dir.join(name).exists());
-
-            if !legacy_has_model {
-                println!(
-                    "No model files found in legacy location: {}",
-                    legacy_dir.display()
-                );
-                println!(
-                    "Run `coraline model download` to fetch the model into {}",
-                    global_dir.display()
-                );
-
-                return;
-            }
-
-            // The lazy migration function prints its own message when files are copied.
-            vectors::maybe_migrate_legacy_model(&global_dir, &project_root);
+        Err(e) => eprintln!("{e}"),
+    }
+    println!();
+    for name in &["tokenizer.json", "tokenizer_config.json"] {
+        let p = model_dir.join(name);
+        if p.exists() {
+            println!("  {name:<30}  [present]");
+        } else {
+            println!("  {name:<30}  (not present)");
         }
+    }
+}
+
+#[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
+fn run_model_migrate(project_root: &Path) {
+    let global_dir = vectors::global_model_dir();
+    let legacy_dir = project_root
+        .join(".coraline")
+        .join("models")
+        .join(vectors::DEFAULT_MODEL);
+
+    let global_has_model = vectors::MODEL_PREFERENCE_ORDER
+        .iter()
+        .any(|name| global_dir.join(name).exists());
+
+    if global_has_model {
+        println!(
+            "Shared model directory already populated: {}",
+            global_dir.display()
+        );
+        println!("Nothing to migrate.");
+
+        return;
+    }
+
+    let legacy_has_model = vectors::MODEL_PREFERENCE_ORDER
+        .iter()
+        .any(|name| legacy_dir.join(name).exists());
+
+    if !legacy_has_model {
+        println!(
+            "No model files found in legacy location: {}",
+            legacy_dir.display()
+        );
+        println!(
+            "Run `coraline model download` to fetch the model into {}",
+            global_dir.display()
+        );
+
+        return;
+    }
+
+    // The lazy migration function prints its own message when files are copied.
+    vectors::maybe_migrate_legacy_model(&global_dir, project_root);
+}
+
+#[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
+fn run_model_list() {
+    println!("Supported embedding models:\n");
+    for spec in vectors::SUPPORTED_MODELS {
+        let default_marker = if spec.name == vectors::DEFAULT_MODEL {
+            " (default)"
+        } else {
+            ""
+        };
+        println!("  {}{}", spec.name, default_marker);
+        println!("    {}", spec.description);
+        println!(
+            "    dimension: {}, default variant: {}",
+            spec.dimension, spec.default_filename
+        );
+        println!();
+    }
+}
+
+#[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
+fn run_model(args: ModelArgs) {
+    let project_root = resolve_project_root(args.path);
+
+    // Lazily migrate any nomic model files found in the legacy per-project
+    // location (deliberately nomic-only, see `ModelAction::Migrate` docs).
+    vectors::maybe_migrate_legacy_model(&vectors::global_model_dir(), &project_root);
+
+    match args.action {
+        ModelAction::Download {
+            model,
+            variant,
+            force,
+        } => run_model_download(&project_root, args.quiet, model.as_deref(), variant, force),
+        ModelAction::Status { model } => run_model_status(&project_root, model.as_deref()),
+        ModelAction::Migrate => run_model_migrate(&project_root),
+        ModelAction::List => run_model_list(),
     }
 }
 
@@ -467,19 +577,25 @@ fn run_embed(args: EmbedArgs) {
 
     // Auto-download model files if requested.
     if args.download {
-        let cfg = config::load_toml_config(&project_root).unwrap_or_default();
-        let model_dir = cfg
-            .vectors
-            .model_dir
-            .map_or_else(|| vectors::default_model_dir(&project_root), PathBuf::from);
+        let (model_name, model_dir) = resolve_action_model(&project_root, None);
+        let variant = match vectors::model_spec(&model_name) {
+            Ok(spec) => args
+                .variant
+                .clone()
+                .unwrap_or_else(|| spec.default_filename.to_string()),
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+        };
         if !args.quiet {
             println!(
-                "Downloading {} into {} ...",
-                args.variant,
+                "Downloading {model_name} ({variant}) into {} ...",
                 model_dir.display()
             );
         }
-        if let Err(e) = vectors::download_model(&model_dir, &args.variant, true, args.quiet) {
+        if let Err(e) = vectors::download_model(&model_name, &model_dir, &variant, true, args.quiet)
+        {
             eprintln!("Download failed: {e}");
             std::process::exit(1);
         }
@@ -540,9 +656,10 @@ fn load_embedding_model(project_root: &Path, quiet: bool) -> vectors::VectorMana
     };
     result.unwrap_or_else(|err| {
         eprintln!("Failed to load model: {err}");
+        let (_, model_dir) = resolve_action_model(project_root, None);
         eprintln!(
-            "Download model.onnx + tokenizer.json into {}",
-            vectors::default_model_dir(project_root).display()
+            "Download model.onnx + tokenizer.json into {} (or run `coraline model download`)",
+            model_dir.display()
         );
         std::process::exit(1);
     })
@@ -820,10 +937,12 @@ mod init_model {
     /// model is already on disk. All non-embedding tools remain fully
     /// functional regardless of the chosen action.
     pub fn handle_model_decision(project_root: &Path, embed: bool, no_embed: bool, yes: bool) {
-        let model_dir = resolve_model_dir(project_root);
-        let model_present = vectors::MODEL_PREFERENCE_ORDER
-            .iter()
-            .any(|name| model_dir.join(name).exists());
+        let (model_name, model_dir) = resolve_configured_model(project_root);
+        let model_present = vectors::model_spec(&model_name).is_ok_and(|spec| {
+            spec.preference_order
+                .iter()
+                .any(|name| model_dir.join(name).exists())
+        });
         let is_tty = std::io::IsTerminal::is_terminal(&std::io::stdin());
         let inputs = ModelInputs {
             model_present,
@@ -878,16 +997,17 @@ mod init_model {
         ModelAction::Hint
     }
 
-    pub fn resolve_model_dir(project_root: &Path) -> PathBuf {
+    /// Resolve the configured model name and its on-disk directory
+    /// (`vectors.model` / `vectors.model_dir` from config.toml).
+    pub fn resolve_configured_model(project_root: &Path) -> (String, PathBuf) {
         let cfg = config::load_toml_config(project_root).unwrap_or_default();
-        cfg.vectors
-            .model_dir
-            .map_or_else(|| vectors::default_model_dir(project_root), PathBuf::from)
+        vectors::resolve_model_dir(&cfg.vectors)
+            .unwrap_or_else(|_| (cfg.vectors.model.clone(), vectors::global_model_dir()))
     }
 
     pub fn execute_model_action(project_root: &Path, action: &ModelAction) {
         use std::io::Write as _;
-        let model_dir = resolve_model_dir(project_root);
+        let (model_name, model_dir) = resolve_configured_model(project_root);
 
         match action {
             ModelAction::NoOp => {}
@@ -895,7 +1015,7 @@ mod init_model {
                 println!("Skipped. Run `coraline model download` later to enable semantic search.");
             }
             ModelAction::Download => {
-                download_model_and_report(&model_dir);
+                download_model_and_report(&model_name, &model_dir);
             }
             ModelAction::Prompt => {
                 eprint!("Download embedding model for semantic search? (~137 MB) [Y/n] ");
@@ -906,7 +1026,7 @@ mod init_model {
                 }
                 let answer = input.trim();
                 if answer.is_empty() || answer.eq_ignore_ascii_case("y") {
-                    download_model_and_report(&model_dir);
+                    download_model_and_report(&model_name, &model_dir);
                 } else {
                     println!(
                         "Skipped. Run `coraline model download` later to enable semantic search."
@@ -921,9 +1041,13 @@ mod init_model {
         }
     }
 
-    fn download_model_and_report(model_dir: &Path) {
-        println!("Downloading model into {} ...", model_dir.display());
-        match vectors::download_model(model_dir, "model_int8.onnx", true, false) {
+    fn download_model_and_report(model_name: &str, model_dir: &Path) {
+        let Ok(spec) = vectors::model_spec(model_name) else {
+            eprintln!("Unknown embedding model '{model_name}'.");
+            return;
+        };
+        println!("Downloading {model_name} into {} ...", model_dir.display());
+        match vectors::download_model(model_name, model_dir, spec.default_filename, true, false) {
             Ok(()) => println!("Done. Run `coraline embed` to generate embeddings."),
             Err(e) => {
                 eprintln!("Model download failed: {e}");
@@ -1047,8 +1171,8 @@ fn run_status(args: StatusArgs) {
     println!("Config:  {}", cfg_path.display());
     println!("Database: {} ({} bytes)", db_path.display(), db_size);
 
-    let model_dir = doctor::resolve_status_model_dir(&project_root);
-    match doctor::compute_model_state(&model_dir) {
+    let (model_name, model_dir) = doctor::resolve_status_model(&project_root);
+    match doctor::compute_model_state(&model_dir, &model_name) {
         doctor::ModelState::Present {
             ref name,
             size_bytes,
@@ -1061,6 +1185,7 @@ fn run_status(args: StatusArgs) {
             println!("            Run `coraline model download` to enable semantic search.");
         }
     }
+    println!("Model:      {model_name}");
     println!("Model dir:  {}", model_dir.display());
 
     let hooks = GitHooksManager::new(&project_root);
@@ -1239,6 +1364,109 @@ fn run_hooks_status(path: Option<PathBuf>) {
         println!("Git hook is installed.");
     } else {
         println!("Git hook is not installed.");
+    }
+}
+
+fn run_audit_docs(args: AuditDocsArgs) {
+    let project_root = resolve_project_root(args.path);
+
+    let report = match audit::audit_docs(&project_root) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("Failed to run doc audit: {e}");
+            eprintln!("Make sure the project has been indexed (`coraline index`).");
+            std::process::exit(1);
+        }
+    };
+
+    if args.json {
+        let stale: Vec<_> = report
+            .stale_refs
+            .iter()
+            .take(args.limit)
+            .map(|r| {
+                serde_json::json!({
+                    "reference": r.reference_name,
+                    "doc_file": r.doc_file,
+                    "section": r.doc_section,
+                    "line": r.line,
+                    "column": r.column
+                })
+            })
+            .collect();
+        let undoc: Vec<_> = report
+            .undocumented_exports
+            .iter()
+            .take(args.limit)
+            .map(|u| {
+                serde_json::json!({
+                    "name": u.name,
+                    "qualified_name": u.qualified_name,
+                    "kind": u.kind,
+                    "file": u.file_path,
+                    "line": u.start_line
+                })
+            })
+            .collect();
+        let out = serde_json::json!({
+            "doc_files_indexed": report.doc_files_indexed,
+            "doc_sections_indexed": report.doc_sections_indexed,
+            "stale_refs": stale,
+            "undocumented_exports": undoc
+        });
+        println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
+        return;
+    }
+
+    // Human-readable output
+    println!(
+        "Doc audit — {} file(s), {} section(s) indexed\n",
+        report.doc_files_indexed, report.doc_sections_indexed
+    );
+
+    if !args.no_stale {
+        let total = report.stale_refs.len();
+        if total == 0 {
+            println!("✓ No stale references found.");
+        } else {
+            println!(
+                "Stale references ({total} total{})\n",
+                if total > args.limit {
+                    format!(", showing first {}", args.limit)
+                } else {
+                    String::new()
+                }
+            );
+            for r in report.stale_refs.iter().take(args.limit) {
+                println!(
+                    "  {}:{} — `{}` (section: {})",
+                    r.doc_file, r.line, r.reference_name, r.doc_section
+                );
+            }
+            println!();
+        }
+    }
+
+    if !args.no_undocumented {
+        let total = report.undocumented_exports.len();
+        if total == 0 {
+            println!("✓ All exported symbols have documentation coverage.");
+        } else {
+            println!(
+                "Undocumented exports ({total} total{})\n",
+                if total > args.limit {
+                    format!(", showing first {}", args.limit)
+                } else {
+                    String::new()
+                }
+            );
+            for u in report.undocumented_exports.iter().take(args.limit) {
+                println!(
+                    "  {} {} — {} line {}",
+                    u.kind, u.name, u.file_path, u.start_line
+                );
+            }
+        }
     }
 }
 
@@ -1615,7 +1843,10 @@ const SPINNER_TICK_MS: u64 = 80;
 /// Build a styled `ProgressBar` that animates a braille spinner while showing a
 /// counter and message. When stdout is not a TTY the bar falls back to a static
 /// line that still updates on `set_message`.
-#[allow(clippy::expect_used)] // templates are compile-time constants we control
+#[expect(
+    clippy::expect_used,
+    reason = "templates are compile-time constants we control"
+)]
 fn spinner_bar(len: u64, template: &str) -> ProgressBar {
     let pb = ProgressBar::new(len);
     pb.set_style(
@@ -1628,7 +1859,10 @@ fn spinner_bar(len: u64, template: &str) -> ProgressBar {
 }
 
 /// Spinner for indeterminate operations (no known total, e.g. model download).
-#[allow(clippy::expect_used)] // template is a compile-time constant we control
+#[expect(
+    clippy::expect_used,
+    reason = "template is a compile-time constant we control"
+)]
 fn spinner_indefinite(message: &'static str) -> ProgressBar {
     let pb = ProgressBar::new_spinner();
     pb.set_style(
@@ -1778,7 +2012,7 @@ mod tests {
     #[test]
     fn model_state_absent_when_no_files() -> TestResult {
         let temp_dir = tempfile::TempDir::new()?;
-        let state = doctor::compute_model_state(temp_dir.path());
+        let state = doctor::compute_model_state(temp_dir.path(), vectors::DEFAULT_MODEL);
         assert_eq!(state, doctor::ModelState::Absent);
         Ok(())
     }
@@ -1787,7 +2021,7 @@ mod tests {
     fn model_state_present_picks_first_preferred_variant() -> TestResult {
         let temp_dir = tempfile::TempDir::new()?;
         std::fs::write(temp_dir.path().join("model_int8.onnx"), vec![0u8; 42])?;
-        let state = doctor::compute_model_state(temp_dir.path());
+        let state = doctor::compute_model_state(temp_dir.path(), vectors::DEFAULT_MODEL);
         assert_eq!(
             state,
             doctor::ModelState::Present {
@@ -1809,7 +2043,7 @@ mod tests {
         let config = format!("[vectors]\nmodel_dir = \"{}\"\n", custom_dir.display());
         std::fs::write(coraline_dir.join("config.toml"), config)?;
 
-        let resolved = doctor::resolve_status_model_dir(root);
+        let (_, resolved) = doctor::resolve_status_model(root);
         assert_eq!(resolved, custom_dir);
         Ok(())
     }

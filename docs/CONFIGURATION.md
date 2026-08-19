@@ -50,8 +50,8 @@ auto_sync_interval_secs  = 120    # MCP background sync interval (0 = disabled)
 
 [vectors]
 enabled    = false                  # Requires ONNX model (see below)
-model      = "nomic-embed-text-v1.5"
-dimension  = 384
+model      = "nomic-embed-text-v1.5" # or "jina-embeddings-v2-base-code"
+dimension  = 768
 batch_size = 32
 ```
 
@@ -212,9 +212,7 @@ auto_sync_interval_secs = 60   # check every minute
 
 ## `[vectors]` Section
 
-Controls vector embedding generation for semantic search.
-
-> **Status:** Infrastructure is in place. Full semantic search with ONNX model embeddings is pending availability of a stable `ort` 2.0 API. Setting `enabled = true` currently has no effect.
+Controls vector embedding generation for semantic search (`coraline embed`, the `coraline_semantic_search` MCP tool). Requires a build with the `embeddings` or `embeddings-dynamic` feature.
 
 ### `enabled`
 
@@ -225,17 +223,22 @@ Enable vector embedding generation.
 
 ### `model`
 
-Embedding model identifier.
+Which embedding model to use. Run `coraline model list` to see every supported model with its dimension and description.
 
 - **Type:** string
-- **Default:** `"nomic-embed-text-v1.5"`
+- **Default:** `"nomic-embed-text-v1.5"` — general-purpose English text embeddings.
+- **Also supported:** `"jina-embeddings-v2-base-code"` — code-specialised embeddings, opt-in.
+
+Model files live in a shared directory (`~/.config/coraline/models/<model>/`, or `model_dir` below), not per-project — every project on the machine reuses the same downloaded weights for a given model. Run `coraline model download` (add `--model <name>` to target a non-default model) to fetch it.
+
+> **Switching models:** changing `model` on a project that already has embeddings does not retroactively re-embed existing nodes. Every read path (`coraline_semantic_search`, `coraline doctor`'s coverage probe, staleness checks) filters by the configured model, so a switch makes every node look unembedded for the *new* model until you re-run `coraline embed`. This is a real (if usually quick) re-embedding pass, not instant.
 
 ### `dimension`
 
-Embedding vector dimension. Must match the selected model.
+Embedding vector dimension. Must match the selected model — both currently supported models emit 768-dim vectors.
 
 - **Type:** integer
-- **Default:** `384`
+- **Default:** `768`
 
 ### `batch_size`
 
@@ -243,6 +246,25 @@ Number of symbols embedded per batch.
 
 - **Type:** integer
 - **Default:** `32`
+
+### `model_dir`
+
+Override the on-disk model directory. Unset by default — Coraline resolves it from `model` (`~/.config/coraline/models/<model>/`).
+
+- **Type:** string (path), optional
+
+### `model_file`
+
+Pin a specific ONNX filename instead of auto-detecting the best available variant for the configured `model`.
+
+- **Type:** string, optional
+
+### `max_seq_len`
+
+Maximum sequence length in tokens fed to the model.
+
+- **Type:** integer
+- **Default:** `512`
 
 ---
 
