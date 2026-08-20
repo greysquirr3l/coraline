@@ -515,6 +515,42 @@ mod tests {
             Ok(())
         }
 
+        /// Unlike the "absent model" cases above, a *present but corrupt*
+        /// `.onnx` file only fails once `ort` actually attempts to parse
+        /// it — which requires a real ONNX Runtime dylib discoverable on
+        /// the loader path (`DYLD_LIBRARY_PATH`/`LD_LIBRARY_PATH` +
+        /// `ORT_DYLIB_PATH`, or a bundled runtime). Without one, `ort`
+        /// panics inside its own dylib-loading code rather than returning
+        /// an `Err`, so this can't run unconditionally like the others.
+        #[test]
+        #[ignore = "requires a real ONNX Runtime dylib on the loader path; ort panics (not Err) if it can't dlopen one"]
+        fn check_model_load_and_inference_return_false_on_corrupt_model() -> TestResult {
+            let root = empty_temp()?;
+            let coraline_dir = root.path().join(".coraline");
+            fs::create_dir_all(&coraline_dir)?;
+            let models_dir = root.path().join("models");
+            fs::create_dir_all(&models_dir)?;
+            // Present, but not a real ONNX model — `ort` should reject this
+            // during session construction, not during file lookup.
+            fs::write(models_dir.join("model_int8.onnx"), b"not a real onnx model")?;
+            let config = format!(
+                "[vectors]\nmodel = \"nomic-embed-text-v1.5\"\nmodel_dir = '{}'\n",
+                models_dir.display()
+            );
+            fs::write(coraline_dir.join("config.toml"), config)?;
+
+            let load_probe = check_model_load(root.path());
+            assert_eq!(load_probe.name, "model loads");
+            assert!(!load_probe.ok);
+            assert!(load_probe.detail.contains("load failed"));
+
+            let inference_probe = check_model_inference(root.path());
+            assert_eq!(inference_probe.name, "inference");
+            assert!(!inference_probe.ok);
+            assert!(inference_probe.detail.contains("model not loaded"));
+            Ok(())
+        }
+
         #[test]
         fn model_state_absent_when_empty_dir() -> TestResult {
             let root = empty_temp()?;
