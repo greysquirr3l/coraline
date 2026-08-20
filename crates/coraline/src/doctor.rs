@@ -467,6 +467,54 @@ mod tests {
             Ok(())
         }
 
+        /// `check_model_load`/`check_model_inference` both call
+        /// `VectorManager::from_project`, which fails at `find_model_file`
+        /// (no ONNX file in `model_dir`) before ever touching the `ort`
+        /// runtime — so unlike the model-*present* deep probes, these two
+        /// negative cases are safe to run unconditionally (no ONNX Runtime
+        /// dylib needed, no `#[ignore]`).
+        #[test]
+        fn check_model_load_returns_false_when_model_absent() -> TestResult {
+            let root = empty_temp()?;
+            let coraline_dir = root.path().join(".coraline");
+            fs::create_dir_all(&coraline_dir)?;
+            let models_dir = root.path().join("models");
+            let config = format!(
+                "[vectors]\nmodel = \"nomic-embed-text-v1.5\"\nmodel_dir = '{}'\n",
+                models_dir.display()
+            );
+            fs::write(coraline_dir.join("config.toml"), config)?;
+
+            let probe = check_model_load(root.path());
+            assert_eq!(probe.name, "model loads");
+            assert!(!probe.ok);
+            assert!(probe.detail.contains("load failed"));
+            let Some(fix) = probe.fix.as_ref() else {
+                return Err("expected fix on missing model".into());
+            };
+            assert!(fix.contains("model download"));
+            Ok(())
+        }
+
+        #[test]
+        fn check_model_inference_returns_false_when_model_absent() -> TestResult {
+            let root = empty_temp()?;
+            let coraline_dir = root.path().join(".coraline");
+            fs::create_dir_all(&coraline_dir)?;
+            let models_dir = root.path().join("models");
+            let config = format!(
+                "[vectors]\nmodel = \"nomic-embed-text-v1.5\"\nmodel_dir = '{}'\n",
+                models_dir.display()
+            );
+            fs::write(coraline_dir.join("config.toml"), config)?;
+
+            let probe = check_model_inference(root.path());
+            assert_eq!(probe.name, "inference");
+            assert!(!probe.ok);
+            assert!(probe.detail.contains("model not loaded"));
+            Ok(())
+        }
+
         #[test]
         fn model_state_absent_when_empty_dir() -> TestResult {
             let root = empty_temp()?;
