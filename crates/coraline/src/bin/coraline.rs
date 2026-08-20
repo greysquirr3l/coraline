@@ -1171,22 +1171,25 @@ fn run_status(args: StatusArgs) {
     println!("Config:  {}", cfg_path.display());
     println!("Database: {} ({} bytes)", db_path.display(), db_size);
 
-    let (model_name, model_dir) = doctor::resolve_status_model(&project_root);
-    match doctor::compute_model_state(&model_dir, &model_name) {
-        doctor::ModelState::Present {
-            ref name,
-            size_bytes,
-        } => {
-            let size_mb = size_bytes / 1_000_000;
-            println!("Embeddings: {name} ({size_mb} MB)");
+    #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
+    {
+        let (model_name, model_dir) = doctor::resolve_status_model(&project_root);
+        match doctor::compute_model_state(&model_dir, &model_name) {
+            doctor::ModelState::Present {
+                ref name,
+                size_bytes,
+            } => {
+                let size_mb = size_bytes / 1_000_000;
+                println!("Embeddings: {name} ({size_mb} MB)");
+            }
+            doctor::ModelState::Absent => {
+                println!("Embeddings: not present");
+                println!("            Run `coraline model download` to enable semantic search.");
+            }
         }
-        doctor::ModelState::Absent => {
-            println!("Embeddings: not present");
-            println!("            Run `coraline model download` to enable semantic search.");
-        }
+        println!("Model:      {model_name}");
+        println!("Model dir:  {}", model_dir.display());
     }
-    println!("Model:      {model_name}");
-    println!("Model dir:  {}", model_dir.display());
 
     let hooks = GitHooksManager::new(&project_root);
     if hooks.is_git_repository() {
@@ -2009,43 +2012,48 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn model_state_absent_when_no_files() -> TestResult {
-        let temp_dir = tempfile::TempDir::new()?;
-        let state = doctor::compute_model_state(temp_dir.path(), vectors::DEFAULT_MODEL);
-        assert_eq!(state, doctor::ModelState::Absent);
-        Ok(())
-    }
+    #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
+    mod embeddings_tests {
+        use super::*;
 
-    #[test]
-    fn model_state_present_picks_first_preferred_variant() -> TestResult {
-        let temp_dir = tempfile::TempDir::new()?;
-        std::fs::write(temp_dir.path().join("model_int8.onnx"), vec![0u8; 42])?;
-        let state = doctor::compute_model_state(temp_dir.path(), vectors::DEFAULT_MODEL);
-        assert_eq!(
-            state,
-            doctor::ModelState::Present {
-                name: "model_int8.onnx".to_string(),
-                size_bytes: 42,
-            }
-        );
-        Ok(())
-    }
+        #[test]
+        fn model_state_absent_when_no_files() -> TestResult {
+            let temp_dir = tempfile::TempDir::new()?;
+            let state = doctor::compute_model_state(temp_dir.path(), vectors::DEFAULT_MODEL);
+            assert_eq!(state, doctor::ModelState::Absent);
+            Ok(())
+        }
 
-    #[test]
-    fn status_respects_model_dir_override() -> TestResult {
-        let temp_dir = tempfile::TempDir::new()?;
-        let root = temp_dir.path();
-        let coraline_dir = root.join(".coraline");
-        std::fs::create_dir_all(&coraline_dir)?;
-        let custom_dir = root.join("custom-models");
-        std::fs::create_dir_all(&custom_dir)?;
-        let config = format!("[vectors]\nmodel_dir = \"{}\"\n", custom_dir.display());
-        std::fs::write(coraline_dir.join("config.toml"), config)?;
+        #[test]
+        fn model_state_present_picks_first_preferred_variant() -> TestResult {
+            let temp_dir = tempfile::TempDir::new()?;
+            std::fs::write(temp_dir.path().join("model_int8.onnx"), vec![0u8; 42])?;
+            let state = doctor::compute_model_state(temp_dir.path(), vectors::DEFAULT_MODEL);
+            assert_eq!(
+                state,
+                doctor::ModelState::Present {
+                    name: "model_int8.onnx".to_string(),
+                    size_bytes: 42,
+                }
+            );
+            Ok(())
+        }
 
-        let (_, resolved) = doctor::resolve_status_model(root);
-        assert_eq!(resolved, custom_dir);
-        Ok(())
+        #[test]
+        fn status_respects_model_dir_override() -> TestResult {
+            let temp_dir = tempfile::TempDir::new()?;
+            let root = temp_dir.path();
+            let coraline_dir = root.join(".coraline");
+            std::fs::create_dir_all(&coraline_dir)?;
+            let custom_dir = root.join("custom-models");
+            std::fs::create_dir_all(&custom_dir)?;
+            let config = format!("[vectors]\nmodel_dir = \"{}\"\n", custom_dir.display());
+            std::fs::write(coraline_dir.join("config.toml"), config)?;
+
+            let (_, resolved) = doctor::resolve_status_model(root);
+            assert_eq!(resolved, custom_dir);
+            Ok(())
+        }
     }
 }
 

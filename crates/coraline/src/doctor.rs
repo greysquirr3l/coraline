@@ -17,13 +17,16 @@
 //!
 //! Ordering is stable so the output is deterministic.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
+use std::path::PathBuf;
 
 use serde::Serialize;
 
 use crate::config;
 use crate::db;
 use crate::sync::GitHooksManager;
+#[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
 use crate::vectors;
 
 /// One diagnostic check.
@@ -60,17 +63,28 @@ pub fn run_all(project_root: &Path, deep: bool) -> Report {
         check_config(project_root),
         check_db(project_root),
         check_hooks(project_root),
-        check_model_presence(project_root),
     ];
-    if deep {
-        #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
-        {
-            probes.push(check_model_load(project_root));
-            probes.push(check_model_inference(project_root));
-            probes.push(check_embed_coverage(project_root));
-        }
-    }
+    probes.extend(embeddings_probes(project_root, deep));
     Report::from_probes(probes)
+}
+
+/// Model-presence/load/inference/coverage probes. Empty when built without
+/// the `embeddings`/`embeddings-dynamic` feature (the ONNX runtime isn't
+/// available to check against).
+#[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
+fn embeddings_probes(project_root: &Path, deep: bool) -> Vec<Probe> {
+    let mut probes = vec![check_model_presence(project_root)];
+    if deep {
+        probes.push(check_model_load(project_root));
+        probes.push(check_model_inference(project_root));
+        probes.push(check_embed_coverage(project_root));
+    }
+    probes
+}
+
+#[cfg(not(any(feature = "embeddings", feature = "embeddings-dynamic")))]
+fn embeddings_probes(_project_root: &Path, _deep: bool) -> Vec<Probe> {
+    Vec::new()
 }
 
 // ─── Cheap probes ────────────────────────────────────────────────────────────
@@ -150,6 +164,7 @@ pub fn check_hooks(project_root: &Path) -> Probe {
 
 /// Check that at least one model variant of the configured model is present
 /// on disk.
+#[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
 pub fn check_model_presence(project_root: &Path) -> Probe {
     let (model_name, model_dir) = resolve_status_model(project_root);
     match compute_model_state(&model_dir, &model_name) {
@@ -289,6 +304,7 @@ pub fn check_embed_coverage(project_root: &Path) -> Probe {
 // ─── Model state helpers (shared with `coraline status`) ─────────────────────
 
 /// Embedding-model state, as surfaced by `coraline status`.
+#[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
 #[derive(Debug, PartialEq, Eq)]
 pub enum ModelState {
     /// At least one variant in the model's preference order is present.
@@ -298,6 +314,7 @@ pub enum ModelState {
 }
 
 /// Pure lookup of which (if any) variant of `model_name` is present on disk.
+#[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
 pub fn compute_model_state(model_dir: &Path, model_name: &str) -> ModelState {
     let Ok(spec) = vectors::model_spec(model_name) else {
         return ModelState::Absent;
@@ -321,6 +338,7 @@ pub fn compute_model_state(model_dir: &Path, model_name: &str) -> ModelState {
 /// back to the default model's global directory
 /// (`~/.config/coraline/models/nomic-embed-text-v1.5/`) if config is
 /// missing, unreadable, or names an unknown model.
+#[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
 pub fn resolve_status_model(project_root: &Path) -> (String, PathBuf) {
     let cfg = config::load_toml_config(project_root).unwrap_or_default();
     vectors::resolve_model_dir(&cfg.vectors).unwrap_or_else(|_| {
@@ -399,119 +417,124 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn model_presence_absent_when_no_files() -> TestResult {
-        let root = empty_temp()?;
-        // Pin the model dir to the temp project so the global default can't
-        // leak a model file across tests.
-        let coraline_dir = root.path().join(".coraline");
-        fs::create_dir_all(&coraline_dir)?;
-        let models_dir = root.path().join("models");
-        let config = format!("[vectors]\nmodel_dir = \"{}\"\n", models_dir.display());
-        fs::write(coraline_dir.join("config.toml"), config)?;
-        let probe = check_model_presence(root.path());
-        assert!(!probe.ok);
-        let Some(fix) = probe.fix.as_ref() else {
-            return Err("expected fix on missing model".into());
-        };
-        assert!(fix.contains("model download"));
-        Ok(())
-    }
+    #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
+    mod embeddings_tests {
+        use super::*;
 
-    #[test]
-    fn model_presence_ok_when_file_exists() -> TestResult {
-        let root = empty_temp()?;
-        let coraline_dir = root.path().join(".coraline");
-        fs::create_dir_all(&coraline_dir)?;
-        let models_dir = root.path().join("models");
-        fs::create_dir_all(&models_dir)?;
-        fs::write(models_dir.join("model_int8.onnx"), vec![0u8; 1_000_000])?;
-        // Pin `model` explicitly (not just `model_dir`) so this test is
-        // deterministic regardless of the developer's real global
-        // ~/.config/coraline/config.toml, which may set `vectors.model` to
-        // a different supported model (e.g. jina-embeddings-v2-base-code)
-        // with its own, non-overlapping variant filenames.
-        let config = format!(
-            "[vectors]\nmodel = \"nomic-embed-text-v1.5\"\nmodel_dir = \"{}\"\n",
-            models_dir.display()
-        );
-        fs::write(coraline_dir.join("config.toml"), config)?;
-        let probe = check_model_presence(root.path());
-        assert_eq!(probe.name, "model file");
-        assert!(probe.ok);
-        Ok(())
-    }
+        #[test]
+        fn model_presence_absent_when_no_files() -> TestResult {
+            let root = empty_temp()?;
+            // Pin the model dir to the temp project so the global default can't
+            // leak a model file across tests.
+            let coraline_dir = root.path().join(".coraline");
+            fs::create_dir_all(&coraline_dir)?;
+            let models_dir = root.path().join("models");
+            let config = format!("[vectors]\nmodel_dir = \"{}\"\n", models_dir.display());
+            fs::write(coraline_dir.join("config.toml"), config)?;
+            let probe = check_model_presence(root.path());
+            assert!(!probe.ok);
+            let Some(fix) = probe.fix.as_ref() else {
+                return Err("expected fix on missing model".into());
+            };
+            assert!(fix.contains("model download"));
+            Ok(())
+        }
 
-    #[test]
-    fn model_state_absent_when_empty_dir() -> TestResult {
-        let root = empty_temp()?;
-        let state = compute_model_state(root.path(), vectors::DEFAULT_MODEL);
-        assert_eq!(state, ModelState::Absent);
-        Ok(())
-    }
+        #[test]
+        fn model_presence_ok_when_file_exists() -> TestResult {
+            let root = empty_temp()?;
+            let coraline_dir = root.path().join(".coraline");
+            fs::create_dir_all(&coraline_dir)?;
+            let models_dir = root.path().join("models");
+            fs::create_dir_all(&models_dir)?;
+            fs::write(models_dir.join("model_int8.onnx"), vec![0u8; 1_000_000])?;
+            // Pin `model` explicitly (not just `model_dir`) so this test is
+            // deterministic regardless of the developer's real global
+            // ~/.config/coraline/config.toml, which may set `vectors.model` to
+            // a different supported model (e.g. jina-embeddings-v2-base-code)
+            // with its own, non-overlapping variant filenames.
+            let config = format!(
+                "[vectors]\nmodel = \"nomic-embed-text-v1.5\"\nmodel_dir = \"{}\"\n",
+                models_dir.display()
+            );
+            fs::write(coraline_dir.join("config.toml"), config)?;
+            let probe = check_model_presence(root.path());
+            assert_eq!(probe.name, "model file");
+            assert!(probe.ok);
+            Ok(())
+        }
 
-    #[test]
-    fn model_state_present_picks_first_preferred() -> TestResult {
-        let root = empty_temp()?;
-        fs::write(root.path().join("model_int8.onnx"), vec![0u8; 42])?;
-        let state = compute_model_state(root.path(), vectors::DEFAULT_MODEL);
-        assert_eq!(
-            state,
-            ModelState::Present {
-                name: "model_int8.onnx".to_string(),
-                size_bytes: 42,
-            }
-        );
-        Ok(())
-    }
+        #[test]
+        fn model_state_absent_when_empty_dir() -> TestResult {
+            let root = empty_temp()?;
+            let state = compute_model_state(root.path(), vectors::DEFAULT_MODEL);
+            assert_eq!(state, ModelState::Absent);
+            Ok(())
+        }
 
-    #[test]
-    fn model_state_absent_for_unknown_model() -> TestResult {
-        let root = empty_temp()?;
-        fs::write(root.path().join("model_int8.onnx"), vec![0u8; 42])?;
-        let state = compute_model_state(root.path(), "not-a-real-model");
-        assert_eq!(state, ModelState::Absent);
-        Ok(())
-    }
+        #[test]
+        fn model_state_present_picks_first_preferred() -> TestResult {
+            let root = empty_temp()?;
+            fs::write(root.path().join("model_int8.onnx"), vec![0u8; 42])?;
+            let state = compute_model_state(root.path(), vectors::DEFAULT_MODEL);
+            assert_eq!(
+                state,
+                ModelState::Present {
+                    name: "model_int8.onnx".to_string(),
+                    size_bytes: 42,
+                }
+            );
+            Ok(())
+        }
 
-    #[test]
-    fn resolve_status_returns_a_non_empty_path() -> TestResult {
-        // We can't assert a specific default model here because `load_toml_config`
-        // merges in the user's global `~/.config/coraline/config.toml`, which
-        // may pin `model_dir` to anything. The XDG-based `global_config_dir()`
-        // is also not cross-platform (see config.rs). The override path is
-        // covered separately; here we just verify the function returns a path.
-        let root = empty_temp()?;
-        let (_, resolved) = resolve_status_model(root.path());
-        assert!(resolved.file_name().is_some());
-        Ok(())
-    }
+        #[test]
+        fn model_state_absent_for_unknown_model() -> TestResult {
+            let root = empty_temp()?;
+            fs::write(root.path().join("model_int8.onnx"), vec![0u8; 42])?;
+            let state = compute_model_state(root.path(), "not-a-real-model");
+            assert_eq!(state, ModelState::Absent);
+            Ok(())
+        }
 
-    #[test]
-    fn resolve_status_override() -> TestResult {
-        let root = empty_temp()?;
-        let coraline_dir = root.path().join(".coraline");
-        fs::create_dir_all(&coraline_dir)?;
-        let custom = root.path().join("custom-models");
-        fs::create_dir_all(&custom)?;
-        let config = format!("[vectors]\nmodel_dir = \"{}\"\n", custom.display());
-        fs::write(coraline_dir.join("config.toml"), config)?;
-        let (_, resolved) = resolve_status_model(root.path());
-        assert_eq!(resolved, custom);
-        Ok(())
-    }
+        #[test]
+        fn resolve_status_returns_a_non_empty_path() -> TestResult {
+            // We can't assert a specific default model here because `load_toml_config`
+            // merges in the user's global `~/.config/coraline/config.toml`, which
+            // may pin `model_dir` to anything. The XDG-based `global_config_dir()`
+            // is also not cross-platform (see config.rs). The override path is
+            // covered separately; here we just verify the function returns a path.
+            let root = empty_temp()?;
+            let (_, resolved) = resolve_status_model(root.path());
+            assert!(resolved.file_name().is_some());
+            Ok(())
+        }
 
-    #[test]
-    fn resolve_status_respects_configured_model() -> TestResult {
-        let root = empty_temp()?;
-        let coraline_dir = root.path().join(".coraline");
-        fs::create_dir_all(&coraline_dir)?;
-        let config = "[vectors]\nmodel = \"jina-embeddings-v2-base-code\"\n";
-        fs::write(coraline_dir.join("config.toml"), config)?;
-        let (model_name, resolved) = resolve_status_model(root.path());
-        assert_eq!(model_name, "jina-embeddings-v2-base-code");
-        assert!(resolved.ends_with("jina-embeddings-v2-base-code"));
-        Ok(())
+        #[test]
+        fn resolve_status_override() -> TestResult {
+            let root = empty_temp()?;
+            let coraline_dir = root.path().join(".coraline");
+            fs::create_dir_all(&coraline_dir)?;
+            let custom = root.path().join("custom-models");
+            fs::create_dir_all(&custom)?;
+            let config = format!("[vectors]\nmodel_dir = \"{}\"\n", custom.display());
+            fs::write(coraline_dir.join("config.toml"), config)?;
+            let (_, resolved) = resolve_status_model(root.path());
+            assert_eq!(resolved, custom);
+            Ok(())
+        }
+
+        #[test]
+        fn resolve_status_respects_configured_model() -> TestResult {
+            let root = empty_temp()?;
+            let coraline_dir = root.path().join(".coraline");
+            fs::create_dir_all(&coraline_dir)?;
+            let config = "[vectors]\nmodel = \"jina-embeddings-v2-base-code\"\n";
+            fs::write(coraline_dir.join("config.toml"), config)?;
+            let (model_name, resolved) = resolve_status_model(root.path());
+            assert_eq!(model_name, "jina-embeddings-v2-base-code");
+            assert!(resolved.ends_with("jina-embeddings-v2-base-code"));
+            Ok(())
+        }
     }
 
     #[test]
@@ -585,7 +608,11 @@ mod tests {
         let root = empty_temp()?;
         let report = run_all(root.path(), false);
         let names: Vec<&str> = report.probes.iter().map(|p| p.name).collect();
-        assert_eq!(names, vec!["config", "database", "git hooks", "model file"]);
+        #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
+        let expected = vec!["config", "database", "git hooks", "model file"];
+        #[cfg(not(any(feature = "embeddings", feature = "embeddings-dynamic")))]
+        let expected = vec!["config", "database", "git hooks"];
+        assert_eq!(names, expected);
         Ok(())
     }
 

@@ -12,14 +12,14 @@ on:
   push:
     branches: [main]
     paths:
-      - "crates/coraline/src/mcp.rs"
+      - "crates/coraline/src/mcp/**"
       - "crates/coraline/src/db.rs"
       - "crates/coraline/src/security.rs"
       - "fuzz/**"
       - ".github/workflows/fuzz.yml"
   pull_request:
     paths:
-      - "crates/coraline/src/mcp.rs"
+      - "crates/coraline/src/mcp/**"
       - "crates/coraline/src/db.rs"
       - "crates/coraline/src/security.rs"
       - "fuzz/**"
