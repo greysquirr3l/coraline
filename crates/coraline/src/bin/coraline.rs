@@ -2047,7 +2047,7 @@ mod tests {
             std::fs::create_dir_all(&coraline_dir)?;
             let custom_dir = root.join("custom-models");
             std::fs::create_dir_all(&custom_dir)?;
-            let config = format!("[vectors]\nmodel_dir = \"{}\"\n", custom_dir.display());
+            let config = format!("[vectors]\nmodel_dir = '{}'\n", custom_dir.display());
             std::fs::write(coraline_dir.join("config.toml"), config)?;
 
             let (_, resolved) = doctor::resolve_status_model(root);

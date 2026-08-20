@@ -429,7 +429,10 @@ mod tests {
             let coraline_dir = root.path().join(".coraline");
             fs::create_dir_all(&coraline_dir)?;
             let models_dir = root.path().join("models");
-            let config = format!("[vectors]\nmodel_dir = \"{}\"\n", models_dir.display());
+            // TOML literal string (single quotes): backslash-separated
+            // Windows paths would be misinterpreted as escape sequences
+            // inside a basic (double-quoted) string.
+            let config = format!("[vectors]\nmodel_dir = '{}'\n", models_dir.display());
             fs::write(coraline_dir.join("config.toml"), config)?;
             let probe = check_model_presence(root.path());
             assert!(!probe.ok);
@@ -454,7 +457,7 @@ mod tests {
             // a different supported model (e.g. jina-embeddings-v2-base-code)
             // with its own, non-overlapping variant filenames.
             let config = format!(
-                "[vectors]\nmodel = \"nomic-embed-text-v1.5\"\nmodel_dir = \"{}\"\n",
+                "[vectors]\nmodel = \"nomic-embed-text-v1.5\"\nmodel_dir = '{}'\n",
                 models_dir.display()
             );
             fs::write(coraline_dir.join("config.toml"), config)?;
@@ -516,7 +519,7 @@ mod tests {
             fs::create_dir_all(&coraline_dir)?;
             let custom = root.path().join("custom-models");
             fs::create_dir_all(&custom)?;
-            let config = format!("[vectors]\nmodel_dir = \"{}\"\n", custom.display());
+            let config = format!("[vectors]\nmodel_dir = '{}'\n", custom.display());
             fs::write(coraline_dir.join("config.toml"), config)?;
             let (_, resolved) = resolve_status_model(root.path());
             assert_eq!(resolved, custom);
