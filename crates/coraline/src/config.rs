@@ -483,6 +483,7 @@ impl Default for IndexingConfig {
 /// Stored at `.coraline/config.toml`.  All sections are optional with
 /// sensible defaults so that an empty file is perfectly valid.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
 pub struct CoralineConfig {
     pub indexing: IndexingConfig,
     pub context: ContextConfig,
