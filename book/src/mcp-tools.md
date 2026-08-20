@@ -1,9 +1,9 @@
 # Coraline MCP Tools Reference
 
-Coraline exposes **26 MCP tools** when running as an MCP server (`coraline serve --mcp`).
+Coraline exposes **35 MCP tools** when running as an MCP server (`coraline serve --mcp`).
 All tool names are prefixed with `coraline_` to avoid collisions with other MCP servers.
 
-`coraline_semantic_search` is available by default (the `embeddings` feature ships enabled) but only registered when an ONNX model is present in `.coraline/models/`. Run `coraline model download` then `coraline embed` to activate it. All other 25 tools are always available.
+`coraline_semantic_search` is available by default (the `embeddings` feature ships enabled) but only registered when an ONNX model is present in the shared model directory (`~/.config/coraline/models/<model>/`, where `<model>` is `vectors.model` from config, default `nomic-embed-text-v1.5`). Run `coraline model download` then `coraline embed` to activate it — see `coraline model list` for every supported model. All other 34 tools are always available.
 
 ---
 
@@ -23,9 +23,18 @@ All tool names are prefixed with `coraline_` to avoid collisions with other MCP 
 | | `coraline_get_symbols_overview` | List all symbols in a file |
 | | `coraline_find_references` | Find all references to a symbol |
 | | `coraline_node` | Get full node details and source code |
+| **Batch** | `coraline_batch_get_nodes` | Fetch multiple nodes by ID in one call |
+| | `coraline_batch_callers` | Get callers for multiple symbols in one call |
+| | `coraline_batch_callees` | Get callees for multiple symbols in one call |
+| **Advanced Search** | `coraline_search_by_signature` | Find symbols by type signature pattern |
+| | `coraline_search_by_docstring` | Find symbols by documentation/comment content |
+| | `coraline_search_exported_symbols` | Search only public/exported symbols |
+| | `coraline_find_by_kind_in_file` | Get all symbols of a kind in one file |
 | **Context** | `coraline_context` | Build structured context for an AI task |
+| **Audit** | `coraline_audit_docs` | Audit Markdown docs for stale references and undocumented exports |
 | **File** | `coraline_read_file` | Read file contents |
 | | `coraline_list_dir` | List directory contents |
+| | `coraline_find_file` | Find files by glob pattern |
 | | `coraline_get_file_nodes` | Get all indexed nodes in a file |
 | | `coraline_status` | Show project index statistics |
 | | `coraline_sync` | Trigger incremental index sync |
@@ -310,6 +319,119 @@ Get complete details for a specific node by ID, including its source code body r
 
 ---
 
+## Batch Tools
+
+Fetch results for multiple symbols in one call instead of N round trips — roughly 60% fewer tokens than the equivalent sequence of single-symbol calls.
+
+### `coraline_batch_get_nodes`
+
+Fetch multiple nodes by ID in a single call.
+
+**Input:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `node_ids` | array of string | ✅ | — | Node IDs to fetch |
+| `include_body` | boolean | | `false` | Include source code body for each node |
+| `output_format` | string | | `"full"` | `"full"` or `"compact"` (65% token reduction) |
+
+**Output:** `{ "nodes": [...], "count": N, "not_found": [...] }`
+
+---
+
+### `coraline_batch_callers`
+
+Get callers for multiple symbols in a single call.
+
+**Input:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `node_ids` | array of string | ✅ | — | Node IDs to find callers for |
+| `limit_per_node` | number | | `20` | Maximum callers to return per node |
+
+**Output:** `{ "callers": { "<node_id>": [...] }, "node_count": N }`
+
+---
+
+### `coraline_batch_callees`
+
+Get callees for multiple symbols in a single call.
+
+**Input:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `node_ids` | array of string | ✅ | — | Node IDs to find callees for |
+| `limit_per_node` | number | | `20` | Maximum callees to return per node |
+
+**Output:** `{ "callees": { "<node_id>": [...] }, "node_count": N }`
+
+---
+
+## Advanced Search Tools
+
+Specialized lookups over indexed nodes, faster than full-text `coraline_search` for these specific shapes — also roughly 60% fewer tokens for the matched use case.
+
+### `coraline_search_by_signature`
+
+Find symbols by type signature pattern (case-insensitive substring match) — e.g. functions by return type or parameters.
+
+**Input:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `pattern` | string | ✅ | — | Signature substring to search for (e.g. `"Result<"`, `"async fn"`, `"<T>"`) |
+| `kind` | string | | — | Filter: `function`, `method`, `class`, `struct`, `interface`, `trait` |
+| `limit` | number | | `20` | Maximum results |
+| `output_format` | string | | `"full"` | `"full"` or `"compact"` (65% token reduction) |
+
+---
+
+### `coraline_search_by_docstring`
+
+Search symbols by documentation/comment content — find code by what it does, not just its name.
+
+**Input:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `query` | string | ✅ | — | Text to search for in docstrings/comments |
+| `kind` | string | | — | Filter: `function`, `method`, `class`, `struct`, `interface`, `trait` |
+| `limit` | number | | `20` | Maximum results |
+| `output_format` | string | | `"full"` | `"full"` or `"compact"` (65% token reduction) |
+
+---
+
+### `coraline_search_exported_symbols`
+
+Search only public/exported symbols — filters out internal implementation details to browse the public API surface.
+
+**Input:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `query` | string | ✅ | — | Symbol name pattern; use `"*"` to list all |
+| `kind` | string | | — | Filter: `function`, `method`, `class`, `struct`, `interface`, `trait`, `module` |
+| `limit` | number | | `20` | Maximum results |
+| `output_format` | string | | `"full"` | `"full"` or `"compact"` (65% token reduction) |
+
+---
+
+### `coraline_find_by_kind_in_file`
+
+Get all symbols of a specific kind in one file — fast file-scoped exploration.
+
+**Input:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `file_path` | string | ✅ | — | Path to the file (relative to project root) |
+| `kind` | string | ✅ | — | `function`, `method`, `class`, `struct`, `interface`, `trait`, `module`, `constant`, or `variable` |
+| `output_format` | string | | `"full"` | `"full"` or `"compact"` (65% token reduction) |
+
+---
+
 ## Context Tool
 
 ### `coraline_context`
@@ -329,6 +451,56 @@ Build structured context for an AI task description. Searches the graph, travers
 | `format` | string | | `"markdown"` | `"markdown"` or `"json"` |
 
 **Output:** A Markdown or JSON document containing relevant symbols and code, ready to paste as context for an LLM.
+
+---
+
+## Audit Tool
+
+### `coraline_audit_docs`
+
+Audit Markdown documentation coverage against the indexed code graph.
+
+Detects two classes of issues:
+- `stale_refs`: inline code-span symbol references in Markdown that do not resolve to indexed symbols
+- `undocumented_exports`: exported code symbols with no inbound `references` edge from Markdown docs
+
+**Input:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `show_undocumented` | boolean | | `true` | Include undocumented export results |
+| `show_stale` | boolean | | `true` | Include stale reference results |
+| `limit` | number | | `50` | Max items returned per result set |
+
+**Output:**
+```json
+{
+  "summary": {
+    "doc_files_indexed": 12,
+    "doc_sections_indexed": 89,
+    "stale_refs_count": 3,
+    "undocumented_exports_count": 7
+  },
+  "stale_refs": [
+    {
+      "reference": "resolve_unresolved",
+      "doc_file": "docs/ARCHITECTURE.md",
+      "section": "Resolution",
+      "line": 42,
+      "column": 18
+    }
+  ],
+  "undocumented_exports": [
+    {
+      "name": "audit_docs",
+      "qualified_name": "coraline::audit::audit_docs",
+      "kind": "function",
+      "file": "crates/coraline/src/audit.rs",
+      "line": 48
+    }
+  ]
+}
+```
 
 ---
 
@@ -372,6 +544,28 @@ Get all indexed symbols (nodes) for a specific file.
 | `file_path` | string | ✅ | File path (relative or absolute) |
 
 **Output:** `{ "file_path": "...", "nodes": [...], "count": N }`
+
+---
+
+### `coraline_find_file`
+
+Find files by name or glob pattern. Recursively walks the project tree, skipping `.git`, `node_modules`, `target`, and `.coraline` directories.
+
+**Input:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `pattern` | string | ✅ | — | File name, substring, or glob pattern (`*.rs`, `test_*`, `[Cc]argo.toml`) |
+| `limit` | number | | `20` | Maximum results |
+
+**Output:**
+```json
+{
+  "pattern": "*.rs",
+  "files": ["src/lib.rs", "src/db.rs", "src/graph.rs"],
+  "count": 3
+}
+```
 
 ---
 
@@ -439,11 +633,28 @@ Trigger an incremental sync of the index. Detects files added, modified, or remo
 
 ### `coraline_semantic_search`
 
-Search indexed nodes using natural-language vector similarity. Included in the default build; only registered as an MCP tool once an ONNX model is present in `.coraline/models/`. To activate:
+Search indexed nodes using natural-language vector similarity. Included in the default build; only registered as an MCP tool once an ONNX model is present in the shared model directory (`~/.config/coraline/models/<model>/`, `<model>` from `vectors.model`). To activate:
 
 ```bash
-coraline model download   # download nomic-embed-text-v1.5 (~137 MB)
+coraline model download   # download the configured model (default nomic-embed-text-v1.5, ~137 MB)
 coraline embed            # generate embeddings for all indexed nodes
+```
+
+Run `coraline model list` to see every supported model, including the code-specialised `jina-embeddings-v2-base-code`. Results and coverage are scoped to whichever model is currently configured — embeddings from a previously-configured model are ignored, not mixed in.
+
+**Structured error when the model is missing:**
+
+If the ONNX model can't be loaded (not downloaded yet, or `tokenizer.json`/weights missing), the tool call fails with `isError: true` and a structured `EMBEDDING_MODEL_MISSING` envelope in `structuredContent`, so an agent can branch on `code` instead of parsing free-form text:
+
+```json
+{
+  "code": "EMBEDDING_MODEL_MISSING",
+  "message": "Embedding model is not present. Run `coraline model download` to download it.",
+  "recover": {
+    "command": "coraline model download",
+    "docs": "https://github.com/greysquirr3l/coraline#embeddings (debug: load failed: ...)"
+  }
+}
 ```
 
 **Input:**

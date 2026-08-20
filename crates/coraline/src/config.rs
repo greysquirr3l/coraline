@@ -483,6 +483,7 @@ impl Default for IndexingConfig {
 /// Stored at `.coraline/config.toml`.  All sections are optional with
 /// sensible defaults so that an empty file is perfectly valid.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
 pub struct CoralineConfig {
     pub indexing: IndexingConfig,
     pub context: ContextConfig,
@@ -744,20 +745,35 @@ debounce_ms              = 500
 auto_sync_interval_secs  = 120
 
 [vectors]
-# Full vector search requires an ONNX model.
-# Download any variant from huggingface.co/nomic-ai/nomic-embed-text-v1.5
-# (also copy tokenizer.json) into the directory below:
-#   model_int8.onnx      137 MB  — int8 quantized (recommended)
-#   model_quantized.onnx 137 MB  — same as int8
-#   model_uint8.onnx     137 MB  — uint8 quantized
-#   model_q4f16.onnx     111 MB  — smallest (Q4 + fp16)
-#   model_q4.onnx        165 MB  — Q4 quantized
-#   model_fp16.onnx      274 MB  — fp16
-#   model.onnx           547 MB  — full f32
-# Coraline auto-selects the best available file; set model_file to override.
-# Then run: coraline embed
+# Full vector search requires an ONNX model. Run `coraline model list` to see
+# every supported model, then `coraline model download` (optionally with
+# `--model <name>`) to fetch it into the shared model directory.
+#
+# Supported models (set `model` to one of these):
+#   nomic-embed-text-v1.5        768-dim  General-purpose English text (default).
+#     model_int8.onnx      137 MB  — int8 quantized (recommended)
+#     model_quantized.onnx 137 MB  — same as int8
+#     model_uint8.onnx     137 MB  — uint8 quantized
+#     model_q4f16.onnx     111 MB  — smallest (Q4 + fp16)
+#     model_q4.onnx        165 MB  — Q4 quantized
+#     model_fp16.onnx      274 MB  — fp16
+#     model.onnx           547 MB  — full f32
+#   jina-embeddings-v2-base-code 768-dim  Code-specialised (opt-in).
+#     model_quantized.onnx 162 MB  — int8 quantized (recommended)
+#     model_fp16.onnx      321 MB  — fp16
+#     model.onnx           642 MB  — full f32
+#
+# Coraline auto-selects the best available file for the configured `model`;
+# set model_file to pin a specific variant. Switching `model` on a project
+# with existing embeddings requires re-running `coraline embed` to
+# repopulate — see the `vectors` module docs for details.
+#
+# `model` is commented out by default so this project inherits whatever
+# model your global ~/.config/coraline/config.toml sets (or the built-in
+# default, nomic-embed-text-v1.5, if you haven't set one) — uncomment to
+# pin this project to a specific model regardless of your global default.
 enabled    = false
-model      = "nomic-embed-text-v1.5"
+# model      = "nomic-embed-text-v1.5"                    # or "jina-embeddings-v2-base-code"
 dimension  = 768
 batch_size = 32
 max_seq_len = 512

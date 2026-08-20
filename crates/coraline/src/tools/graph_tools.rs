@@ -61,7 +61,6 @@ impl Tool for SearchTool {
         })
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
         let query = params
             .get("query")
@@ -82,7 +81,8 @@ impl Tool for SearchTool {
                 _ => None,
             });
 
-        let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(10) as usize;
+        let limit = usize::try_from(params.get("limit").and_then(Value::as_u64).unwrap_or(10))
+            .unwrap_or(usize::MAX);
 
         let output_format = params
             .get("output_format")
@@ -180,7 +180,6 @@ impl Tool for CallersTool {
         })
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
         let node_id = params
             .get("node_id")
@@ -200,7 +199,8 @@ impl Tool for CallersTool {
                     _ => None,
                 });
 
-        let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
+        let limit = usize::try_from(params.get("limit").and_then(Value::as_u64).unwrap_or(20))
+            .unwrap_or(usize::MAX);
 
         let output_format = params
             .get("output_format")
@@ -304,7 +304,6 @@ impl Tool for CalleesTool {
         })
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
         let node_id = params
             .get("node_id")
@@ -324,7 +323,8 @@ impl Tool for CalleesTool {
                     _ => None,
                 });
 
-        let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
+        let limit = usize::try_from(params.get("limit").and_then(Value::as_u64).unwrap_or(20))
+            .unwrap_or(usize::MAX);
 
         let output_format = params
             .get("output_format")
@@ -416,7 +416,6 @@ impl Tool for ImpactTool {
         })
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
         let node_id = params
             .get("node_id")
@@ -426,11 +425,11 @@ impl Tool for ImpactTool {
         let max_depth = params
             .get("max_depth")
             .and_then(Value::as_u64)
-            .map(|n| n as usize);
+            .map(|n| usize::try_from(n).unwrap_or(usize::MAX));
         let max_nodes = params
             .get("max_nodes")
             .and_then(Value::as_u64)
-            .map(|n| n as usize);
+            .map(|n| usize::try_from(n).unwrap_or(usize::MAX));
 
         let conn = db::open_database(&self.project_root)
             .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
@@ -543,7 +542,6 @@ impl Tool for FindSymbolTool {
         })
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
         let pattern = params
             .get("name_pattern")
@@ -560,7 +558,8 @@ impl Tool for FindSymbolTool {
             .and_then(Value::as_bool)
             .unwrap_or(false);
 
-        let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(10) as usize;
+        let limit = usize::try_from(params.get("limit").and_then(Value::as_u64).unwrap_or(10))
+            .unwrap_or(usize::MAX);
 
         let conn = db::open_database(&self.project_root)
             .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
@@ -661,15 +660,14 @@ impl Tool for GetSymbolsOverviewTool {
             let nodes_fallback = db::get_nodes_by_file(&conn, file_path, None)
                 .map_err(|e| ToolError::internal_error(format!("Failed to get nodes: {e}")))?;
 
-            return build_overview_response(&nodes_fallback, file_path);
+            return Ok(build_overview_response(&nodes_fallback, file_path));
         }
 
-        build_overview_response(&nodes, &abs_path)
+        Ok(build_overview_response(&nodes, &abs_path))
     }
 }
 
-#[allow(clippy::unnecessary_wraps)]
-fn build_overview_response(nodes: &[crate::types::Node], file_path: &str) -> ToolResult {
+fn build_overview_response(nodes: &[crate::types::Node], file_path: &str) -> Value {
     use std::collections::HashMap;
 
     let mut by_kind: HashMap<String, Vec<Value>> = HashMap::new();
@@ -701,12 +699,12 @@ fn build_overview_response(nodes: &[crate::types::Node], file_path: &str) -> Too
         })
         .collect();
 
-    Ok(json!({
+    json!({
         "file_path": file_path,
         "symbol_count": nodes.len(),
         "by_kind": by_kind,
         "symbols": symbols,
-    }))
+    })
 }
 
 /// Tool for finding all references to a node
@@ -752,7 +750,6 @@ impl Tool for FindReferencesTool {
         })
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
         let node_id = params
             .get("node_id")
@@ -771,7 +768,8 @@ impl Tool for FindReferencesTool {
                 _ => None,
             });
 
-        let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(50) as usize;
+        let limit = usize::try_from(params.get("limit").and_then(Value::as_u64).unwrap_or(50))
+            .unwrap_or(usize::MAX);
 
         let conn = db::open_database(&self.project_root)
             .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
@@ -946,7 +944,6 @@ impl Tool for DependenciesTool {
         })
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
         let node_id = params
             .get("node_id")
@@ -956,11 +953,11 @@ impl Tool for DependenciesTool {
         let depth = params
             .get("depth")
             .and_then(Value::as_u64)
-            .map(|n| n as usize);
+            .map(|n| usize::try_from(n).unwrap_or(usize::MAX));
         let limit = params
             .get("limit")
             .and_then(Value::as_u64)
-            .map(|n| n as usize);
+            .map(|n| usize::try_from(n).unwrap_or(usize::MAX));
 
         let conn = db::open_database(&self.project_root)
             .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
@@ -1059,7 +1056,6 @@ impl Tool for DependentsTool {
         })
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
         let node_id = params
             .get("node_id")
@@ -1069,11 +1065,11 @@ impl Tool for DependentsTool {
         let depth = params
             .get("depth")
             .and_then(Value::as_u64)
-            .map(|n| n as usize);
+            .map(|n| usize::try_from(n).unwrap_or(usize::MAX));
         let limit = params
             .get("limit")
             .and_then(Value::as_u64)
-            .map(|n| n as usize);
+            .map(|n| usize::try_from(n).unwrap_or(usize::MAX));
 
         let conn = db::open_database(&self.project_root)
             .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
@@ -1170,7 +1166,6 @@ impl Tool for PathTool {
         })
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
         use std::collections::{HashMap, VecDeque};
 
@@ -1184,7 +1179,9 @@ impl Tool for PathTool {
             .and_then(Value::as_str)
             .ok_or_else(|| ToolError::invalid_params("to_id must be a string"))?;
 
-        let max_depth = params.get("max_depth").and_then(Value::as_u64).unwrap_or(6) as usize;
+        let max_depth =
+            usize::try_from(params.get("max_depth").and_then(Value::as_u64).unwrap_or(6))
+                .unwrap_or(usize::MAX);
 
         let conn = db::open_database(&self.project_root)
             .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
@@ -1569,17 +1566,19 @@ impl Tool for BatchCallersTool {
         })
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
         let node_ids = params
             .get("node_ids")
             .and_then(Value::as_array)
             .ok_or_else(|| ToolError::invalid_params("node_ids must be an array"))?;
 
-        let limit = params
-            .get("limit_per_node")
-            .and_then(Value::as_u64)
-            .unwrap_or(20) as usize;
+        let limit = usize::try_from(
+            params
+                .get("limit_per_node")
+                .and_then(Value::as_u64)
+                .unwrap_or(20),
+        )
+        .unwrap_or(usize::MAX);
 
         let conn = db::open_database(&self.project_root)
             .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
@@ -1668,17 +1667,19 @@ impl Tool for BatchCalleesTool {
         })
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
         let node_ids = params
             .get("node_ids")
             .and_then(Value::as_array)
             .ok_or_else(|| ToolError::invalid_params("node_ids must be an array"))?;
 
-        let limit = params
-            .get("limit_per_node")
-            .and_then(Value::as_u64)
-            .unwrap_or(20) as usize;
+        let limit = usize::try_from(
+            params
+                .get("limit_per_node")
+                .and_then(Value::as_u64)
+                .unwrap_or(20),
+        )
+        .unwrap_or(usize::MAX);
 
         let conn = db::open_database(&self.project_root)
             .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
@@ -1779,7 +1780,6 @@ impl Tool for SearchBySignatureTool {
         })
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
         let pattern = params
             .get("pattern")
@@ -1791,7 +1791,8 @@ impl Tool for SearchBySignatureTool {
             .and_then(Value::as_str)
             .and_then(str_to_node_kind);
 
-        let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
+        let limit = usize::try_from(params.get("limit").and_then(Value::as_u64).unwrap_or(20))
+            .unwrap_or(usize::MAX);
         let limit_i64 = i64::try_from(limit).unwrap_or(i64::MAX);
 
         let output_format = params
@@ -1902,7 +1903,6 @@ impl Tool for SearchByDocstringTool {
         })
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
         let query = params
             .get("query")
@@ -1914,7 +1914,8 @@ impl Tool for SearchByDocstringTool {
             .and_then(Value::as_str)
             .and_then(str_to_node_kind);
 
-        let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
+        let limit = usize::try_from(params.get("limit").and_then(Value::as_u64).unwrap_or(20))
+            .unwrap_or(usize::MAX);
         let limit_i64 = i64::try_from(limit).unwrap_or(i64::MAX);
 
         let output_format = params
@@ -2021,7 +2022,6 @@ impl Tool for SearchExportedSymbolsTool {
         })
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     fn execute(&self, params: Value) -> ToolResult {
         let query = params
             .get("query")
@@ -2033,7 +2033,8 @@ impl Tool for SearchExportedSymbolsTool {
             .and_then(Value::as_str)
             .and_then(str_to_node_kind);
 
-        let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
+        let limit = usize::try_from(params.get("limit").and_then(Value::as_u64).unwrap_or(20))
+            .unwrap_or(usize::MAX);
         let limit_i64 = i64::try_from(limit).unwrap_or(i64::MAX);
 
         let output_format = params

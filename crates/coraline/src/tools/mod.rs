@@ -9,10 +9,14 @@
 use serde_json::Value;
 use std::collections::HashMap;
 
+pub mod audit_tools;
 pub mod context_tools;
+pub mod errors;
 pub mod file_tools;
 pub mod graph_tools;
 pub mod memory_tools;
+
+pub use errors::RecoverInfo;
 
 /// Output format for tool responses
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -198,10 +202,14 @@ pub fn compact_format_legend() -> Value {
 pub type ToolResult = Result<Value, ToolError>;
 
 /// Error type for tool execution failures
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ToolError {
     pub code: String,
     pub message: String,
+    /// Optional recovery payload. When present, the MCP layer surfaces it
+    /// verbatim in `structured_content` so the agent can act on it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recover: Option<RecoverInfo>,
 }
 
 impl ToolError {
@@ -209,6 +217,7 @@ impl ToolError {
         Self {
             code: code.into(),
             message: message.into(),
+            recover: None,
         }
     }
 
@@ -222,6 +231,18 @@ impl ToolError {
 
     pub fn not_found(message: impl Into<String>) -> Self {
         Self::new("not_found", message)
+    }
+
+    /// The semantic-search or any embedding tool failed because the ONNX
+    /// model is not on disk. The `recover` payload tells the agent exactly
+    /// what to do next.
+    pub fn embedding_model_missing(recover: RecoverInfo) -> Self {
+        let cmd = recover.command.clone();
+        Self {
+            code: "EMBEDDING_MODEL_MISSING".to_string(),
+            message: format!("Embedding model is not present. Run `{cmd}` to download it."),
+            recover: Some(recover),
+        }
     }
 }
 
@@ -406,12 +427,7 @@ impl ToolRegistry {
     }
 }
 
-/// Create a default tool registry with all built-in tools
-#[allow(clippy::too_many_lines)]
-pub fn create_default_registry(project_root: &std::path::Path) -> ToolRegistry {
-    let mut registry = ToolRegistry::new();
-
-    // Register graph tools
+fn register_graph_tools(registry: &mut ToolRegistry, project_root: &std::path::Path) {
     registry.register(Box::new(graph_tools::SearchTool::new(
         project_root.to_path_buf(),
     )));
@@ -448,8 +464,10 @@ pub fn create_default_registry(project_root: &std::path::Path) -> ToolRegistry {
     registry.register(Box::new(graph_tools::GetNodeTool::new(
         project_root.to_path_buf(),
     )));
+}
 
-    // Register batch query tools (60% token savings)
+/// Batch query tools (60% token savings)
+fn register_batch_tools(registry: &mut ToolRegistry, project_root: &std::path::Path) {
     registry.register(Box::new(graph_tools::BatchGetNodesTool::new(
         project_root.to_path_buf(),
     )));
@@ -459,8 +477,10 @@ pub fn create_default_registry(project_root: &std::path::Path) -> ToolRegistry {
     registry.register(Box::new(graph_tools::BatchCalleesTool::new(
         project_root.to_path_buf(),
     )));
+}
 
-    // Register advanced search tools (60% token savings for specialized lookups)
+/// Advanced search tools (60% token savings for specialized lookups)
+fn register_advanced_search_tools(registry: &mut ToolRegistry, project_root: &std::path::Path) {
     registry.register(Box::new(graph_tools::SearchBySignatureTool::new(
         project_root.to_path_buf(),
     )));
@@ -473,8 +493,9 @@ pub fn create_default_registry(project_root: &std::path::Path) -> ToolRegistry {
     registry.register(Box::new(graph_tools::FindByKindInFileTool::new(
         project_root.to_path_buf(),
     )));
+}
 
-    // Register file tools
+fn register_file_tools(registry: &mut ToolRegistry, project_root: &std::path::Path) {
     registry.register(Box::new(file_tools::ReadFileTool::new(
         project_root.to_path_buf(),
     )));
@@ -482,6 +503,9 @@ pub fn create_default_registry(project_root: &std::path::Path) -> ToolRegistry {
         project_root.to_path_buf(),
     )));
     registry.register(Box::new(file_tools::GetFileNodesTool::new(
+        project_root.to_path_buf(),
+    )));
+    registry.register(Box::new(file_tools::FindFileTool::new(
         project_root.to_path_buf(),
     )));
     registry.register(Box::new(file_tools::StatusTool::new(
@@ -496,13 +520,10 @@ pub fn create_default_registry(project_root: &std::path::Path) -> ToolRegistry {
     registry.register(Box::new(file_tools::SyncTool::new(
         project_root.to_path_buf(),
     )));
+}
 
-    // Register context tools
-    registry.register(Box::new(context_tools::BuildContextTool::new(
-        project_root.to_path_buf(),
-    )));
-
-    // Register memory tools (ignore errors if memory system fails to initialize)
+/// Memory tools; errors are ignored if the memory system fails to initialize.
+fn register_memory_tools(registry: &mut ToolRegistry, project_root: &std::path::Path) {
     if let Ok(tool) = memory_tools::WriteMemoryTool::new(project_root) {
         registry.register(Box::new(tool));
     }
@@ -518,20 +539,27 @@ pub fn create_default_registry(project_root: &std::path::Path) -> ToolRegistry {
     if let Ok(tool) = memory_tools::EditMemoryTool::new(project_root) {
         registry.register(Box::new(tool));
     }
+}
 
-    // Register semantic search only when at least one ONNX model variant is present.
-    #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
-    let model_dir = {
-        let cfg = crate::config::load_toml_config(project_root).unwrap_or_default();
-        cfg.vectors
-            .model_dir
-            .map_or_else(crate::vectors::global_model_dir, std::path::PathBuf::from)
+/// Registers semantic search only when at least one ONNX model variant is present.
+#[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
+fn register_semantic_search_tool(registry: &mut ToolRegistry, project_root: &std::path::Path) {
+    let cfg = crate::config::load_toml_config(project_root).unwrap_or_default();
+    let Ok((model_name, model_dir)) = crate::vectors::resolve_model_dir(&cfg.vectors) else {
+        tracing::warn!(
+            "Semantic search disabled: unknown embedding model '{}' in config.",
+            cfg.vectors.model
+        );
+        return;
     };
-    #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
-    if crate::vectors::MODEL_PREFERENCE_ORDER
-        .iter()
-        .any(|name| model_dir.join(name).exists())
-    {
+
+    let has_model = crate::vectors::model_spec(&model_name).is_ok_and(|spec| {
+        spec.preference_order
+            .iter()
+            .any(|name| model_dir.join(name).exists())
+    });
+
+    if has_model {
         registry.register(Box::new(file_tools::SemanticSearchTool::new(
             project_root.to_path_buf(),
         )));
@@ -542,6 +570,25 @@ pub fn create_default_registry(project_root: &std::path::Path) -> ToolRegistry {
             model_dir.display()
         );
     }
+}
+
+/// Create a default tool registry with all built-in tools
+pub fn create_default_registry(project_root: &std::path::Path) -> ToolRegistry {
+    let mut registry = ToolRegistry::new();
+
+    register_graph_tools(&mut registry, project_root);
+    register_batch_tools(&mut registry, project_root);
+    register_advanced_search_tools(&mut registry, project_root);
+    register_file_tools(&mut registry, project_root);
+    registry.register(Box::new(context_tools::BuildContextTool::new(
+        project_root.to_path_buf(),
+    )));
+    registry.register(Box::new(audit_tools::AuditDocsTool::new(
+        project_root.to_path_buf(),
+    )));
+    register_memory_tools(&mut registry, project_root);
+    #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
+    register_semantic_search_tool(&mut registry, project_root);
 
     registry
 }

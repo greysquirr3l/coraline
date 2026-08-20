@@ -22,6 +22,7 @@ When `[PATH]` is omitted, the current working directory is used as the project r
 | `impact` | Analyze change impact radius |
 | `config` | Read or update configuration |
 | `hooks` | Manage git hooks |
+| `doctor` | Run diagnostic checks (config, database, model, embed coverage) |
 | `serve` | Start the MCP server |
 | `update` | Check for available updates on crates.io |
 | `embed` | Generate vector embeddings for indexed nodes |
@@ -33,7 +34,7 @@ When `[PATH]` is omitted, the current working directory is used as the project r
 
 Initialize Coraline in a project directory. Creates `.coraline/` with a SQLite database, default `config.toml`, and initial memory templates.
 
-When stdin is a TTY, prompts to download the embedding model (~137 MB) after initialization. Decline to skip — all non-embedding tools remain fully functional and you can download later with `coraline model download`.
+When stdin is a TTY and no model decision flag is given, prompts to download the embedding model (~137 MB) after initialization. Decline to skip — all non-embedding tools remain fully functional and you can download later with `coraline model download`. Use `--embed`, `--no-embed`, or `--yes` to make the decision non-interactively (see below); if the model is already present on disk, `init` skips the prompt entirely regardless of flags.
 
 If `.coraline/` already exists and `--index` is passed **without** `--force`, `init` skips the overwrite and runs indexing directly on the existing project.
 
@@ -44,6 +45,9 @@ If `.coraline/` already exists and `--index` is passed **without** `--force`, `i
 | `-i`, `--index` | Run a full index immediately after initialization |
 | `-f`, `--force` | Overwrite an existing `.coraline/` directory without prompting |
 | `--no-hooks` | Skip automatic git hook installation |
+| `--embed` | Download the embedding model during init (skips the TTY prompt) |
+| `--no-embed` | Skip the embedding model entirely — no prompt, no download. Conflicts with `--embed` and always wins over `--yes` |
+| `-y`, `--yes` | Non-interactive mode: auto-accept the model download prompt |
 
 **Examples:**
 ```bash
@@ -52,7 +56,12 @@ coraline init /path/to/my-app   # Initialize a specific path
 coraline init -i                 # Initialize, prompt for model, then index
 coraline init -i --no-hooks      # Initialize and index, skip git hooks
 coraline init --force            # Wipe and reinitialize existing project
+coraline init --embed            # Initialize and download the embedding model, no prompt
+coraline init --no-embed         # Initialize, skip the model entirely, no prompt
+coraline init --yes              # Initialize non-interactively; auto-downloads the model
 ```
+
+> Which model is downloaded is controlled by `vectors.model` in config (default `nomic-embed-text-v1.5`), not by an `init` flag — see `coraline model` below and the `[vectors]` section in [CONFIGURATION.md](CONFIGURATION.md).
 
 **On success, creates:**
 - `.coraline/coraline.db` — SQLite knowledge graph
@@ -104,7 +113,7 @@ coraline sync -q                 # Silent sync (used by git hook)
 
 ## `coraline status [PATH]`
 
-Show the current project status: initialization state, paths to config and database, database size, and git hook status.
+Show the current project status: initialization state, paths to config and database, database size, embedding-model state, and git hook status.
 
 **Examples:**
 ```bash
@@ -118,8 +127,13 @@ Coraline Status
 Project: /home/user/my-app
 Config:  /home/user/my-app/.coraline/config.toml
 Database: /home/user/my-app/.coraline/coraline.db (1048576 bytes)
+Embeddings: model_quantized.onnx (161 MB)
+Model:      jina-embeddings-v2-base-code
+Model dir:  /home/user/.config/coraline/models/jina-embeddings-v2-base-code
 Git hooks: installed
 ```
+
+The `Embeddings` line shows `not present` (with a fix hint) when no model file has been downloaded yet for the project's configured model (`vectors.model`, default `nomic-embed-text-v1.5`). See `coraline model` and `coraline doctor` below.
 
 ---
 
@@ -323,6 +337,63 @@ coraline hooks remove
 
 ---
 
+## `coraline doctor [PATH]`
+
+Run diagnostic checks against a project and report pass/fail per check, with a fix hint for anything failing. Exits `0` if every check passed, `1` otherwise — safe to use as a CI gate.
+
+**Checks (in order):**
+
+| Check | What it verifies |
+|---|---|
+| `config` | `.coraline/config.toml` exists and is readable |
+| `database` | `.coraline/coraline.db` opens and returns stats (node/edge/file counts) |
+| `git hooks` | The post-commit hook is installed (or the project isn't a git repo, which is fine) |
+| `model file` | At least one ONNX variant of the configured model (`vectors.model`) is present on disk |
+| `model loads` *(deep only)* | The ONNX model actually loads into an inference session |
+| `inference` *(deep only)* | A sample embedding runs through the loaded model successfully |
+| `embed coverage` *(deep only)* | Every indexed node has an embedding for the configured model |
+
+The three deep checks require a build with the `embeddings` or `embeddings-dynamic` feature; they're skipped (not failed) on builds without it.
+
+**Options:**
+
+| Flag | Description |
+|---|---|
+| `--quick` | Skip the three deep model-load/inference/coverage checks (fast, no ONNX runtime needed) |
+| `--deep` | Explicit deep mode — this is already the default; mutually exclusive with `--quick` |
+| `--json` | Print the report as JSON instead of the human-readable `✔`/`✘` list |
+
+**Examples:**
+```bash
+coraline doctor                  # Full diagnostic run (deep checks included)
+coraline doctor --quick          # Skip slow model checks — good for CI
+coraline doctor --json           # Machine-readable report
+```
+
+**Sample output:**
+```
+✔  config
+✔  database
+✔  git hooks
+✘  model file
+    → Run `coraline model download`.
+```
+
+**Sample `--json` output:**
+```json
+{
+  "probes": [
+    { "name": "config", "ok": true, "detail": "/path/.coraline/config.toml (3775 bytes)" },
+    { "name": "database", "ok": true, "detail": "/path/.coraline/coraline.db (2 nodes, 1 edges, 1 files)" },
+    { "name": "git hooks", "ok": true, "detail": "installed" },
+    { "name": "model file", "ok": false, "detail": "no model file for 'nomic-embed-text-v1.5' in ...", "fix": "Run `coraline model download`." }
+  ],
+  "exit_code": 1
+}
+```
+
+---
+
 ## `coraline serve [PATH]`
 
 Start the MCP server. With `--mcp`, communicates over stdio using the Model Context Protocol.
@@ -386,49 +457,56 @@ Logs are written to `.coraline/logs/coraline.log` (daily rotating) and to stderr
 
 ## `coraline embed [PATH]`
 
-Generate vector embeddings for all indexed nodes using the local ONNX model. Embeddings enable the `coraline_semantic_search` MCP tool.
+Generate vector embeddings for every currently indexed node using the local ONNX model. Embeddings enable the `coraline_semantic_search` MCP tool.
 
-By default, `embed` performs a lightweight freshness check and runs incremental `sync` first when indexed state is stale. This keeps embeddings aligned with current source files without requiring a manual `coraline sync` step.
+`embed` does not run `sync` itself — run `coraline sync` (or `coraline index`) first if source files have changed since the last index. The `coraline_semantic_search` MCP tool, by contrast, performs its own lightweight freshness check and incremental sync/re-embed on each call, so MCP clients don't need a manual `coraline sync` step.
 
 **Options:**
 
 | Flag | Description |
 |---|---|
 | `--download` | Download the model automatically before embedding |
-| `--variant FILENAME` | ONNX variant to download (default: `model_int8.onnx`) |
-| `--skip-sync` | Skip automatic pre-embed sync check (embeddings may be stale) |
+| `--variant FILENAME` | ONNX variant to download (default: the configured model's recommended variant) |
 | `--batch-size N` | Nodes per progress batch (default: `50`) |
 | `-q`, `--quiet` | Suppress progress output |
 
 **Examples:**
 ```bash
 coraline embed                        # Embed using already-downloaded model
-coraline embed --skip-sync            # Skip auto-sync and embed current index state
-coraline embed --download             # Download model_int8.onnx then embed
+coraline embed --download             # Download the configured model then embed
 coraline embed --download --variant model_fp16.onnx
 ```
 
-Run `coraline index` first. Models are stored in `.coraline/models/nomic-embed-text-v1.5/`.
+Run `coraline index` first. Uses the model configured by `vectors.model` (default `nomic-embed-text-v1.5`), stored in `~/.config/coraline/models/<model>/` — see `coraline model list`.
 
 ---
 
 ## `coraline model [PATH]`
 
-Manage the ONNX embedding model files.
+Manage embedding model files. Supports multiple models — run `coraline model list` to see the registry.
+
+### `coraline model list`
+
+List every embedding model Coraline knows how to download and run, with dimension and description.
+
+```bash
+coraline model list
+```
 
 ### `coraline model download`
 
-Download model files from HuggingFace (`nomic-ai/nomic-embed-text-v1.5`).
+Download model files from HuggingFace.
 
 | Flag | Description |
 |---|---|
-| `--variant FILENAME` | ONNX variant to download (default: `model_int8.onnx`) |
+| `--model NAME` | Which supported model to download (default: `vectors.model` from config.toml) |
+| `--variant FILENAME` | ONNX variant to download (default: the model's recommended variant) |
 | `-f`, `--force` | Re-download even if files already exist |
 | `-q`, `--quiet` | Suppress progress output |
 
-Downloads `tokenizer.json`, `tokenizer_config.json`, and the chosen ONNX weights into `.coraline/models/nomic-embed-text-v1.5/`.
+Downloads `tokenizer.json`, `tokenizer_config.json`, and the chosen ONNX weights into the shared model directory `~/.config/coraline/models/<model>/`.
 
-**Available variants (smallest to largest):**
+**`nomic-embed-text-v1.5` variants (smallest to largest):**
 
 | Variant | Size | Notes |
 |---|---|---|
@@ -437,10 +515,28 @@ Downloads `tokenizer.json`, `tokenizer_config.json`, and the chosen ONNX weights
 | `model_fp16.onnx` | ~274 MB | fp16 |
 | `model.onnx` | ~547 MB | full f32 |
 
+**`jina-embeddings-v2-base-code` variants:**
+
+| Variant | Size | Notes |
+|---|---|---|
+| `model_quantized.onnx` | ~162 MB | int8 quantized (recommended) |
+| `model_fp16.onnx` | ~321 MB | fp16 |
+| `model.onnx` | ~642 MB | full f32 |
+
+```bash
+coraline model download                                    # download vectors.model's default variant
+coraline model download --model jina-embeddings-v2-base-code
+```
+
 ### `coraline model status`
 
-Show which model files are present in the model directory.
+Show which model files are present in the model directory for the configured (or `--model`-selected) model.
+
+| Flag | Description |
+|---|---|
+| `--model NAME` | Which supported model to inspect (default: `vectors.model` from config.toml) |
 
 ```bash
 coraline model status
+coraline model status --model jina-embeddings-v2-base-code
 ```

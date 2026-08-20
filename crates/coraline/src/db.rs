@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use tracing::{debug, warn};
 
 use crate::types::{
@@ -288,7 +288,6 @@ pub fn insert_unresolved_refs(
 /// This is more efficient than the three separate `insert_nodes` /
 /// `insert_edges` / `insert_unresolved_refs` calls because it incurs only
 /// one transaction commit instead of three.
-#[allow(clippy::too_many_lines)]
 pub fn store_file_batch(
     conn: &mut Connection,
     file_record: &FileRecord,
@@ -298,107 +297,130 @@ pub fn store_file_batch(
 ) -> std::io::Result<()> {
     let tx = conn.transaction().map_err(io_other)?;
 
-    // Nodes
-    if !nodes.is_empty() {
-        let mut stmt = tx
-            .prepare(
-                "INSERT INTO nodes (
-                    id, kind, name, qualified_name, file_path, language,
-                    start_line, end_line, start_column, end_column,
-                    docstring, signature, visibility,
-                    is_exported, is_async, is_static, is_abstract,
-                    decorators, type_parameters, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            )
-            .map_err(io_other)?;
-        for node in nodes {
-            let decorators = node
-                .decorators
-                .as_ref()
-                .map(|v| serde_json::to_string(v).unwrap_or_default());
-            let type_parameters = node
-                .type_parameters
-                .as_ref()
-                .map(|v| serde_json::to_string(v).unwrap_or_default());
-            let visibility = node.visibility.map(visibility_to_string);
-            stmt.execute(params![
-                node.id,
-                kind_to_string(node.kind),
-                node.name,
-                node.qualified_name,
-                node.file_path,
-                language_to_string(node.language),
-                node.start_line,
-                node.end_line,
-                node.start_column,
-                node.end_column,
-                node.docstring,
-                node.signature,
-                visibility,
-                i32::from(node.is_exported),
-                i32::from(node.is_async),
-                i32::from(node.is_static),
-                i32::from(node.is_abstract),
-                decorators,
-                type_parameters,
-                node.updated_at,
-            ])
-            .map_err(io_other)?;
-        }
-    }
+    insert_node_batch(&tx, nodes)?;
+    insert_edge_batch(&tx, edges)?;
+    insert_unresolved_ref_batch(&tx, unresolved_refs)?;
+    upsert_file_record(&tx, file_record)?;
 
-    // Edges
-    if !edges.is_empty() {
-        let mut stmt = tx
-            .prepare(
-                "INSERT INTO edges (source, target, kind, metadata, line, col)
-                 VALUES (?, ?, ?, ?, ?, ?)",
-            )
-            .map_err(io_other)?;
-        for edge in edges {
-            let metadata = edge
-                .metadata
-                .as_ref()
-                .map(|v| serde_json::to_string(v).unwrap_or_default());
-            stmt.execute(params![
-                edge.source,
-                edge.target,
-                edge_kind_to_string(edge.kind),
-                metadata,
-                edge.line,
-                edge.column,
-            ])
-            .map_err(io_other)?;
-        }
-    }
+    tx.commit().map_err(|err| {
+        warn!(file = %file_record.path, error = %err, "store_file_batch commit failed");
+        io_other(err)
+    })
+}
 
-    // Unresolved references
-    if !unresolved_refs.is_empty() {
-        let mut stmt = tx
-            .prepare(
-                "INSERT INTO unresolved_refs (
-                    from_node_id, reference_name, reference_kind, line, col, candidates
-                 ) VALUES (?, ?, ?, ?, ?, ?)",
-            )
-            .map_err(io_other)?;
-        for r in unresolved_refs {
-            let candidates = r
-                .candidates
-                .as_ref()
-                .map(|v| serde_json::to_string(v).unwrap_or_default());
-            stmt.execute(params![
-                r.from_node_id,
-                r.reference_name,
-                edge_kind_to_string(r.reference_kind),
-                r.line,
-                r.column,
-                candidates,
-            ])
-            .map_err(io_other)?;
-        }
+fn insert_node_batch(tx: &Transaction, nodes: &[Node]) -> std::io::Result<()> {
+    if nodes.is_empty() {
+        return Ok(());
     }
+    let mut stmt = tx
+        .prepare(
+            "INSERT INTO nodes (
+                id, kind, name, qualified_name, file_path, language,
+                start_line, end_line, start_column, end_column,
+                docstring, signature, visibility,
+                is_exported, is_async, is_static, is_abstract,
+                decorators, type_parameters, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .map_err(io_other)?;
+    for node in nodes {
+        let decorators = node
+            .decorators
+            .as_ref()
+            .map(|v| serde_json::to_string(v).unwrap_or_default());
+        let type_parameters = node
+            .type_parameters
+            .as_ref()
+            .map(|v| serde_json::to_string(v).unwrap_or_default());
+        let visibility = node.visibility.map(visibility_to_string);
+        stmt.execute(params![
+            node.id,
+            kind_to_string(node.kind),
+            node.name,
+            node.qualified_name,
+            node.file_path,
+            language_to_string(node.language),
+            node.start_line,
+            node.end_line,
+            node.start_column,
+            node.end_column,
+            node.docstring,
+            node.signature,
+            visibility,
+            i32::from(node.is_exported),
+            i32::from(node.is_async),
+            i32::from(node.is_static),
+            i32::from(node.is_abstract),
+            decorators,
+            type_parameters,
+            node.updated_at,
+        ])
+        .map_err(io_other)?;
+    }
+    Ok(())
+}
 
-    // File record (upsert)
+fn insert_edge_batch(tx: &Transaction, edges: &[Edge]) -> std::io::Result<()> {
+    if edges.is_empty() {
+        return Ok(());
+    }
+    let mut stmt = tx
+        .prepare(
+            "INSERT INTO edges (source, target, kind, metadata, line, col)
+             VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .map_err(io_other)?;
+    for edge in edges {
+        let metadata = edge
+            .metadata
+            .as_ref()
+            .map(|v| serde_json::to_string(v).unwrap_or_default());
+        stmt.execute(params![
+            edge.source,
+            edge.target,
+            edge_kind_to_string(edge.kind),
+            metadata,
+            edge.line,
+            edge.column,
+        ])
+        .map_err(io_other)?;
+    }
+    Ok(())
+}
+
+fn insert_unresolved_ref_batch(
+    tx: &Transaction,
+    unresolved_refs: &[UnresolvedReference],
+) -> std::io::Result<()> {
+    if unresolved_refs.is_empty() {
+        return Ok(());
+    }
+    let mut stmt = tx
+        .prepare(
+            "INSERT INTO unresolved_refs (
+                from_node_id, reference_name, reference_kind, line, col, candidates
+             ) VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .map_err(io_other)?;
+    for r in unresolved_refs {
+        let candidates = r
+            .candidates
+            .as_ref()
+            .map(|v| serde_json::to_string(v).unwrap_or_default());
+        stmt.execute(params![
+            r.from_node_id,
+            r.reference_name,
+            edge_kind_to_string(r.reference_kind),
+            r.line,
+            r.column,
+            candidates,
+        ])
+        .map_err(io_other)?;
+    }
+    Ok(())
+}
+
+fn upsert_file_record(tx: &Transaction, file_record: &FileRecord) -> std::io::Result<()> {
     let errors = file_record
         .errors
         .as_ref()
@@ -426,11 +448,7 @@ pub fn store_file_batch(
         ],
     )
     .map_err(io_other)?;
-
-    tx.commit().map_err(|err| {
-        warn!(file = %file_record.path, error = %err, "store_file_batch commit failed");
-        io_other(err)
-    })
+    Ok(())
 }
 
 pub fn search_nodes(
@@ -471,7 +489,10 @@ pub fn search_nodes(
         .query_map(rusqlite::params_from_iter(params_vec), |row| {
             // FTS rank is negative, convert to positive score (higher = better)
             let rank: f64 = row.get(20)?;
-            #[allow(clippy::cast_possible_truncation)]
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "f64 -> f32 score narrowing; no checked TryFrom<f64> for f32 in std"
+            )]
             let score = (-rank) as f32;
             Ok(SearchResult {
                 node: row_to_node(row)?,
@@ -750,8 +771,12 @@ pub fn get_all_nodes(conn: &Connection) -> std::io::Result<Vec<Node>> {
     Ok(results)
 }
 
-/// Return nodes that have no corresponding row in the `vectors` table.
-pub fn get_unembedded_nodes(conn: &Connection) -> std::io::Result<Vec<Node>> {
+/// Return nodes that have no row in the `vectors` table for `model`.
+///
+/// A node with an embedding from a *different* (previously configured)
+/// model still counts as unembedded here, so coverage reporting stays
+/// honest across model switches.
+pub fn get_unembedded_nodes(conn: &Connection, model: &str) -> std::io::Result<Vec<Node>> {
     let mut stmt = conn
         .prepare(
             "SELECT n.id, n.kind, n.name, n.qualified_name, n.file_path, n.language,
@@ -760,13 +785,15 @@ pub fn get_unembedded_nodes(conn: &Connection) -> std::io::Result<Vec<Node>> {
                     n.is_exported, n.is_async, n.is_static, n.is_abstract,
                     n.decorators, n.type_parameters, n.updated_at
              FROM nodes n
-             LEFT JOIN vectors v ON n.id = v.node_id
+             LEFT JOIN vectors v ON n.id = v.node_id AND v.model = ?1
              WHERE v.node_id IS NULL
              ORDER BY n.file_path ASC, n.start_line ASC",
         )
         .map_err(io_other)?;
 
-    let rows = stmt.query_map([], row_to_node).map_err(io_other)?;
+    let rows = stmt
+        .query_map(params![model], row_to_node)
+        .map_err(io_other)?;
     let mut results = Vec::new();
     for row in rows {
         results.push(row.map_err(io_other)?);
@@ -1077,8 +1104,65 @@ pub fn get_doc_coverage_stats(conn: &Connection) -> std::io::Result<(usize, usiz
 
 #[cfg(test)]
 mod tests {
-    use super::build_fts_query;
+    #![expect(
+        clippy::expect_used,
+        reason = "test assertions: panicking on setup failure is the correct behavior"
+    )]
+    use super::{SCHEMA_SQL, build_fts_query, get_unembedded_nodes};
     use rusqlite::Connection;
+
+    fn seed_node(conn: &Connection, id: &str) {
+        conn.execute(
+            "INSERT INTO nodes (id, kind, name, qualified_name, file_path, language,
+                start_line, end_line, start_column, end_column, updated_at)
+             VALUES (?1, 'function', ?1, ?1, 'src/lib.rs', 'rust', 1, 1, 0, 0, 0)",
+            [id],
+        )
+        .expect("insert node");
+    }
+
+    fn seed_vector(conn: &Connection, node_id: &str, model: &str) {
+        conn.execute(
+            "INSERT INTO vectors (node_id, embedding, model, created_at)
+             VALUES (?1, x'00', ?2, 0)",
+            [node_id, model],
+        )
+        .expect("insert vector");
+    }
+
+    #[test]
+    fn get_unembedded_nodes_excludes_rows_from_other_models() {
+        let conn = Connection::open_in_memory().expect("open in-memory db");
+        conn.execute_batch(SCHEMA_SQL).expect("apply schema");
+
+        seed_node(&conn, "node_a");
+        seed_node(&conn, "node_b");
+        // node_a has an embedding, but from a *different* model than the one
+        // we're checking coverage for — it must still count as unembedded.
+        seed_vector(&conn, "node_a", "other-model");
+
+        let unembedded =
+            get_unembedded_nodes(&conn, "nomic-embed-text-v1.5").expect("query unembedded");
+        let ids: Vec<&str> = unembedded.iter().map(|n| n.id.as_str()).collect();
+        assert!(ids.contains(&"node_a"));
+        assert!(ids.contains(&"node_b"));
+        assert_eq!(ids.len(), 2);
+    }
+
+    #[test]
+    fn get_unembedded_nodes_excludes_rows_from_matching_model() {
+        let conn = Connection::open_in_memory().expect("open in-memory db");
+        conn.execute_batch(SCHEMA_SQL).expect("apply schema");
+
+        seed_node(&conn, "node_a");
+        seed_node(&conn, "node_b");
+        seed_vector(&conn, "node_a", "nomic-embed-text-v1.5");
+
+        let unembedded =
+            get_unembedded_nodes(&conn, "nomic-embed-text-v1.5").expect("query unembedded");
+        let ids: Vec<&str> = unembedded.iter().map(|n| n.id.as_str()).collect();
+        assert_eq!(ids, vec!["node_b"]);
+    }
 
     #[test]
     fn build_fts_query_quotes_slash_terms() {

@@ -20,7 +20,6 @@ pub struct ResolveResult {
 }
 
 impl ReferenceResolver {
-    #[allow(clippy::option_if_let_else)]
     pub fn resolve_unresolved(
         conn: &mut rusqlite::Connection,
         project_root: &Path,
@@ -75,12 +74,9 @@ impl ReferenceResolver {
 
             // If generic resolution found nothing, try framework-specific hints.
             let candidates = if candidates.is_empty() {
-                if let Some(ref from) = from_node {
+                from_node.as_ref().map_or_else(Vec::new, |from| {
                     framework_fallback(conn, project_root, from, &reference.reference_name)
-                        .unwrap_or_default()
-                } else {
-                    candidates
-                }
+                })
             } else {
                 candidates
             };
@@ -130,20 +126,19 @@ fn nodes_from_ids(conn: &rusqlite::Connection, ids: &[String]) -> Vec<Node> {
 }
 
 /// Use framework-specific resolvers to find candidates when name search fails.
-#[allow(clippy::unnecessary_wraps)]
 fn framework_fallback(
     conn: &rusqlite::Connection,
     project_root: &Path,
     from_node: &Node,
     reference_name: &str,
-) -> std::io::Result<Vec<Node>> {
+) -> Vec<Node> {
     // from_node.file_path is relative to the project root
     let from_abs = project_root.join(&from_node.file_path);
     let from_abs_str = from_abs.to_string_lossy();
 
     let hints = frameworks::framework_path_hints(project_root, &from_abs_str, reference_name);
     if hints.is_empty() {
-        return Ok(Vec::new());
+        return Vec::new();
     }
 
     // The last "::" segment is the symbol name we're looking for in those files
@@ -157,7 +152,7 @@ fn framework_fallback(
             candidates.extend(nodes);
         }
     }
-    Ok(candidates)
+    candidates
 }
 
 fn relative_to_root(path: &Path, root: &Path) -> String {

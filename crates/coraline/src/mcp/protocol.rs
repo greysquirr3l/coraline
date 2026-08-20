@@ -446,7 +446,7 @@ mod tests {
             "method": "tools/call",
             "params": { "_meta": {} }
         });
-        #[allow(clippy::panic)] // test helper — failure is the assertion's job
+        #[expect(clippy::panic, reason = "test helper — failure is the assertion's job")]
         match validate_modern_meta(&msg) {
             MetaValidation::MissingFields(fields) => {
                 assert!(fields.contains(&META_PROTOCOL_VERSION));

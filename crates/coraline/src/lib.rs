@@ -1,11 +1,14 @@
 #![forbid(unsafe_code)]
-// Transitive dependency version conflicts we can't control (base64, getrandom, hashbrown).
-#![allow(clippy::multiple_crate_versions)]
+#![expect(
+    clippy::multiple_crate_versions,
+    reason = "transitive dependency version conflicts we can't control (base64, getrandom, hashbrown)"
+)]
 
 pub mod audit;
 pub mod config;
 pub mod context;
 pub mod db;
+pub mod doctor;
 pub mod extraction;
 pub mod graph;
 pub mod logging;

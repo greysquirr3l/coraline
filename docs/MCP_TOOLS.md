@@ -1,6 +1,6 @@
 # Coraline MCP Tools Reference
 
-Coraline exposes **29 MCP tools** when running as an MCP server (`coraline serve --mcp`).
+Coraline exposes **35 MCP tools** when running as an MCP server (`coraline serve --mcp`).
 All tool names are prefixed with `coraline_` to avoid collisions with other MCP servers.
 
 Protocol notes:
@@ -8,16 +8,7 @@ Protocol notes:
 - Expects `notifications/initialized` after `initialize` before normal requests
 - `tools/list` supports pagination via `cursor` and `nextCursor`
 
-`coraline_semantic_search` is available by default (the `embeddings` feature ships enabled) but only registered when an ONNX model is present in `.coraline/models/`. Run `coraline model download` then `coraline embed` to activate it. The remaining 28 tools are typically available; memory-backed tools may be skipped if their initialization fails (e.g. due to filesystem or permission issues).
-
-### Background Auto-Sync
-
-When the MCP server starts, it spawns a background thread that periodically checks index freshness and runs incremental sync when files have changed. This keeps the knowledge graph current without manual `coraline_sync` calls.
-
-- **Default interval:** 120 seconds (configurable via `sync.auto_sync_interval_secs` in `config.toml`)
-- **Disable:** Set `auto_sync_interval_secs = 0` in `[sync]`
-- When embeddings are enabled and an ONNX model is present, newly-added nodes are automatically embedded after each background sync
-- The background thread uses SQLite WAL mode for safe concurrent access alongside the main MCP request loop
+`coraline_semantic_search` is available by default (the `embeddings` feature ships enabled) but only registered when an ONNX model is present in the shared model directory (`~/.config/coraline/models/<model>/`, where `<model>` is `vectors.model` from config, default `nomic-embed-text-v1.5`). Run `coraline model download` then `coraline embed` to activate it — see `coraline model list` for every supported model. The remaining 34 tools are typically available; memory-backed tools may be skipped if their initialization fails (e.g. due to filesystem or permission issues).
 
 ---
 
@@ -37,6 +28,13 @@ When the MCP server starts, it spawns a background thread that periodically chec
 | | `coraline_get_symbols_overview` | List all symbols in a file |
 | | `coraline_find_references` | Find all references to a symbol |
 | | `coraline_node` | Get full node details and source code |
+| **Batch** | `coraline_batch_get_nodes` | Fetch multiple nodes by ID in one call |
+| | `coraline_batch_callers` | Get callers for multiple symbols in one call |
+| | `coraline_batch_callees` | Get callees for multiple symbols in one call |
+| **Advanced Search** | `coraline_search_by_signature` | Find symbols by type signature pattern |
+| | `coraline_search_by_docstring` | Find symbols by documentation/comment content |
+| | `coraline_search_exported_symbols` | Search only public/exported symbols |
+| | `coraline_find_by_kind_in_file` | Get all symbols of a kind in one file |
 | **Context** | `coraline_context` | Build structured context for an AI task |
 | **Audit** | `coraline_audit_docs` | Audit Markdown docs for stale references and undocumented exports |
 | **File** | `coraline_read_file` | Read file contents |
@@ -48,7 +46,6 @@ When the MCP server starts, it spawns a background thread that periodically chec
 | | `coraline_get_config` | Read project configuration |
 | | `coraline_update_config` | Update a config value |
 | | `coraline_semantic_search` | Vector similarity search (requires model download — see below) |
-| | `coraline_session_security_status` | Show live MCP session security counters and configured limits |
 | **Memory** | `coraline_write_memory` | Write or update a project memory |
 | | `coraline_read_memory` | Read a project memory |
 | | `coraline_list_memories` | List all memories |
@@ -365,6 +362,119 @@ Either `node_id` or `name` must be provided.
 
 ---
 
+## Batch Tools
+
+Fetch results for multiple symbols in one call instead of N round trips — roughly 60% fewer tokens than the equivalent sequence of single-symbol calls.
+
+### `coraline_batch_get_nodes`
+
+Fetch multiple nodes by ID in a single call.
+
+**Input:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `node_ids` | array of string | ✅ | — | Node IDs to fetch |
+| `include_body` | boolean | | `false` | Include source code body for each node |
+| `output_format` | string | | `"full"` | `"full"` or `"compact"` (65% token reduction) |
+
+**Output:** `{ "nodes": [...], "count": N, "not_found": [...] }`
+
+---
+
+### `coraline_batch_callers`
+
+Get callers for multiple symbols in a single call.
+
+**Input:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `node_ids` | array of string | ✅ | — | Node IDs to find callers for |
+| `limit_per_node` | number | | `20` | Maximum callers to return per node |
+
+**Output:** `{ "callers": { "<node_id>": [...] }, "node_count": N }`
+
+---
+
+### `coraline_batch_callees`
+
+Get callees for multiple symbols in a single call.
+
+**Input:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `node_ids` | array of string | ✅ | — | Node IDs to find callees for |
+| `limit_per_node` | number | | `20` | Maximum callees to return per node |
+
+**Output:** `{ "callees": { "<node_id>": [...] }, "node_count": N }`
+
+---
+
+## Advanced Search Tools
+
+Specialized lookups over indexed nodes, faster than full-text `coraline_search` for these specific shapes — also roughly 60% fewer tokens for the matched use case.
+
+### `coraline_search_by_signature`
+
+Find symbols by type signature pattern (case-insensitive substring match) — e.g. functions by return type or parameters.
+
+**Input:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `pattern` | string | ✅ | — | Signature substring to search for (e.g. `"Result<"`, `"async fn"`, `"<T>"`) |
+| `kind` | string | | — | Filter: `function`, `method`, `class`, `struct`, `interface`, `trait` |
+| `limit` | number | | `20` | Maximum results |
+| `output_format` | string | | `"full"` | `"full"` or `"compact"` (65% token reduction) |
+
+---
+
+### `coraline_search_by_docstring`
+
+Search symbols by documentation/comment content — find code by what it does, not just its name.
+
+**Input:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `query` | string | ✅ | — | Text to search for in docstrings/comments |
+| `kind` | string | | — | Filter: `function`, `method`, `class`, `struct`, `interface`, `trait` |
+| `limit` | number | | `20` | Maximum results |
+| `output_format` | string | | `"full"` | `"full"` or `"compact"` (65% token reduction) |
+
+---
+
+### `coraline_search_exported_symbols`
+
+Search only public/exported symbols — filters out internal implementation details to browse the public API surface.
+
+**Input:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `query` | string | ✅ | — | Symbol name pattern; use `"*"` to list all |
+| `kind` | string | | — | Filter: `function`, `method`, `class`, `struct`, `interface`, `trait`, `module` |
+| `limit` | number | | `20` | Maximum results |
+| `output_format` | string | | `"full"` | `"full"` or `"compact"` (65% token reduction) |
+
+---
+
+### `coraline_find_by_kind_in_file`
+
+Get all symbols of a specific kind in one file — fast file-scoped exploration.
+
+**Input:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `file_path` | string | ✅ | — | Path to the file (relative to project root) |
+| `kind` | string | ✅ | — | `function`, `method`, `class`, `struct`, `interface`, `trait`, `module`, `constant`, or `variable` |
+| `output_format` | string | | `"full"` | `"full"` or `"compact"` (65% token reduction) |
+
+---
+
 ## Context Tool
 
 ### `coraline_context`
@@ -520,45 +630,6 @@ Show project statistics: total files, nodes, edges, and unresolved reference cou
 
 ---
 
-### `coraline_session_security_status`
-
-Show live MCP session security counters and configured guardrail/session limits.
-Useful for runtime triage when investigating blocked or redacted tool calls.
-
-**Input:** None.
-
-**Example `tools/call` request:**
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "sec-1",
-  "method": "tools/call",
-  "params": {
-    "name": "coraline_session_security_status",
-    "arguments": {}
-  }
-}
-```
-
-**Example `tools/call` response:**
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "sec-1",
-  "result": {
-    "content": [
-      {
-        "type": "text",
-        "text": "{\"session\":{\"tool_calls\":12,\"guardrail_hits\":3,\"blocked_calls\":1},\"limits\":{\"enabled\":true,\"max_tool_calls_per_session\":500,\"max_guardrail_hits_per_session\":100,\"max_blocked_calls_per_session\":25},\"security\":{\"enabled\":true,\"input_guardrail_mode\":\"monitor\",\"output_guardrail_mode\":\"enforce\"}}"
-      }
-    ],
-    "isError": false
-  }
-}
-```
-
----
-
 ### `coraline_get_config`
 
 Read the current project configuration from `.coraline/config.toml`.
@@ -604,14 +675,31 @@ Trigger an incremental sync of the index. Detects files added, modified, or remo
 
 ### `coraline_semantic_search`
 
-Search indexed nodes using natural-language vector similarity. Included in the default build; only registered as an MCP tool once an ONNX model is present in `.coraline/models/`. To activate:
+Search indexed nodes using natural-language vector similarity. Included in the default build; only registered as an MCP tool once an ONNX model is present in the shared model directory (`~/.config/coraline/models/<model>/`, `<model>` from `vectors.model`). To activate:
 
 ```bash
-coraline model download   # download nomic-embed-text-v1.5 (~137 MB)
+coraline model download   # download the configured model (default nomic-embed-text-v1.5, ~137 MB)
 coraline embed            # generate embeddings for all indexed nodes
 ```
 
-When this tool is used, Coraline periodically performs a throttled freshness check. If indexed state is stale it runs incremental sync automatically, then refreshes stale/missing embeddings before search.
+Run `coraline model list` to see every supported model, including the code-specialised `jina-embeddings-v2-base-code`.
+
+When this tool is used, Coraline periodically performs a throttled freshness check. If indexed state is stale it runs incremental sync automatically, then refreshes stale/missing embeddings before search. Results and coverage are scoped to whichever model is currently configured — embeddings from a previously-configured model are ignored, not mixed in.
+
+**Structured error when the model is missing:**
+
+If the ONNX model can't be loaded (not downloaded yet, or `tokenizer.json`/weights missing), the tool call fails with `isError: true` and a structured `EMBEDDING_MODEL_MISSING` envelope in `structuredContent`, so an agent can branch on `code` instead of parsing free-form text:
+
+```json
+{
+  "code": "EMBEDDING_MODEL_MISSING",
+  "message": "Embedding model is not present. Run `coraline model download` to download it.",
+  "recover": {
+    "command": "coraline model download",
+    "docs": "https://github.com/greysquirr3l/coraline#embeddings (debug: load failed: ...)"
+  }
+}
+```
 
 **Input:**
 
