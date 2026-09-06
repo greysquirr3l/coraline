@@ -10,6 +10,9 @@ CREATE TABLE IF NOT EXISTS schema_versions (
 INSERT INTO schema_versions (version, applied_at, description)
 VALUES (1, strftime('%s', 'now') * 1000, 'Initial schema');
 
+INSERT INTO schema_versions (version, applied_at, description)
+VALUES (2, strftime('%s', 'now') * 1000, 'Add edges.confidence for resolution-strength scoring (Phase 5.2)');
+
 CREATE TABLE IF NOT EXISTS nodes (
     id TEXT PRIMARY KEY,
     kind TEXT NOT NULL,
@@ -41,6 +44,7 @@ CREATE TABLE IF NOT EXISTS edges (
     metadata TEXT,
     line INTEGER,
     col INTEGER,
+    confidence REAL NOT NULL DEFAULT 1.0,
     FOREIGN KEY (source) REFERENCES nodes(id) ON DELETE CASCADE,
     FOREIGN KEY (target) REFERENCES nodes(id) ON DELETE CASCADE
 );

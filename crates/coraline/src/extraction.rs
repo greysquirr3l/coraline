@@ -750,6 +750,7 @@ fn walk_tree_collect(
                 metadata: None,
                 line: Some(start.row as i64 + 1),
                 column: Some(start.column as i64),
+                confidence: 1.0,
             });
 
             if kind == NodeKind::Import {
@@ -760,6 +761,7 @@ fn walk_tree_collect(
                     metadata: None,
                     line: Some(start.row as i64 + 1),
                     column: Some(start.column as i64),
+                    confidence: 1.0,
                 });
             }
 
@@ -771,6 +773,7 @@ fn walk_tree_collect(
                     metadata: None,
                     line: Some(start.row as i64 + 1),
                     column: Some(start.column as i64),
+                    confidence: 1.0,
                 });
             }
         }
@@ -841,6 +844,7 @@ fn walk_tree_calls(
                             metadata: None,
                             line: Some(start.row as i64 + 1),
                             column: Some(start.column as i64),
+                            confidence: 1.0,
                         });
                     }
                     Some(targets) => {
@@ -978,6 +982,7 @@ fn add_import_nodes(
             metadata: None,
             line: Some(start.row as i64 + 1),
             column: Some(start.column as i64),
+            confidence: 1.0,
         });
         edges.push(Edge {
             source: parent_id.clone(),
@@ -986,6 +991,7 @@ fn add_import_nodes(
             metadata: None,
             line: Some(start.row as i64 + 1),
             column: Some(start.column as i64),
+            confidence: 1.0,
         });
     }
 }
@@ -1552,6 +1558,7 @@ fn add_module_node(
         metadata: None,
         line: Some(start.row as i64 + 1),
         column: Some(start.column as i64),
+        confidence: 1.0,
     });
 }
 
@@ -1639,6 +1646,7 @@ fn add_export_nodes(
             metadata: None,
             line: Some(start.row as i64 + 1),
             column: Some(start.column as i64),
+            confidence: 1.0,
         });
         edges.push(Edge {
             source: parent_id.clone(),
@@ -1647,6 +1655,7 @@ fn add_export_nodes(
             metadata: None,
             line: Some(start.row as i64 + 1),
             column: Some(start.column as i64),
+            confidence: 1.0,
         });
     }
 }
