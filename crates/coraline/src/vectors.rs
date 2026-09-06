@@ -780,8 +780,10 @@ pub fn load_embedding(conn: &Connection, node_id: &str) -> io::Result<Option<Vec
 
             // Convert bytes back to f32 slice
             let embedding: Vec<f32> = bytes
-                .chunks_exact(4)
-                .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|chunk| f32::from_le_bytes(*chunk))
                 .collect();
             Ok(Some(embedding))
         }
@@ -869,8 +871,10 @@ pub fn search_similar(
 
             // Convert bytes to f32 vector
             let embedding: Vec<f32> = embedding_bytes
-                .chunks_exact(4)
-                .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|chunk| f32::from_le_bytes(*chunk))
                 .collect();
 
             let similarity = cosine_similarity(query_embedding, &embedding);

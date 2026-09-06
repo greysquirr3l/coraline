@@ -169,6 +169,13 @@ impl Tool for CallersTool {
                     "description": "Maximum number of callers to return",
                     "default": 20
                 },
+                "min_confidence": {
+                    "type": "number",
+                    "description": "Minimum edge resolution confidence in [0.0, 1.0]. Edges below this threshold are filtered out. Default: 0.0 (include all).",
+                    "minimum": 0.0,
+                    "maximum": 1.0,
+                    "default": 0.0
+                },
                 "output_format": {
                     "type": "string",
                     "description": "Output format: 'full' (verbose) or 'compact' (65% token reduction)",
@@ -202,6 +209,19 @@ impl Tool for CallersTool {
         let limit = usize::try_from(params.get("limit").and_then(Value::as_u64).unwrap_or(20))
             .unwrap_or(usize::MAX);
 
+        let min_confidence = params
+            .get("min_confidence")
+            .and_then(Value::as_f64)
+            .map(|v| {
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "min_confidence is constrained to [0.0, 1.0] by the input schema"
+                )]
+                let v = v as f32;
+                v
+            })
+            .filter(|v| v.is_finite());
+
         let output_format = params
             .get("output_format")
             .and_then(Value::as_str)
@@ -212,8 +232,14 @@ impl Tool for CallersTool {
             .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
 
         // Get edges where this node is the target
-        let edges = db::get_edges_by_target(&conn, node_id, edge_kind, limit)
-            .map_err(|e| ToolError::internal_error(format!("Failed to get edges: {e}")))?;
+        let edges = db::get_edges_by_target_with_confidence(
+            &conn,
+            node_id,
+            edge_kind,
+            limit,
+            min_confidence,
+        )
+        .map_err(|e| ToolError::internal_error(format!("Failed to get edges: {e}")))?;
 
         let mut callers = Vec::new();
         for edge in edges {
@@ -293,6 +319,13 @@ impl Tool for CalleesTool {
                     "description": "Maximum number of callees to return",
                     "default": 20
                 },
+                "min_confidence": {
+                    "type": "number",
+                    "description": "Minimum edge resolution confidence in [0.0, 1.0]. Edges below this threshold are filtered out. Default: 0.0 (include all).",
+                    "minimum": 0.0,
+                    "maximum": 1.0,
+                    "default": 0.0
+                },
                 "output_format": {
                     "type": "string",
                     "description": "Output format: 'full' (verbose) or 'compact' (65% token reduction)",
@@ -326,6 +359,19 @@ impl Tool for CalleesTool {
         let limit = usize::try_from(params.get("limit").and_then(Value::as_u64).unwrap_or(20))
             .unwrap_or(usize::MAX);
 
+        let min_confidence = params
+            .get("min_confidence")
+            .and_then(Value::as_f64)
+            .map(|v| {
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "min_confidence is constrained to [0.0, 1.0] by the input schema"
+                )]
+                let v = v as f32;
+                v
+            })
+            .filter(|v| v.is_finite());
+
         let output_format = params
             .get("output_format")
             .and_then(Value::as_str)
@@ -336,8 +382,14 @@ impl Tool for CalleesTool {
             .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
 
         // Get edges where this node is the source
-        let edges = db::get_edges_by_source(&conn, node_id, edge_kind, limit)
-            .map_err(|e| ToolError::internal_error(format!("Failed to get edges: {e}")))?;
+        let edges = db::get_edges_by_source_with_confidence(
+            &conn,
+            node_id,
+            edge_kind,
+            limit,
+            min_confidence,
+        )
+        .map_err(|e| ToolError::internal_error(format!("Failed to get edges: {e}")))?;
 
         let mut callees = Vec::new();
         for edge in edges {
@@ -744,6 +796,13 @@ impl Tool for FindReferencesTool {
                     "type": "number",
                     "description": "Maximum number of references to return",
                     "default": 50
+                },
+                "min_confidence": {
+                    "type": "number",
+                    "description": "Minimum edge resolution confidence in [0.0, 1.0]. Edges below this threshold are filtered out. Default: 0.0 (include all).",
+                    "minimum": 0.0,
+                    "maximum": 1.0,
+                    "default": 0.0
                 }
             },
             "required": ["node_id"]
@@ -771,11 +830,30 @@ impl Tool for FindReferencesTool {
         let limit = usize::try_from(params.get("limit").and_then(Value::as_u64).unwrap_or(50))
             .unwrap_or(usize::MAX);
 
+        let min_confidence = params
+            .get("min_confidence")
+            .and_then(Value::as_f64)
+            .map(|v| {
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "min_confidence is constrained to [0.0, 1.0] by the input schema"
+                )]
+                let v = v as f32;
+                v
+            })
+            .filter(|v| v.is_finite());
+
         let conn = db::open_database(&self.project_root)
             .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
 
-        let edges = db::get_edges_by_target(&conn, node_id, edge_kind, limit)
-            .map_err(|e| ToolError::internal_error(format!("Failed to get edges: {e}")))?;
+        let edges = db::get_edges_by_target_with_confidence(
+            &conn,
+            node_id,
+            edge_kind,
+            limit,
+            min_confidence,
+        )
+        .map_err(|e| ToolError::internal_error(format!("Failed to get edges: {e}")))?;
 
         let mut references = Vec::new();
         for edge in &edges {
