@@ -1308,13 +1308,7 @@ mod tests {
 
     // Phase 5.2 — `edges.confidence` resolution-strength scoring.
 
-    fn seed_edge(
-        conn: &Connection,
-        source: &str,
-        target: &str,
-        kind: &str,
-        confidence: f64,
-    ) {
+    fn seed_edge(conn: &Connection, source: &str, target: &str, kind: &str, confidence: f64) {
         conn.execute(
             "INSERT INTO edges (source, target, kind, line, col, confidence)
              VALUES (?1, ?2, ?3, 1, 0, ?4)",
@@ -1372,19 +1366,13 @@ mod tests {
         seed_edge(&conn, "high", "callee", "calls", 0.95);
         seed_edge(&conn, "low", "callee", "calls", 0.5);
 
-        let all =
-            super::get_edges_by_target_with_confidence(&conn, "callee", None, 100, None)
-                .expect("query all");
+        let all = super::get_edges_by_target_with_confidence(&conn, "callee", None, 100, None)
+            .expect("query all");
         assert_eq!(all.len(), 2);
 
-        let high_only = super::get_edges_by_target_with_confidence(
-            &conn,
-            "callee",
-            None,
-            100,
-            Some(0.8),
-        )
-        .expect("query high");
+        let high_only =
+            super::get_edges_by_target_with_confidence(&conn, "callee", None, 100, Some(0.8))
+                .expect("query high");
         assert_eq!(high_only.len(), 1);
         assert!((high_only[0].confidence - 0.95).abs() < 1e-6);
     }
@@ -1401,19 +1389,13 @@ mod tests {
         seed_edge(&conn, "caller", "a", "calls", 0.95);
         seed_edge(&conn, "caller", "b", "calls", 0.5);
 
-        let all =
-            super::get_edges_by_source_with_confidence(&conn, "caller", None, 100, None)
-                .expect("query all");
+        let all = super::get_edges_by_source_with_confidence(&conn, "caller", None, 100, None)
+            .expect("query all");
         assert_eq!(all.len(), 2);
 
-        let high_only = super::get_edges_by_source_with_confidence(
-            &conn,
-            "caller",
-            None,
-            100,
-            Some(0.8),
-        )
-        .expect("query high");
+        let high_only =
+            super::get_edges_by_source_with_confidence(&conn, "caller", None, 100, Some(0.8))
+                .expect("query high");
         assert_eq!(high_only.len(), 1);
         assert!((high_only[0].confidence - 0.95).abs() < 1e-6);
     }
