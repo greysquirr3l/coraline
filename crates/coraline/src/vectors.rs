@@ -613,8 +613,8 @@ pub fn f64_to_f32_lossy(v: f64) -> f32 {
     // exponent, and the top 20 mantissa bits — exactly what f32 needs,
     // modulo the exponent bias difference (f64 uses 1023, f32 uses 127).
     let high32 = u32::try_from(bits >> 32).unwrap_or(0);
-    let sign = high32 & 0x80000000;
-    let exp_f64 = ((high32 >> 20) & 0x7ff) as i32; // 11-bit f64 exponent
+    let sign = high32 & 0x8000_0000;
+    let exp_f64 = i32::try_from((high32 >> 20) & 0x7ff).unwrap_or(0); // 11-bit f64 exponent
     let mantissa = high32 & 0x0007_ffff; // top 20 bits of f64 mantissa
     // Rebias exponent: f32_exp = saturating(f64_exp - 1023 + 127, 0..=255).
     // We use wrapping arithmetic to avoid `as` casts and `i32::try_from`.
@@ -842,7 +842,7 @@ pub fn load_embedding(conn: &Connection, node_id: &str) -> io::Result<Option<Vec
     #[cfg(feature = "vec-ext")]
     {
         crate::vec_ext::runtime::enable_extension(conn)?;
-        return crate::vec_ext::runtime::load_embedding_vec0(conn, node_id);
+        crate::vec_ext::runtime::load_embedding_vec0(conn, node_id)
     }
 
     // Default BLOB path.
@@ -938,13 +938,13 @@ pub fn search_similar(
     #[cfg(feature = "vec-ext")]
     {
         crate::vec_ext::runtime::enable_extension(conn)?;
-        return crate::vec_ext::runtime::search_similar_vec0(
+        crate::vec_ext::runtime::search_similar_vec0(
             conn,
             query_embedding,
             model,
             limit,
             min_similarity,
-        );
+        )
     }
 
     // Default BLOB-cosine path.
@@ -1244,8 +1244,8 @@ mod tests {
     // ── Global vs local model dir helpers (Phase 5.x — `coraline init` scope prompt) ──
 
     #[test]
-    fn local_model_dir_returns_project_local_path() {
-        let tmp = tempfile::tempdir().expect("tempdir");
+    fn local_model_dir_returns_project_local_path() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp = tempfile::tempdir()?;
         let dir = local_model_dir(tmp.path(), "nomic-embed-text-v1.5");
         assert_eq!(
             dir,
@@ -1254,25 +1254,29 @@ mod tests {
                 .join("models")
                 .join("nomic-embed-text-v1.5")
         );
+        Ok(())
     }
 
     #[test]
-    fn is_model_installed_false_for_empty_dir() {
-        let tmp = tempfile::tempdir().expect("tempdir");
+    fn is_model_installed_false_for_empty_dir() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp = tempfile::tempdir()?;
         assert!(!is_model_installed(tmp.path(), DEFAULT_MODEL));
+        Ok(())
     }
 
     #[test]
-    fn is_model_installed_true_when_preferred_variant_present() {
-        let tmp = tempfile::tempdir().expect("tempdir");
+    fn is_model_installed_true_when_preferred_variant_present()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let tmp = tempfile::tempdir()?;
         // Drop the first preferred variant file in place — `is_model_installed`
         // should detect it and return true.
-        let spec = model_spec(DEFAULT_MODEL).expect("spec");
+        let spec = model_spec(DEFAULT_MODEL)?;
         let preferred = spec
             .preference_order
             .first()
-            .expect("at least one preference");
-        std::fs::write(tmp.path().join(preferred), b"fake onnx").expect("write");
+            .ok_or("model_spec returned no preferred variants")?;
+        std::fs::write(tmp.path().join(preferred), b"fake onnx")?;
         assert!(is_model_installed(tmp.path(), DEFAULT_MODEL));
+        Ok(())
     }
 }

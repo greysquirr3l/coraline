@@ -214,7 +214,7 @@ impl Tool for CallersTool {
         let min_confidence = params
             .get("min_confidence")
             .and_then(Value::as_f64)
-            .map(|v| f64_to_f32_lossy(v))
+            .map(f64_to_f32_lossy)
             .filter(|v| v.is_finite());
 
         let output_format = params
@@ -357,7 +357,7 @@ impl Tool for CalleesTool {
         let min_confidence = params
             .get("min_confidence")
             .and_then(Value::as_f64)
-            .map(|v| f64_to_f32_lossy(v))
+            .map(f64_to_f32_lossy)
             .filter(|v| v.is_finite());
 
         let output_format = params
@@ -821,7 +821,7 @@ impl Tool for FindReferencesTool {
         let min_confidence = params
             .get("min_confidence")
             .and_then(Value::as_f64)
-            .map(|v| f64_to_f32_lossy(v))
+            .map(f64_to_f32_lossy)
             .filter(|v| v.is_finite());
 
         let conn = db::open_database(&self.project_root)

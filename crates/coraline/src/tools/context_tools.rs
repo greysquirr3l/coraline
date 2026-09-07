@@ -120,7 +120,7 @@ impl Tool for BuildContextTool {
             min_score: params
                 .get("min_score")
                 .and_then(Value::as_f64)
-                .map(|f| f64_to_f32_lossy(f)),
+                .map(f64_to_f32_lossy),
         };
 
         let context = context::build_context(&self.project_root, task, &options)

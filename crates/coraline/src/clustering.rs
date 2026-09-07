@@ -199,8 +199,7 @@ fn load_call_graph(conn: &Connection) -> io::Result<(Vec<String>, NeighbourMap)>
 fn hash_str_to_i64(s: &str) -> i64 {
     let mut h = std::hash::DefaultHasher::new();
     s.hash(&mut h);
-    let v = i64::try_from(h.finish()).unwrap_or(0);
-    v
+    i64::try_from(h.finish()).unwrap_or(0)
 }
 
 // ---------------------------------------------------------------------------
@@ -657,8 +656,7 @@ mod tests {
     }
 
     #[test]
-    fn process_tracing_respects_cycle_protection()
-    -> Result<(), Box<dyn std::error::Error>> {
+    fn process_tracing_respects_cycle_protection() -> Result<(), Box<dyn std::error::Error>> {
         let mut conn = fresh_db()?;
         seed_call(&conn, "entry", "a")?;
         seed_call(&conn, "a", "b")?;
@@ -670,8 +668,7 @@ mod tests {
     }
 
     #[test]
-    fn process_for_returns_none_for_unconnected_node()
-    -> Result<(), Box<dyn std::error::Error>> {
+    fn process_for_returns_none_for_unconnected_node() -> Result<(), Box<dyn std::error::Error>> {
         let conn = fresh_db()?;
         seed_call(&conn, "a", "b")?;
         conn.execute(
@@ -689,4 +686,3 @@ mod tests {
         Ok(())
     }
 }
-
