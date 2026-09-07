@@ -79,11 +79,13 @@ tree-sitter-zig = "1.1.2"
 tree-sitter-php = "0.24.2"
 tree-sitter-swift = "0.7.1"
 tree-sitter-kotlin-ng = "1.1.0"  # Using -ng fork which is compatible with tree-sitter 0.26
+sqlite-vec = { version = "=0.1.10-alpha.4", default-features = false, optional = true }
 
 [features]
 default = ["embeddings"]
 embeddings = ["dep:ort", "dep:tokenizers", "dep:ndarray", "ort/download-binaries", "ort/tls-rustls"]
 embeddings-dynamic = ["dep:ort", "dep:tokenizers", "dep:ndarray", "ort/load-dynamic"]
+vec-ext = ["dep:sqlite-vec"]
 
 [dev-dependencies]
 tempfile = "3"
