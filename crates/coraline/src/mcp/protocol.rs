@@ -447,12 +447,8 @@ mod tests {
             "params": { "_meta": {} }
         });
         let meta = validate_modern_meta(&msg);
-        let fields = match meta {
-            MetaValidation::MissingFields(f) => f,
-            // Any other variant is a test failure — return an error
-            // rather than panicking, so this works under the workspace's
-            // `-D clippy::panic` policy.
-            _ => return Err(format!("expected MissingFields, got {meta:?}").into()),
+        let MetaValidation::MissingFields(fields) = meta else {
+            return Err(format!("expected MissingFields, got {meta:?}").into());
         };
         assert!(fields.contains(&META_PROTOCOL_VERSION));
         assert!(fields.contains(&META_CLIENT_INFO));

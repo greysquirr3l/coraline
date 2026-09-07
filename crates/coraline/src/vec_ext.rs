@@ -250,7 +250,8 @@ fn floats_to_json(floats: &[f32]) -> String {
             s.push(',');
         }
         // Compact representation; SQLite handles scientific notation.
-        s.push_str(&format!("{f}"));
+        use std::fmt::Write as _;
+        let _ = write!(s, "{f}");
     }
     s.push(']');
     s
@@ -285,18 +286,29 @@ pub mod runtime {
     /// we don't currently need a handle (kept for forward compat).
     pub fn enable_extension(_conn: &Connection) -> io::Result<()> {
         // SAFETY: `sqlite3_vec_init` is the `extern "C"` symbol that
-        // sqlite-vec exports. Registering it as an auto-extension
-        // makes SQLite call it on every new connection; the function
-        // itself is idempotent (it just registers a virtual-table
-        // module). Transmuting the function pointer to `sqlite3_auto_extension`'s
-        // expected signature (`unsafe extern "C" fn()`) is the
-        // documented installation pattern.
+        // sqlite-vec exports. `rusqlite::auto_extension::register_auto_extension`
+        // expects a `RawAutoExtension` — a different signature — so we
+        // wrap our init through `init_auto_extension`, which bridges a
+        // safe `AutoExtension = fn(Connection) -> Result<()>` to the
+        // raw C callback. The init function itself is idempotent
+        // (it just registers a virtual-table module).
+        let raw: rusqlite::auto_extension::RawAutoExtension = init_auto_extension;
         unsafe {
-            rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
-                sqlite3_vec_init as *const (),
-            )));
+            rusqlite::auto_extension::register_auto_extension(raw).map_err(io::Error::other)?;
         }
         Ok(())
+    }
+
+    /// Raw bridge: adapts our `extern "C" fn()` sqlite3_vec_init to the
+    /// `RawAutoExtension` callback signature. The `conn` parameter is
+    /// ignored because sqlite-vec's `sqlite3_vec_init` doesn't need it.
+    extern "C" fn init_auto_extension(
+        _db: *mut rusqlite::ffi::sqlite3,
+        _pz_err_msg: *mut *mut std::ffi::c_char,
+        _: *const rusqlite::ffi::sqlite3_api_routines,
+    ) -> std::ffi::c_int {
+        unsafe { sqlite3_vec_init() }
+        rusqlite::ffi::SQLITE_OK
     }
 
     /// Store an embedding in the vec0 `vectors_vec` table plus the
@@ -312,7 +324,8 @@ pub mod runtime {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_err(|e| io::Error::other(format!("clock error: {e}")))?
-            .as_millis() as i64;
+            .as_millis();
+        let now = i64::try_from(now).unwrap_or(0);
 
         // Upsert pattern: if a row already exists for this node_id,
         // drop the old mapping first. The vec0 row stays (sqlite-vec
@@ -467,18 +480,20 @@ pub mod runtime {
         use super::*;
         use crate::db;
 
-        fn fresh_db() -> Connection {
+        fn fresh_db() -> Result<Connection, Box<dyn std::error::Error>> {
             // sqlite-vec registers itself as a SQLite auto-extension,
             // which means the callback fires only on connection OPEN.
-            // Register the extension *first*, then open the connection
-            // — otherwise the vec0 module won't be loaded.
-            enable_extension_dummy().expect("register auto-extension");
+            // Register the extension *first*, then open the connection.
+            enable_extension_dummy()?;
 
-            let conn = Connection::open_in_memory().expect("open in-memory db");
-            conn.execute_batch(db::SCHEMA_SQL).expect("apply schema");
-            db::apply_incremental_migrations(&conn).expect("migrate");
+            let conn = rusqlite::Connection::open_in_memory()?;
+            conn.execute_batch(db::SCHEMA_SQL)?;
+            db::apply_incremental_migrations(&conn)?;
             // Create the vec0 + meta tables that migrate_to_vec0 would
-            // create on disk.
+            // create on disk. The default `vectors` BLOB table is
+            // dropped by the migration if it exists; here we don't run
+            // the migration path and just create the vec0 tables
+            // directly on top of the empty schema.
             conn.execute_batch(
                 "CREATE VIRTUAL TABLE vectors_vec USING vec0(
                      embedding float[768]
@@ -489,121 +504,85 @@ pub mod runtime {
                      model TEXT NOT NULL,
                      created_at INTEGER NOT NULL
                  );",
-            )
-            .expect("create vec0 schema");
-            conn
+            )?;
+            Ok(conn)
         }
 
-        /// Test-only helper: register the sqlite-vec auto-extension
-        /// without needing a real `Connection` handle. Used by
-        /// `fresh_db` because `sqlite3_auto_extension` only fires on
-        /// connection OPEN, so we have to register it before opening
-        /// the in-memory connection.
-        fn enable_extension_dummy() -> std::io::Result<()> {
-            // SAFETY: same as `enable_extension` — we register
-            // `sqlite3_vec_init` as a process-wide auto-extension so
-            // every future `Connection::open_*` picks it up.
-            //
-            // In production, the proper hook is to call
-            // `crate::vec_ext::runtime::enable_extension(&conn)` once on
-            // any connection after it's opened — but since the
-            // auto-extension callback is already registered at that
-            // point, it won't retroactively load into THIS connection.
-            // The tests use this dummy variant to register the
-            // auto-extension before opening the connection.
-            unsafe {
-                rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
-                    sqlite3_vec_init as *const (),
-                )));
-            }
+        #[test]
+        fn enable_extension_makes_vec_version_queryable() -> Result<(), Box<dyn std::error::Error>>
+        {
+            let conn = fresh_db()?;
+
+            // After enabling sqlite-vec, the vec_version() SQL function
+            // should be registered.
+            let version: String = conn.query_row("SELECT vec_version()", [], |row| row.get(0))?;
+            assert!(version.starts_with('v'), "got version: {version}");
             Ok(())
         }
 
         #[test]
-        fn enable_extension_makes_vec_version_queryable() {
-            let conn = fresh_db();
-            enable_extension(&conn).expect("enable extension");
-            // After enabling sqlite-vec, the vec_version() SQL function
-            // should be registered.
-            let version: String = conn
-                .query_row("SELECT vec_version()", [], |row| row.get(0))
-                .expect("vec_version() should be registered");
-            assert!(version.starts_with('v'), "got version: {version}");
-        }
+        fn store_and_load_embedding_round_trip() -> Result<(), Box<dyn std::error::Error>> {
+            let conn = fresh_db()?;
+            enable_extension(&conn)?;
 
-        #[test]
-        fn store_and_load_embedding_round_trip() {
-            let conn = fresh_db();
-            enable_extension(&conn).expect("enable extension");
-
-            // 768-dim unit-vector-like input (sparse values for variety).
             let mut embedding = vec![0.0_f32; 768];
             embedding[0] = 1.0;
             embedding[100] = 0.5;
             embedding[500] = -0.25;
 
-            store_embedding_vec0(&conn, "node-a", &embedding, "nomic-embed-text-v1.5")
-                .expect("store");
+            store_embedding_vec0(&conn, "node-a", &embedding, "nomic-embed-text-v1.5")?;
 
-            let loaded = load_embedding_vec0(&conn, "node-a")
-                .expect("load")
-                .expect("embedding present");
+            let loaded = load_embedding_vec0(&conn, "node-a")?.ok_or("embedding not found")?;
             assert_eq!(loaded.len(), 768);
             assert!((loaded[0] - 1.0).abs() < 1e-6);
             assert!((loaded[100] - 0.5).abs() < 1e-6);
             assert!((loaded[500] + 0.25).abs() < 1e-6);
+            Ok(())
         }
 
         #[test]
-        fn store_embedding_vec0_is_an_upsert() {
-            let conn = fresh_db();
-            enable_extension(&conn).expect("enable extension");
+        fn store_embedding_vec0_is_an_upsert() -> Result<(), Box<dyn std::error::Error>> {
+            let conn = fresh_db()?;
+            enable_extension(&conn)?;
 
             let mut v1 = vec![0.0_f32; 768];
             v1[0] = 1.0;
-            store_embedding_vec0(&conn, "node-x", &v1, "m1").expect("store v1");
+            store_embedding_vec0(&conn, "node-x", &v1, "m1")?;
 
             let mut v2 = vec![0.0_f32; 768];
             v2[0] = 0.0;
             v2[1] = 1.0;
-            store_embedding_vec0(&conn, "node-x", &v2, "m2").expect("store v2 (upsert)");
+            store_embedding_vec0(&conn, "node-x", &v2, "m2")?;
 
-            let loaded = load_embedding_vec0(&conn, "node-x")
-                .expect("load")
-                .expect("present");
-            // The second write replaces the first — first dim is now zero,
-            // second dim is one.
+            let loaded = load_embedding_vec0(&conn, "node-x")?.ok_or("embedding not found")?;
             assert!((loaded[0]).abs() < 1e-6);
             assert!((loaded[1] - 1.0).abs() < 1e-6);
 
-            // Metadata (model tag) should also reflect the upsert.
-            let model: String = conn
-                .query_row(
-                    "SELECT model FROM vectors_meta WHERE node_id = ?1",
-                    rusqlite::params!["node-x"],
-                    |row| row.get(0),
-                )
-                .expect("query model");
+            let model: String = conn.query_row(
+                "SELECT model FROM vectors_meta WHERE node_id = ?1",
+                rusqlite::params!["node-x"],
+                |row| row.get(0),
+            )?;
             assert_eq!(model, "m2");
+            Ok(())
         }
 
         #[test]
-        fn search_similar_returns_nearest_first() {
-            let conn = fresh_db();
-            enable_extension(&conn).expect("enable extension");
+        fn search_similar_returns_nearest_first() -> Result<(), Box<dyn std::error::Error>> {
+            let conn = fresh_db()?;
+            enable_extension(&conn)?;
 
-            // Three distinct 768-dim unit vectors along different axes.
             let mut a = vec![0.0_f32; 768];
             a[0] = 1.0;
             let mut b = vec![0.0_f32; 768];
             b[1] = 1.0;
             let mut c = vec![0.0_f32; 768];
             c[2] = 1.0;
-            let query = a.clone(); // nearest to `a`
+            let query = a.clone();
 
-            store_embedding_vec0(&conn, "a", &a, "m").expect("a");
-            store_embedding_vec0(&conn, "b", &b, "m").expect("b");
-            store_embedding_vec0(&conn, "c", &c, "m").expect("c");
+            store_embedding_vec0(&conn, "a", &a, "m")?;
+            store_embedding_vec0(&conn, "b", &b, "m")?;
+            store_embedding_vec0(&conn, "c", &c, "m")?;
 
             // `search_similar_vec0` joins against the `nodes` table to
             // fill in `SearchResult` fields, so seed those rows too.
@@ -615,22 +594,31 @@ pub mod runtime {
                      VALUES (?1, 'function', ?1, ?1, 'src/lib.rs', 'rust',
                      1, 1, 0, 0, 1, 0, 0, 0, 0)",
                     [id],
-                )
-                .expect("insert node");
+                )?;
             }
 
             // sqlite-vec's `distance` is L2 (Euclidean), not cosine.
             // For unit vectors at opposite axes, L2 distance is
-            // sqrt(2) ≈ 1.414 — well above the cosine-distance-equivalent
-            // of 1.0. Use `min_similarity = -1.0` so `max_distance = 2.0`
-            // covers all unit-vector pairs (max possible L2 distance is
-            // sqrt(2 * 768) ≈ 39 for unit vectors in 768-d).
-            let results = search_similar_vec0(&conn, &query, "m", 3, -1.0).expect("search");
+            // sqrt(2) ≈ 1.414. Use `min_similarity = -1.0` so
+            // `max_distance = 2.0` covers all unit-vector pairs.
+            let results = search_similar_vec0(&conn, &query, "m", 3, -1.0)?;
             assert_eq!(results.len(), 3);
-            assert_eq!(
-                results[0].node.id, "a",
-                "first hit should be the query itself"
-            );
+            assert_eq!(results.first().expect("non-empty").node.id, "a");
+            Ok(())
+        }
+
+        fn enable_extension_dummy() -> Result<(), Box<dyn std::error::Error>> {
+            // SAFETY: sqlite-vec's `sqlite3_vec_init` is the documented
+            // auto-extension entry point. `init_auto_extension` is the
+            // raw C signature bridge that `register_auto_extension`
+            // expects — it wraps a safe `AutoExtension` callback into a
+            // C-compatible `extern "C" fn`. The init function itself
+            // is idempotent.
+            let raw: rusqlite::auto_extension::RawAutoExtension = init_auto_extension;
+            unsafe {
+                rusqlite::auto_extension::register_auto_extension(raw)?;
+            }
+            Ok(())
         }
     }
 }

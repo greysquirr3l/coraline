@@ -1936,9 +1936,10 @@ const SPINNER_TICK_MS: u64 = 80;
 /// custom tick animation.
 fn spinner_bar(len: u64, template: &str) -> ProgressBar {
     let pb = ProgressBar::new(len);
-    let style = ProgressStyle::with_template(template)
-        .map(|s| s.tick_strings(SPINNER_FRAMES))
-        .unwrap_or_else(|_| ProgressStyle::default_bar());
+    let style = ProgressStyle::with_template(template).map_or_else(
+        |_| ProgressStyle::default_bar(),
+        |s| s.tick_strings(SPINNER_FRAMES),
+    );
     pb.set_style(style);
     pb.enable_steady_tick(std::time::Duration::from_millis(SPINNER_TICK_MS));
     pb
@@ -1949,9 +1950,10 @@ fn spinner_indefinite(message: &'static str) -> ProgressBar {
     let pb = ProgressBar::new_spinner();
     // Fall back to `ProgressStyle::default_bar()` if the template fails to
     // compile — the spinner still works, just without the cyan tint.
-    let style = ProgressStyle::with_template("{spinner:.cyan} {msg}")
-        .map(|s| s.tick_strings(SPINNER_FRAMES))
-        .unwrap_or_else(|_| ProgressStyle::default_bar());
+    let style = ProgressStyle::with_template("{spinner:.cyan} {msg}").map_or_else(
+        |_| ProgressStyle::default_bar(),
+        |s| s.tick_strings(SPINNER_FRAMES),
+    );
     pb.set_style(style);
     pb.set_message(message);
     pb.enable_steady_tick(std::time::Duration::from_millis(SPINNER_TICK_MS));
