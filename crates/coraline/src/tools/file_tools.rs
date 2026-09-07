@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 use crate::db;
+use crate::vectors::f64_to_f32_lossy;
 
 use super::{Tool, ToolError, ToolResult};
 
@@ -979,14 +980,12 @@ impl Tool for SemanticSearchTool {
             .and_then(Value::as_u64)
             .and_then(|n| usize::try_from(n).ok())
             .unwrap_or(10);
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "f64->f32: no lossless conversion in std"
-        )]
-        let min_similarity = params
-            .get("min_similarity")
-            .and_then(Value::as_f64)
-            .unwrap_or(0.3) as f32;
+        let min_similarity = f64_to_f32_lossy(
+            params
+                .get("min_similarity")
+                .and_then(Value::as_f64)
+                .unwrap_or(0.3),
+        );
 
         let mut vm =
             crate::vectors::VectorManager::from_project(&self.project_root).map_err(|e| {

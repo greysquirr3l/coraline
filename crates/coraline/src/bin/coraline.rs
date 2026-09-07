@@ -959,12 +959,16 @@ mod init_model {
     /// model is already on disk. All non-embedding tools remain fully
     /// functional regardless of the chosen action.
     pub fn handle_model_decision(project_root: &Path, embed: bool, no_embed: bool, yes: bool) {
-        let (model_name, model_dir) = resolve_configured_model(project_root);
-        let model_present = vectors::model_spec(&model_name).is_ok_and(|spec| {
-            spec.preference_order
-                .iter()
-                .any(|name| model_dir.join(name).exists())
-        });
+        let (model_name, _) = resolve_configured_model(project_root);
+        // The model counts as "present" if it's installed at *any* known
+        // location — globally (shared cache) or locally (project-locked).
+        // We check both because users can pre-install globally with
+        // `coraline model download` and expect `coraline init` to skip the
+        // prompt entirely.
+        let global_dir = vectors::global_model_dir_for(&model_name);
+        let local_dir = vectors::local_model_dir(project_root, &model_name);
+        let model_present = vectors::is_model_installed(&global_dir, &model_name)
+            || vectors::is_model_installed(&local_dir, &model_name);
         let is_tty = std::io::IsTerminal::is_terminal(&std::io::stdin());
         let inputs = ModelInputs {
             model_present,
@@ -1029,7 +1033,9 @@ mod init_model {
 
     pub fn execute_model_action(project_root: &Path, action: &ModelAction) {
         use std::io::Write as _;
-        let (model_name, model_dir) = resolve_configured_model(project_root);
+        let (model_name, _) = resolve_configured_model(project_root);
+        let global_dir = vectors::global_model_dir_for(&model_name);
+        let local_dir = vectors::local_model_dir(project_root, &model_name);
 
         match action {
             ModelAction::NoOp => {}
@@ -1037,18 +1043,31 @@ mod init_model {
                 println!("Skipped. Run `coraline model download` later to enable semantic search.");
             }
             ModelAction::Download => {
-                download_model_and_report(&model_name, &model_dir);
+                // Non-interactive flags (`--embed` / `--yes`) default to
+                // the global cache so a fresh `init` in CI doesn't
+                // duplicate the model across projects.
+                download_model_and_report(&model_name, &global_dir);
             }
             ModelAction::Prompt => {
-                eprint!("Download embedding model for semantic search? (~137 MB) [Y/n] ");
+                // Interactive path: ask the user whether to install
+                // globally (default) or locally. Global is the better
+                // choice when the same model is used across multiple
+                // projects on the same machine; local is the right
+                // choice when the project pins a specific model or
+                // when global storage is read-only.
+                eprint!(
+                    "Download embedding model for semantic search? (~137 MB) [G]lobally / [L]ocally / [N]o: "
+                );
                 let _ = std::io::stderr().flush();
                 let mut input = String::new();
                 if std::io::stdin().read_line(&mut input).is_err() {
                     return;
                 }
                 let answer = input.trim();
-                if answer.is_empty() || answer.eq_ignore_ascii_case("y") {
-                    download_model_and_report(&model_name, &model_dir);
+                if answer.is_empty() || answer.eq_ignore_ascii_case("g") {
+                    download_model_and_report(&model_name, &global_dir);
+                } else if answer.eq_ignore_ascii_case("l") {
+                    download_model_and_report(&model_name, &local_dir);
                 } else {
                     println!(
                         "Skipped. Run `coraline model download` later to enable semantic search."
@@ -1912,34 +1931,28 @@ const SPINNER_TICK_MS: u64 = 80;
 
 /// Build a styled `ProgressBar` that animates a braille spinner while showing a
 /// counter and message. When stdout is not a TTY the bar falls back to a static
-/// line that still updates on `set_message`.
-#[expect(
-    clippy::expect_used,
-    reason = "templates are compile-time constants we control"
-)]
+/// line that still updates on `set_message`. Falls back to `ProgressStyle::default()`
+/// if the template string fails to compile — the bar still works, just without the
+/// custom tick animation.
 fn spinner_bar(len: u64, template: &str) -> ProgressBar {
     let pb = ProgressBar::new(len);
-    pb.set_style(
-        ProgressStyle::with_template(template)
-            .expect("valid progress template")
-            .tick_strings(SPINNER_FRAMES),
-    );
+    let style = ProgressStyle::with_template(template)
+        .map(|s| s.tick_strings(SPINNER_FRAMES))
+        .unwrap_or_else(|_| ProgressStyle::default_bar());
+    pb.set_style(style);
     pb.enable_steady_tick(std::time::Duration::from_millis(SPINNER_TICK_MS));
     pb
 }
 
 /// Spinner for indeterminate operations (no known total, e.g. model download).
-#[expect(
-    clippy::expect_used,
-    reason = "template is a compile-time constant we control"
-)]
 fn spinner_indefinite(message: &'static str) -> ProgressBar {
     let pb = ProgressBar::new_spinner();
-    pb.set_style(
-        ProgressStyle::with_template("{spinner:.cyan} {msg}")
-            .expect("valid spinner template")
-            .tick_strings(SPINNER_FRAMES),
-    );
+    // Fall back to `ProgressStyle::default_bar()` if the template fails to
+    // compile — the spinner still works, just without the cyan tint.
+    let style = ProgressStyle::with_template("{spinner:.cyan} {msg}")
+        .map(|s| s.tick_strings(SPINNER_FRAMES))
+        .unwrap_or_else(|_| ProgressStyle::default_bar());
+    pb.set_style(style);
     pb.set_message(message);
     pb.enable_steady_tick(std::time::Duration::from_millis(SPINNER_TICK_MS));
     pb

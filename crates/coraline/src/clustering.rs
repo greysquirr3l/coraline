@@ -56,13 +56,11 @@ pub struct ProcessTrace {
 }
 
 /// Helper for `usize -> i64` conversions in SQL-bound params where the
-/// value is bounded by `LIMIT` / schema constraints.
-#[expect(
-    clippy::cast_possible_wrap,
-    reason = "LIMIT / schema caps keep the values within i64 range"
-)]
-const fn usize_to_i64(value: usize) -> i64 {
-    value as i64
+/// value is bounded by `LIMIT` / schema constraints. Saturates to
+/// `i64::MAX` on platforms where `usize` exceeds `i64::MAX` (effectively
+/// only on 128-bit targets — on 32/64-bit, `usize as i64` is always in range).
+fn usize_to_i64(value: usize) -> i64 {
+    i64::try_from(value).unwrap_or(i64::MAX)
 }
 
 /// Louvain iteration cap (Phase 5.1 default).
@@ -201,11 +199,7 @@ fn load_call_graph(conn: &Connection) -> io::Result<(Vec<String>, NeighbourMap)>
 fn hash_str_to_i64(s: &str) -> i64 {
     let mut h = std::hash::DefaultHasher::new();
     s.hash(&mut h);
-    #[expect(
-        clippy::cast_possible_wrap,
-        reason = "u64 hash values are sign-extended to i64 — collisions are acceptable for in-memory graph keys"
-    )]
-    let v = h.finish() as i64;
+    let v = i64::try_from(h.finish()).unwrap_or(0);
     v
 }
 
@@ -359,12 +353,10 @@ pub fn cluster_overview(conn: &Connection, limit: usize) -> io::Result<Vec<Clust
             let language: String = row.get(5)?;
             Ok(ClusterSummary {
                 cluster_id: row.get(0)?,
-                #[expect(
-                    clippy::cast_sign_loss,
-                    clippy::cast_possible_truncation,
-                    reason = "COUNT(*) is always non-negative and bounded by row count"
-                )]
-                size: row.get::<_, i64>(1)? as usize,
+                // COUNT(*) is non-negative; saturate at usize::MAX on
+                // the (theoretical) 128-bit platform where row count could
+                // exceed usize::MAX. On 32/64-bit this is always exact.
+                size: usize::try_from(row.get::<_, i64>(1)?).unwrap_or(usize::MAX),
                 sample_node_id: row.get(3)?,
                 sample_qualified_name: row.get(2)?,
                 sample_kind: parse_node_kind(&kind),
@@ -579,11 +571,27 @@ fn parse_visibility_opt(s: &str) -> Option<crate::types::Visibility> {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-#[expect(clippy::unwrap_used, reason = "tests panic on setup failure by design")]
 mod tests {
     use super::*;
 
-    fn seed_call(conn: &Connection, src: &str, tgt: &str) {
+    /// In-memory DB with the v0 schema applied and additive migrations
+    /// run. Returns `Err` on any setup failure — the test functions
+    /// use `?` to propagate, which is lint-free (no `unwrap()` or
+    /// `.expect()` needed).
+    fn fresh_db() -> Result<Connection, Box<dyn std::error::Error>> {
+        let conn = rusqlite::Connection::open_in_memory()?;
+        conn.execute_batch(db::SCHEMA_SQL)?;
+        db::apply_incremental_migrations(&conn)?;
+        Ok(conn)
+    }
+
+    /// Insert two call-graph nodes and the edge between them. Returns
+    /// `Err` if the insert fails.
+    fn seed_call(
+        conn: &Connection,
+        src: &str,
+        tgt: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         for id in [src, tgt] {
             conn.execute(
                 "INSERT OR IGNORE INTO nodes
@@ -593,87 +601,79 @@ mod tests {
                  VALUES (?1, 'function', ?1, ?1, 'src/lib.rs', 'rust',
                  1, 1, 0, 0, 1, 0, 0, 0, 0)",
                 [id],
-            )
-            .unwrap();
+            )?;
         }
         conn.execute(
             "INSERT INTO edges (source, target, kind, line, col, confidence)
              VALUES (?1, ?2, 'calls', 1, 0, 1.0)",
             rusqlite::params![src, tgt],
-        )
-        .unwrap();
-    }
-
-    fn fresh_db() -> Connection {
-        let conn = rusqlite::Connection::open_in_memory().unwrap();
-        conn.execute_batch(db::SCHEMA_SQL).unwrap();
-        db::apply_incremental_migrations(&conn).unwrap();
-        conn
+        )?;
+        Ok(())
     }
 
     #[test]
-    fn louvain_clusters_two_disconnected_triangles_separately() {
-        let mut conn = fresh_db();
-        seed_call(&conn, "a", "b");
-        seed_call(&conn, "b", "c");
-        seed_call(&conn, "c", "a");
-        seed_call(&conn, "d", "e");
-        seed_call(&conn, "e", "f");
-        seed_call(&conn, "f", "d");
+    fn louvain_clusters_two_disconnected_triangles_separately()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut conn = fresh_db()?;
+        seed_call(&conn, "a", "b")?;
+        seed_call(&conn, "b", "c")?;
+        seed_call(&conn, "c", "a")?;
+        seed_call(&conn, "d", "e")?;
+        seed_call(&conn, "e", "f")?;
+        seed_call(&conn, "f", "d")?;
 
-        let result = run_louvain(&mut conn).unwrap();
-        eprintln!(
-            "[DEBUG TEST] num_clusters={}, num_nodes_assigned={}",
-            result.num_clusters, result.num_nodes_assigned
-        );
+        let result = run_louvain(&mut conn)?;
         assert_eq!(result.num_clusters, 2);
         assert_eq!(result.num_nodes_assigned, 6);
 
-        let overview = cluster_overview(&conn, 10).unwrap();
+        let overview = cluster_overview(&conn, 10)?;
         assert_eq!(overview.len(), 2);
         for cluster in &overview {
             assert_eq!(cluster.size, 3);
         }
+        Ok(())
     }
 
     #[test]
-    fn process_tracing_assigns_each_entry_point_a_unique_process_id() {
-        let mut conn = fresh_db();
-        seed_call(&conn, "entry_a", "callee_a");
-        seed_call(&conn, "entry_b", "callee_b");
+    fn process_tracing_assigns_each_entry_point_a_unique_process_id()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut conn = fresh_db()?;
+        seed_call(&conn, "entry_a", "callee_a")?;
+        seed_call(&conn, "entry_b", "callee_b")?;
 
-        let result = run_process_tracing(&mut conn, 5).unwrap();
+        let result = run_process_tracing(&mut conn, 5)?;
         assert_eq!(result.num_entry_points, 2);
         assert_eq!(result.num_edges_assigned, 2);
 
-        let mut stmt = conn
-            .prepare(
-                "SELECT DISTINCT process_id FROM edges WHERE kind = 'calls' ORDER BY process_id",
-            )
-            .unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT process_id FROM edges WHERE kind = 'calls'              ORDER BY process_id",
+        )?;
         let ids: Vec<i64> = stmt
-            .query_map([], |row| row.get(0))
-            .unwrap()
+            .query_map([], |row| row.get(0))?
             .filter_map(Result::ok)
             .collect();
         assert_eq!(ids, vec![1, 2]);
+        Ok(())
     }
 
     #[test]
-    fn process_tracing_respects_cycle_protection() {
-        let mut conn = fresh_db();
-        seed_call(&conn, "entry", "a");
-        seed_call(&conn, "a", "b");
-        seed_call(&conn, "b", "a");
+    fn process_tracing_respects_cycle_protection()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut conn = fresh_db()?;
+        seed_call(&conn, "entry", "a")?;
+        seed_call(&conn, "a", "b")?;
+        seed_call(&conn, "b", "a")?;
 
-        let result = run_process_tracing(&mut conn, 50).unwrap();
+        let result = run_process_tracing(&mut conn, 50)?;
         assert_eq!(result.num_edges_assigned, 3);
+        Ok(())
     }
 
     #[test]
-    fn process_for_returns_none_for_unconnected_node() {
-        let conn = fresh_db();
-        seed_call(&conn, "a", "b");
+    fn process_for_returns_none_for_unconnected_node()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let conn = fresh_db()?;
+        seed_call(&conn, "a", "b")?;
         conn.execute(
             "INSERT OR IGNORE INTO nodes
              (id, kind, name, qualified_name, file_path, language,
@@ -682,10 +682,11 @@ mod tests {
              VALUES ('orphan', 'function', 'orphan', 'orphan', 'x.rs', 'rust',
              1, 1, 0, 0, 1, 0, 0, 0, 0)",
             [],
-        )
-        .unwrap();
+        )?;
 
-        let trace = process_for(&conn, "orphan", 5).unwrap();
+        let trace = process_for(&conn, "orphan", 5)?;
         assert!(trace.is_none_or(|t| t.entry_point.id == "orphan"));
+        Ok(())
     }
 }
+

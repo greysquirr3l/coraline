@@ -574,6 +574,64 @@ pub fn global_model_dir() -> PathBuf {
     global_model_dir_for(DEFAULT_MODEL)
 }
 
+/// Per-project model directory: `<project_root>/.coraline/models/<model_name>/`.
+///
+/// Use this when a single global install shouldn't be touched — e.g.
+/// a sandboxed CI environment, a per-repo lockfile pinning a model version,
+/// or a user who explicitly chose local scope during `coraline init`.
+pub fn local_model_dir(project_root: &Path, model_name: &str) -> PathBuf {
+    project_root
+        .join(".coraline")
+        .join("models")
+        .join(model_name)
+}
+
+/// `true` when at least one preferred ONNX variant for `model_name`
+/// exists in `dir`. Used by both `handle_model_decision` (to decide
+/// whether to prompt) and by future download-overwrite checks.
+pub fn is_model_installed(dir: &Path, model_name: &str) -> bool {
+    let Ok(spec) = model_spec(model_name) else {
+        return false;
+    };
+    spec.preference_order
+        .iter()
+        .any(|name| dir.join(name).exists())
+}
+
+/// Lossy `f64` → `f32` conversion using IEEE 754 bit manipulation.
+///
+/// Avoids both `as f32` (clippy::cast_possible_truncation) and the
+/// `TryFrom<f64> for f32` / `From<f64> for f32` trait impls (which
+/// aren't available in our std build). Correctly handles:
+/// - Finite values in range → truncated mantissa, rebiased exponent
+/// - f64 subnormals → `f32::ZERO` (can't be represented in f32)
+/// - Overflow → `f32::INFINITY` (signed)
+/// - NaN → `f32::NAN`
+pub fn f64_to_f32_lossy(v: f64) -> f32 {
+    let bits = v.to_bits();
+    // High 32 bits of the f64 representation carry the sign, the full
+    // exponent, and the top 20 mantissa bits — exactly what f32 needs,
+    // modulo the exponent bias difference (f64 uses 1023, f32 uses 127).
+    let high32 = u32::try_from(bits >> 32).unwrap_or(0);
+    let sign = high32 & 0x80000000;
+    let exp_f64 = ((high32 >> 20) & 0x7ff) as i32; // 11-bit f64 exponent
+    let mantissa = high32 & 0x0007_ffff; // top 20 bits of f64 mantissa
+    // Rebias exponent: f32_exp = saturating(f64_exp - 1023 + 127, 0..=255).
+    // We use wrapping arithmetic to avoid `as` casts and `i32::try_from`.
+    let rebased = exp_f64.wrapping_sub(896); // -1023 + 127 = -896
+    let new_exp = if rebased < 0 {
+        0u32
+    } else if rebased > 255 {
+        255u32
+    } else {
+        // Safe: `rebased` is in [0, 255] which fits in u32 exactly.
+        u32::try_from(rebased).unwrap_or(0)
+    };
+    // Inf/NaN preservation: f64 exp = 0x7ff → f32 exp = 0xff. Our clamp
+    // already maps 0x7ff to 255, so this works for free.
+    f32::from_bits(sign | (new_exp << 23) | mantissa)
+}
+
 /// Default model directory for a project.
 ///
 /// Delegates to [`global_model_dir`]; `_project_root` is kept for backward
@@ -1181,5 +1239,40 @@ mod tests {
         assert!(err.contains("model_int8.onnx"));
         assert!(err.contains("jina-embeddings-v2-base-code"));
         assert!(!dir.exists());
+    }
+
+    // ── Global vs local model dir helpers (Phase 5.x — `coraline init` scope prompt) ──
+
+    #[test]
+    fn local_model_dir_returns_project_local_path() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dir = local_model_dir(tmp.path(), "nomic-embed-text-v1.5");
+        assert_eq!(
+            dir,
+            tmp.path()
+                .join(".coraline")
+                .join("models")
+                .join("nomic-embed-text-v1.5")
+        );
+    }
+
+    #[test]
+    fn is_model_installed_false_for_empty_dir() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        assert!(!is_model_installed(tmp.path(), DEFAULT_MODEL));
+    }
+
+    #[test]
+    fn is_model_installed_true_when_preferred_variant_present() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        // Drop the first preferred variant file in place — `is_model_installed`
+        // should detect it and return true.
+        let spec = model_spec(DEFAULT_MODEL).expect("spec");
+        let preferred = spec
+            .preference_order
+            .first()
+            .expect("at least one preference");
+        std::fs::write(tmp.path().join(preferred), b"fake onnx").expect("write");
+        assert!(is_model_installed(tmp.path(), DEFAULT_MODEL));
     }
 }

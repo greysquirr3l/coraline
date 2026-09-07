@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use serde_json::{Value, json};
 
 use crate::clustering;
+use crate::vectors::f64_to_f32_lossy;
 use crate::db;
 use crate::graph;
 use crate::types::{EdgeKind, NodeKind, TraversalDirection, TraversalOptions};
@@ -213,14 +214,7 @@ impl Tool for CallersTool {
         let min_confidence = params
             .get("min_confidence")
             .and_then(Value::as_f64)
-            .map(|v| {
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    reason = "min_confidence is constrained to [0.0, 1.0] by the input schema"
-                )]
-                let v = v as f32;
-                v
-            })
+            .map(|v| f64_to_f32_lossy(v))
             .filter(|v| v.is_finite());
 
         let output_format = params
@@ -363,14 +357,7 @@ impl Tool for CalleesTool {
         let min_confidence = params
             .get("min_confidence")
             .and_then(Value::as_f64)
-            .map(|v| {
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    reason = "min_confidence is constrained to [0.0, 1.0] by the input schema"
-                )]
-                let v = v as f32;
-                v
-            })
+            .map(|v| f64_to_f32_lossy(v))
             .filter(|v| v.is_finite());
 
         let output_format = params
@@ -834,14 +821,7 @@ impl Tool for FindReferencesTool {
         let min_confidence = params
             .get("min_confidence")
             .and_then(Value::as_f64)
-            .map(|v| {
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    reason = "min_confidence is constrained to [0.0, 1.0] by the input schema"
-                )]
-                let v = v as f32;
-                v
-            })
+            .map(|v| f64_to_f32_lossy(v))
             .filter(|v| v.is_finite());
 
         let conn = db::open_database(&self.project_root)

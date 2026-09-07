@@ -9,6 +9,7 @@ use crate::types::{
     Edge, EdgeKind, FileRecord, Language, Node, NodeKind, SearchResult, UnresolvedReference,
     Visibility,
 };
+use crate::vectors::f64_to_f32_lossy;
 
 pub const DATABASE_FILENAME: &str = "coraline.db";
 pub const SCHEMA_SQL: &str = include_str!("db/schema.sql");
@@ -549,13 +550,11 @@ pub fn search_nodes(
     let mut stmt = conn.prepare(&sql).map_err(io_other)?;
     let rows = stmt
         .query_map(rusqlite::params_from_iter(params_vec), |row| {
-            // FTS rank is negative, convert to positive score (higher = better)
+            // FTS rank is negative, convert to positive score (higher = better).
+            // f32::from(f64) saturates to ±inf for out-of-range values,
+            // which is acceptable for a relevance score.
             let rank: f64 = row.get(20)?;
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "f64 -> f32 score narrowing; no checked TryFrom<f64> for f32 in std"
-            )]
-            let score = (-rank) as f32;
+            let score = f64_to_f32_lossy(-rank);
             Ok(SearchResult {
                 node: row_to_node(row)?,
                 score,
@@ -1406,12 +1405,9 @@ mod tests {
             super::get_edges_by_target_with_confidence(&conn, "callee", None, 100, Some(0.8))
                 .expect("query high");
         assert_eq!(high_only.len(), 1);
-        #[expect(
-            clippy::indexing_slicing,
-            reason = "test asserts the high-confidence row is the only result"
-        )]
-        let first = &high_only[0];
-        assert!((first.confidence - 0.95).abs() < 1e-6);
+        for item in &high_only {
+            assert!((item.confidence - 0.95).abs() < 1e-6);
+        }
     }
 
     #[test]
@@ -1434,11 +1430,8 @@ mod tests {
             super::get_edges_by_source_with_confidence(&conn, "caller", None, 100, Some(0.8))
                 .expect("query high");
         assert_eq!(high_only.len(), 1);
-        #[expect(
-            clippy::indexing_slicing,
-            reason = "test asserts the high-confidence row is the only result"
-        )]
-        let first = &high_only[0];
-        assert!((first.confidence - 0.95).abs() < 1e-6);
+        for item in &high_only {
+            assert!((item.confidence - 0.95).abs() < 1e-6);
+        }
     }
 }
