@@ -1,4 +1,4 @@
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 
 //! Post-extraction graph analytics for Phase 5.1.
 //!

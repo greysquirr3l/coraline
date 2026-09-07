@@ -1,4 +1,4 @@
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 #![expect(
     clippy::multiple_crate_versions,
     reason = "transitive dependency version conflicts we can't control (base64, getrandom, hashbrown)"

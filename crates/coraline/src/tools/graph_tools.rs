@@ -1,4 +1,4 @@
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 
 //! Graph query tools for exploring the code graph
 
@@ -2469,7 +2469,10 @@ impl Tool for ProcessForTool {
             .and_then(Value::as_str)
             .ok_or_else(|| ToolError::invalid_params("node_id must be a string"))?;
         let max_depth = usize::try_from(
-            params.get("max_depth").and_then(Value::as_u64).unwrap_or(50),
+            params
+                .get("max_depth")
+                .and_then(Value::as_u64)
+                .unwrap_or(50),
         )
         .unwrap_or(usize::MAX);
 
@@ -2487,14 +2490,14 @@ impl Tool for ProcessForTool {
                     .iter()
                     .map(|e| {
                         json!({
-                            "source": e.source,
-                            "target": e.target,
-                                "kind": db::edge_kind_to_string(e.kind),
-                                "line": e.line,
-                                "column": e.column,
-                                "confidence": e.confidence,
-                                "process_id": e.process_id,
-                            })
+                        "source": e.source,
+                        "target": e.target,
+                            "kind": db::edge_kind_to_string(e.kind),
+                            "line": e.line,
+                            "column": e.column,
+                            "confidence": e.confidence,
+                            "process_id": e.process_id,
+                        })
                     })
                     .collect();
                 Ok(json!({
