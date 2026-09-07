@@ -243,6 +243,8 @@ fn decode_le_f32_vec(bytes: &[u8]) -> Vec<f32> {
 /// `vec_f32(?)` parameter binding.
 #[cfg(feature = "vec-ext")]
 fn floats_to_json(floats: &[f32]) -> String {
+    use std::fmt::Write as _;
+
     let mut s = String::with_capacity(2 + floats.len() * 12);
     s.push('[');
     for (i, f) in floats.iter().enumerate() {
@@ -250,7 +252,6 @@ fn floats_to_json(floats: &[f32]) -> String {
             s.push(',');
         }
         // Compact representation; SQLite handles scientific notation.
-        use std::fmt::Write as _;
         let _ = write!(s, "{f}");
     }
     s.push(']');
@@ -286,12 +287,12 @@ pub mod runtime {
     /// we don't currently need a handle (kept for forward compat).
     pub fn enable_extension(_conn: &Connection) -> io::Result<()> {
         // SAFETY: `sqlite3_vec_init` is the `extern "C"` symbol that
-        // sqlite-vec exports. `rusqlite::auto_extension::register_auto_extension`
-        // expects a `RawAutoExtension` — a different signature — so we
-        // wrap our init through `init_auto_extension`, which bridges a
-        // safe `AutoExtension = fn(Connection) -> Result<()>` to the
-        // raw C callback. The init function itself is idempotent
-        // (it just registers a virtual-table module).
+        // sqlite-vec exports. `register_auto_extension` expects a
+        // `RawAutoExtension` — a different signature — so we wrap our
+        // init through `init_auto_extension`, which adapts our
+        // `extern "C" fn()` to the `RawAutoExtension` signature. The
+        // init function itself is idempotent (it just registers a
+        // virtual-table module).
         let raw: rusqlite::auto_extension::RawAutoExtension = init_auto_extension;
         unsafe {
             rusqlite::auto_extension::register_auto_extension(raw).map_err(io::Error::other)?;
@@ -299,8 +300,8 @@ pub mod runtime {
         Ok(())
     }
 
-    /// Raw bridge: adapts our `extern "C" fn()` sqlite3_vec_init to the
-    /// `RawAutoExtension` callback signature. The `conn` parameter is
+    /// Raw bridge: adapts our `extern "C" fn()` `sqlite3_vec_init` to the
+    /// `RawAutoExtension` callback signature. The `_db` parameter is
     /// ignored because sqlite-vec's `sqlite3_vec_init` doesn't need it.
     extern "C" fn init_auto_extension(
         _db: *mut rusqlite::ffi::sqlite3,
@@ -386,8 +387,10 @@ pub mod runtime {
     /// Search for nodes similar to the query embedding using vec0's
     /// KNN operator. Returns `SearchResult` rows (which live in
     /// `crate::types`) ordered by cosine *distance* (lowest = most
-    /// similar). `min_similarity` (the public API's cosine similarity,
-    /// range -1..1) is converted to the equivalent max distance:
+    /// similar).
+    ///
+    /// `min_similarity` (the public API's cosine similarity, range
+    /// -1..1) is converted to the equivalent max distance:
     /// `1 - min_similarity`.
     pub fn search_similar_vec0(
         conn: &Connection,
@@ -526,17 +529,17 @@ pub mod runtime {
             enable_extension(&conn)?;
 
             let mut embedding = vec![0.0_f32; 768];
-            embedding[0] = 1.0;
-            embedding[100] = 0.5;
-            embedding[500] = -0.25;
+            if let Some(v) = embedding.get_mut(0) { *v = 1.0; }
+            if let Some(v) = embedding.get_mut(100) { *v = 0.5; }
+            if let Some(v) = embedding.get_mut(500) { *v = -0.25; }
 
             store_embedding_vec0(&conn, "node-a", &embedding, "nomic-embed-text-v1.5")?;
 
             let loaded = load_embedding_vec0(&conn, "node-a")?.ok_or("embedding not found")?;
             assert_eq!(loaded.len(), 768);
-            assert!((loaded[0] - 1.0).abs() < 1e-6);
-            assert!((loaded[100] - 0.5).abs() < 1e-6);
-            assert!((loaded[500] + 0.25).abs() < 1e-6);
+            assert!((loaded.first().copied().unwrap_or(0.0) - 1.0).abs() < 1e-6);
+            assert!((loaded.get(100).copied().unwrap_or(0.0) - 0.5).abs() < 1e-6);
+            assert!((loaded.get(500).copied().unwrap_or(0.0) + 0.25).abs() < 1e-6);
             Ok(())
         }
 
@@ -546,17 +549,16 @@ pub mod runtime {
             enable_extension(&conn)?;
 
             let mut v1 = vec![0.0_f32; 768];
-            v1[0] = 1.0;
+            if let Some(slot) = v1.get_mut(0) { *slot = 1.0; }
             store_embedding_vec0(&conn, "node-x", &v1, "m1")?;
 
             let mut v2 = vec![0.0_f32; 768];
-            v2[0] = 0.0;
-            v2[1] = 1.0;
+            if let Some(slot) = v2.get_mut(1) { *slot = 1.0; }
             store_embedding_vec0(&conn, "node-x", &v2, "m2")?;
 
             let loaded = load_embedding_vec0(&conn, "node-x")?.ok_or("embedding not found")?;
-            assert!((loaded[0]).abs() < 1e-6);
-            assert!((loaded[1] - 1.0).abs() < 1e-6);
+            assert!(loaded.first().copied().unwrap_or(1.0).abs() < 1e-6);
+            assert!((loaded.get(1).copied().unwrap_or(0.0) - 1.0).abs() < 1e-6);
 
             let model: String = conn.query_row(
                 "SELECT model FROM vectors_meta WHERE node_id = ?1",
@@ -573,11 +575,11 @@ pub mod runtime {
             enable_extension(&conn)?;
 
             let mut a = vec![0.0_f32; 768];
-            a[0] = 1.0;
+            if let Some(slot) = a.get_mut(0) { *slot = 1.0; }
             let mut b = vec![0.0_f32; 768];
-            b[1] = 1.0;
+            if let Some(slot) = b.get_mut(1) { *slot = 1.0; }
             let mut c = vec![0.0_f32; 768];
-            c[2] = 1.0;
+            if let Some(slot) = c.get_mut(2) { *slot = 1.0; }
             let query = a.clone();
 
             store_embedding_vec0(&conn, "a", &a, "m")?;
@@ -603,7 +605,11 @@ pub mod runtime {
             // `max_distance = 2.0` covers all unit-vector pairs.
             let results = search_similar_vec0(&conn, &query, "m", 3, -1.0)?;
             assert_eq!(results.len(), 3);
-            assert_eq!(results.first().expect("non-empty").node.id, "a");
+            let first_id = results
+                .first()
+                .map(|r| r.node.id.as_str())
+                .ok_or("expected at least one result")?;
+            assert_eq!(first_id, "a");
             Ok(())
         }
 
