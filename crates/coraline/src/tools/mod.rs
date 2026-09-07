@@ -572,6 +572,22 @@ fn register_semantic_search_tool(registry: &mut ToolRegistry, project_root: &std
     }
 }
 
+/// Phase 5.1 — Louvain cluster + process-trace tools. These read
+/// `nodes.cluster_id` and `edges.process_id`, both populated by the
+/// `coraline index` / `coraline sync` post-extraction passes. Empty
+/// results just mean the DB hasn't been (re-)indexed yet.
+fn register_cluster_tools(registry: &mut ToolRegistry, project_root: &std::path::Path) {
+    registry.register(Box::new(graph_tools::ClusterOverviewTool::new(
+        project_root.to_path_buf(),
+    )));
+    registry.register(Box::new(graph_tools::ClusterMembersTool::new(
+        project_root.to_path_buf(),
+    )));
+    registry.register(Box::new(graph_tools::ProcessForTool::new(
+        project_root.to_path_buf(),
+    )));
+}
+
 /// Create a default tool registry with all built-in tools
 pub fn create_default_registry(project_root: &std::path::Path) -> ToolRegistry {
     let mut registry = ToolRegistry::new();
@@ -587,6 +603,7 @@ pub fn create_default_registry(project_root: &std::path::Path) -> ToolRegistry {
         project_root.to_path_buf(),
     )));
     register_memory_tools(&mut registry, project_root);
+    register_cluster_tools(&mut registry, project_root);
     #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
     register_semantic_search_tool(&mut registry, project_root);
 

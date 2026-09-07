@@ -13,6 +13,9 @@ VALUES (1, strftime('%s', 'now') * 1000, 'Initial schema');
 INSERT INTO schema_versions (version, applied_at, description)
 VALUES (2, strftime('%s', 'now') * 1000, 'Add edges.confidence for resolution-strength scoring (Phase 5.2)');
 
+INSERT INTO schema_versions (version, applied_at, description)
+VALUES (3, strftime('%s', 'now') * 1000, 'Add nodes.cluster_id + edges.process_id for Louvain clustering and process tracing (Phase 5.1)');
+
 CREATE TABLE IF NOT EXISTS nodes (
     id TEXT PRIMARY KEY,
     kind TEXT NOT NULL,
@@ -33,6 +36,7 @@ CREATE TABLE IF NOT EXISTS nodes (
     is_abstract INTEGER DEFAULT 0,
     decorators TEXT,
     type_parameters TEXT,
+    cluster_id INTEGER,
     updated_at INTEGER NOT NULL
 );
 
@@ -45,6 +49,7 @@ CREATE TABLE IF NOT EXISTS edges (
     line INTEGER,
     col INTEGER,
     confidence REAL NOT NULL DEFAULT 1.0,
+    process_id INTEGER,
     FOREIGN KEY (source) REFERENCES nodes(id) ON DELETE CASCADE,
     FOREIGN KEY (target) REFERENCES nodes(id) ON DELETE CASCADE
 );

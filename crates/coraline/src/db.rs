@@ -39,7 +39,7 @@ pub struct UnresolvedRefRow {
     pub reference: UnresolvedReference,
 }
 
-fn io_other(err: impl std::error::Error + Send + Sync + 'static) -> std::io::Error {
+pub fn io_other(err: impl std::error::Error + Send + Sync + 'static) -> std::io::Error {
     std::io::Error::other(err)
 }
 
@@ -66,7 +66,7 @@ pub fn initialize_database(project_root: &Path) -> std::io::Result<PathBuf> {
 ///
 /// Each migration is idempotent and only runs when the corresponding
 /// schema column is missing. Additive-only — no destructive changes.
-fn apply_incremental_migrations(conn: &Connection) -> std::io::Result<()> {
+pub fn apply_incremental_migrations(conn: &Connection) -> std::io::Result<()> {
     // v2 → v3: add `edges.confidence` for resolution-strength scoring
     // (Phase 5.2 — borrows GitNexus's `WHERE r.confidence > 0.8` filter).
     if !column_exists(conn, "edges", "confidence")? {
@@ -78,6 +78,26 @@ fn apply_incremental_migrations(conn: &Connection) -> std::io::Result<()> {
                      'Add edges.confidence for resolution-strength scoring (Phase 5.2)');",
         )
         .map_err(io_other)?;
+    }
+
+    // v3 → v4: add `nodes.cluster_id` + `edges.process_id` (Phase 5.1 —
+    // borrows GitNexus's precomputed Louvain clusters and per-edge
+    // process trace ids).
+    if !column_exists(conn, "nodes", "cluster_id")? {
+        debug!("applying migration: nodes.cluster_id");
+        conn.execute_batch(
+            "ALTER TABLE nodes ADD COLUMN cluster_id INTEGER;
+             INSERT OR IGNORE INTO schema_versions (version, applied_at, description)
+             VALUES (3, strftime('%s', 'now') * 1000,
+                     'Add nodes.cluster_id + edges.process_id for Louvain clustering and process tracing (Phase 5.1)');",
+        )
+        .map_err(io_other)?;
+    }
+
+    if !column_exists(conn, "edges", "process_id")? {
+        debug!("applying migration: edges.process_id");
+        conn.execute_batch("ALTER TABLE edges ADD COLUMN process_id INTEGER;")
+            .map_err(io_other)?;
     }
 
     Ok(())
@@ -913,7 +933,7 @@ pub fn get_db_stats(conn: &Connection) -> std::io::Result<DbStats> {
     })
 }
 
-fn language_to_string(language: Language) -> String {
+pub fn language_to_string(language: Language) -> String {
     serde_json::to_value(language)
         .ok()
         .and_then(|v| v.as_str().map(std::string::ToString::to_string))
@@ -984,6 +1004,11 @@ pub fn row_to_node(row: &rusqlite::Row<'_>) -> rusqlite::Result<Node> {
         is_abstract: row.get::<_, i64>(16)? != 0,
         decorators: decorators.and_then(|raw| serde_json::from_str(&raw).ok()),
         type_parameters: type_parameters.and_then(|raw| serde_json::from_str(&raw).ok()),
+        // `cluster_id` lives at the same column index as `updated_at` was
+        // before Phase 5.1 — existing SELECT lists don't include it, so
+        // we leave it as `None`. The clustering module uses its own
+        // column-aware queries via `row_to_node_with_cluster`.
+        cluster_id: None,
         updated_at: row.get(19)?,
     })
 }
@@ -1000,6 +1025,10 @@ fn row_to_edge(row: &rusqlite::Row<'_>) -> rusqlite::Result<Edge> {
         line: row.get(4)?,
         column: row.get(5)?,
         confidence: row.get(6)?,
+        // `process_id` is at column index 7; existing SELECT lists don't
+        // include it, so the process-tracing module uses its own
+        // column-aware queries via `row_to_edge_with_process`.
+        process_id: None,
     })
 }
 
@@ -1334,14 +1363,17 @@ mod tests {
         seed_node(&conn, "b");
         seed_edge(&conn, "a", "b", "calls", 0.5);
 
-        let conf: f64 = conn
+        let confidence: f64 = conn
             .query_row(
                 "SELECT confidence FROM edges WHERE source = 'a' AND target = 'b'",
                 [],
                 |row| row.get(0),
             )
             .expect("query confidence");
-        assert!((conf - 0.5).abs() < 1e-9, "expected 0.5, got {conf}");
+        assert!(
+            (confidence - 0.5).abs() < 1e-9,
+            "expected 0.5, got {confidence}"
+        );
     }
 
     #[test]
@@ -1374,7 +1406,12 @@ mod tests {
             super::get_edges_by_target_with_confidence(&conn, "callee", None, 100, Some(0.8))
                 .expect("query high");
         assert_eq!(high_only.len(), 1);
-        assert!((high_only[0].confidence - 0.95).abs() < 1e-6);
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "test asserts the high-confidence row is the only result"
+        )]
+        let first = &high_only[0];
+        assert!((first.confidence - 0.95).abs() < 1e-6);
     }
 
     #[test]
@@ -1397,6 +1434,11 @@ mod tests {
             super::get_edges_by_source_with_confidence(&conn, "caller", None, 100, Some(0.8))
                 .expect("query high");
         assert_eq!(high_only.len(), 1);
-        assert!((high_only[0].confidence - 0.95).abs() < 1e-6);
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "test asserts the high-confidence row is the only result"
+        )]
+        let first = &high_only[0];
+        assert!((first.confidence - 0.95).abs() < 1e-6);
     }
 }

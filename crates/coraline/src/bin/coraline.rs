@@ -5,6 +5,7 @@
 use std::path::{Path, PathBuf};
 
 use coraline::audit;
+use coraline::clustering;
 use coraline::config;
 use coraline::context;
 use coraline::db;
@@ -1098,6 +1099,9 @@ fn run_index(args: IndexArgs) {
         println!("Created {} nodes", result.nodes_created);
         println!("Completed in {}ms", result.duration_ms);
     }
+
+    // Phase 5.1 post-extraction passes: Louvain clustering + process tracing.
+    run_post_extraction_passes(&project_root, args.quiet);
 }
 
 fn run_sync(args: SyncArgs) {
@@ -1149,6 +1153,48 @@ fn run_sync(args: SyncArgs) {
             }
             println!("Updated {} nodes", result.nodes_updated);
         }
+    }
+
+    // Phase 5.1 post-extraction passes: Louvain clustering + process tracing.
+    run_post_extraction_passes(&project_root, args.quiet);
+}
+
+/// Phase 5.1: run Louvain community detection and process tracing on the
+/// just-built (or just-synced) graph. Both passes are additive — they
+/// write `nodes.cluster_id` and `edges.process_id` and never delete
+/// other data, so they can be re-run independently.
+fn run_post_extraction_passes(project_root: &Path, quiet: bool) {
+    let Ok(mut conn) = db::open_database(project_root) else {
+        if !quiet {
+            eprintln!("post-extraction: failed to open database, skipping clustering");
+        }
+        return;
+    };
+
+    match clustering::run_louvain(&mut conn) {
+        Ok(stats) if !quiet => {
+            println!(
+                "Louvain: {} clusters across {} nodes",
+                stats.num_clusters, stats.num_nodes_assigned
+            );
+        }
+        Err(err) if !quiet => {
+            eprintln!("Louvain failed: {err}");
+        }
+        _ => {}
+    }
+
+    match clustering::run_process_tracing(&mut conn, clustering::DEFAULT_MAX_PROCESS_DEPTH) {
+        Ok(stats) if !quiet => {
+            println!(
+                "Process tracing: {} entry points, {} edges assigned, {} unreached",
+                stats.num_entry_points, stats.num_edges_assigned, stats.num_edges_unreached
+            );
+        }
+        Err(err) if !quiet => {
+            eprintln!("Process tracing failed: {err}");
+        }
+        _ => {}
     }
 }
 

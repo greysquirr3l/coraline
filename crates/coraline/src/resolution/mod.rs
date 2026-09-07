@@ -91,6 +91,7 @@ impl ReferenceResolver {
                     line: Some(reference.line),
                     column: Some(reference.column),
                     confidence,
+                    process_id: None,
                 });
                 resolved_ids.push(row.id);
             }
@@ -352,6 +353,24 @@ struct ImportHint {
     export_name: Option<String>,
 }
 
+fn parse_import_signature(signature: &str) -> Option<ImportHint> {
+    if signature.trim().is_empty() {
+        return None;
+    }
+
+    if let Some((module_path, export_name)) = signature.split_once("|export=") {
+        return Some(ImportHint {
+            module_path: module_path.to_string(),
+            export_name: Some(export_name.to_string()),
+        });
+    }
+
+    Some(ImportHint {
+        module_path: signature.to_string(),
+        export_name: None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::confidence_for_reference;
@@ -369,22 +388,4 @@ mod tests {
         assert!((confidence_for_reference("std::collections::HashMap") - 0.5).abs() < f32::EPSILON);
         assert!((confidence_for_reference("") - 0.5).abs() < f32::EPSILON);
     }
-}
-
-fn parse_import_signature(signature: &str) -> Option<ImportHint> {
-    if signature.trim().is_empty() {
-        return None;
-    }
-
-    if let Some((module_path, export_name)) = signature.split_once("|export=") {
-        return Some(ImportHint {
-            module_path: module_path.to_string(),
-            export_name: Some(export_name.to_string()),
-        });
-    }
-
-    Some(ImportHint {
-        module_path: signature.to_string(),
-        export_name: None,
-    })
 }

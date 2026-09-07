@@ -122,6 +122,11 @@ pub struct Node {
     pub is_abstract: bool,
     pub decorators: Option<Vec<String>>,
     pub type_parameters: Option<Vec<String>>,
+    /// Louvain community id assigned at index time (Phase 5.1). `None`
+    /// means "not clustered" — either the graph was too sparse, the node
+    /// isn't connected, or clustering hasn't been run yet on this DB.
+    #[serde(default)]
+    pub cluster_id: Option<i64>,
     pub updated_at: i64,
 }
 
@@ -145,6 +150,13 @@ pub struct Edge {
     /// column can be added additively without backfill logic.
     #[serde(default = "default_edge_confidence")]
     pub confidence: f32,
+    /// Execution-flow trace id assigned by the post-extraction process
+    /// tracer (Phase 5.1). `None` means "not part of any traced process"
+    /// — either the edge isn't a `Calls` edge, or the trace from the
+    /// relevant entry point didn't reach this edge within
+    /// `max_process_depth`.
+    #[serde(default)]
+    pub process_id: Option<i64>,
 }
 
 const fn default_edge_confidence() -> f32 {

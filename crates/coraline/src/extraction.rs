@@ -138,6 +138,7 @@ fn parse_file_only(
         is_abstract: false,
         decorators: None,
         type_parameters: None,
+        cluster_id: None,
         updated_at: now_ms,
     };
     nodes.push(file_node);
@@ -473,6 +474,7 @@ fn index_file(
         is_abstract: false,
         decorators: None,
         type_parameters: None,
+        cluster_id: None,
         updated_at: now_ms,
     };
     nodes.push(file_node);
@@ -729,6 +731,7 @@ fn walk_tree_collect(
             decorators: None,
             type_parameters: None,
             updated_at: now_ms,
+            cluster_id: None,
         });
 
         if is_callable_kind(kind) {
@@ -751,6 +754,7 @@ fn walk_tree_collect(
                 line: Some(start.row as i64 + 1),
                 column: Some(start.column as i64),
                 confidence: 1.0,
+                process_id: None,
             });
 
             if kind == NodeKind::Import {
@@ -762,6 +766,7 @@ fn walk_tree_collect(
                     line: Some(start.row as i64 + 1),
                     column: Some(start.column as i64),
                     confidence: 1.0,
+                    process_id: None,
                 });
             }
 
@@ -774,6 +779,7 @@ fn walk_tree_collect(
                     line: Some(start.row as i64 + 1),
                     column: Some(start.column as i64),
                     confidence: 1.0,
+                    process_id: None,
                 });
             }
         }
@@ -845,6 +851,7 @@ fn walk_tree_calls(
                             line: Some(start.row as i64 + 1),
                             column: Some(start.column as i64),
                             confidence: 1.0,
+                            process_id: None,
                         });
                     }
                     Some(targets) => {
@@ -973,6 +980,7 @@ fn add_import_nodes(
             decorators: None,
             type_parameters: None,
             updated_at: now_ms,
+            cluster_id: None,
         });
 
         edges.push(Edge {
@@ -983,6 +991,7 @@ fn add_import_nodes(
             line: Some(start.row as i64 + 1),
             column: Some(start.column as i64),
             confidence: 1.0,
+            process_id: None,
         });
         edges.push(Edge {
             source: parent_id.clone(),
@@ -992,6 +1001,7 @@ fn add_import_nodes(
             line: Some(start.row as i64 + 1),
             column: Some(start.column as i64),
             confidence: 1.0,
+            process_id: None,
         });
     }
 }
@@ -1549,6 +1559,7 @@ fn add_module_node(
         decorators: None,
         type_parameters: None,
         updated_at: now_ms,
+        cluster_id: None,
     });
 
     edges.push(Edge {
@@ -1559,6 +1570,7 @@ fn add_module_node(
         line: Some(start.row as i64 + 1),
         column: Some(start.column as i64),
         confidence: 1.0,
+        process_id: None,
     });
 }
 
@@ -1637,6 +1649,7 @@ fn add_export_nodes(
             decorators: None,
             type_parameters: None,
             updated_at: now_ms,
+            cluster_id: None,
         });
 
         edges.push(Edge {
@@ -1647,6 +1660,7 @@ fn add_export_nodes(
             line: Some(start.row as i64 + 1),
             column: Some(start.column as i64),
             confidence: 1.0,
+            process_id: None,
         });
         edges.push(Edge {
             source: parent_id.clone(),
@@ -1656,6 +1670,7 @@ fn add_export_nodes(
             line: Some(start.row as i64 + 1),
             column: Some(start.column as i64),
             confidence: 1.0,
+            process_id: None,
         });
     }
 }
