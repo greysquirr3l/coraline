@@ -439,22 +439,25 @@ mod tests {
     }
 
     #[test]
-    fn validate_modern_meta_missing_fields() {
+    fn validate_modern_meta_missing_fields() -> Result<(), Box<dyn std::error::Error>> {
         let msg = json!({
             "jsonrpc": "2.0",
             "id": 1,
             "method": "tools/call",
             "params": { "_meta": {} }
         });
-        #[expect(clippy::panic, reason = "test helper — failure is the assertion's job")]
-        match validate_modern_meta(&msg) {
-            MetaValidation::MissingFields(fields) => {
-                assert!(fields.contains(&META_PROTOCOL_VERSION));
-                assert!(fields.contains(&META_CLIENT_INFO));
-                assert!(fields.contains(&META_CLIENT_CAPABILITIES));
-            }
-            other => panic!("expected MissingFields, got {other:?}"),
-        }
+        let meta = validate_modern_meta(&msg);
+        let fields = match meta {
+            MetaValidation::MissingFields(f) => f,
+            // Any other variant is a test failure — return an error
+            // rather than panicking, so this works under the workspace's
+            // `-D clippy::panic` policy.
+            _ => return Err(format!("expected MissingFields, got {meta:?}").into()),
+        };
+        assert!(fields.contains(&META_PROTOCOL_VERSION));
+        assert!(fields.contains(&META_CLIENT_INFO));
+        assert!(fields.contains(&META_CLIENT_CAPABILITIES));
+        Ok(())
     }
 
     #[test]

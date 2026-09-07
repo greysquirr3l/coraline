@@ -8,6 +8,7 @@ use serde_json::{Value, json};
 
 use crate::context;
 use crate::types::{BuildContextOptions, ContextFormat};
+use crate::vectors::f64_to_f32_lossy;
 
 use super::{Tool, ToolError, ToolResult};
 
@@ -116,14 +117,10 @@ impl Tool for BuildContextTool {
                 .get("search_limit")
                 .and_then(Value::as_u64)
                 .map(|n| usize::try_from(n).unwrap_or(usize::MAX)),
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "f64 -> f32: no checked TryFrom<f64> for f32 in std"
-            )]
             min_score: params
                 .get("min_score")
                 .and_then(Value::as_f64)
-                .map(|f| f as f32),
+                .map(|f| f64_to_f32_lossy(f)),
         };
 
         let context = context::build_context(&self.project_root, task, &options)
