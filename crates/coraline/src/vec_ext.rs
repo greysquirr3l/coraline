@@ -281,10 +281,12 @@ pub mod runtime {
     use rusqlite::{Connection, params};
 
     /// Register `sqlite-vec` as a SQLite auto-extension on every new
-    /// connection. Subsequent SQL operations on any connection opened
-    /// after this call can use `vec0` virtual tables and `vec_f32(...)`.
-    /// This is global to the process — pass `_conn` to document that
-    /// we don't currently need a handle (kept for forward compat).
+    /// connection.
+    ///
+    /// Subsequent SQL operations on any connection opened after this
+    /// call can use `vec0` virtual tables and `vec_f32(...)`. This
+    /// is global to the process — pass `_conn` to document that we
+    /// don't currently need a handle (kept for forward compat).
     pub fn enable_extension(_conn: &Connection) -> io::Result<()> {
         // SAFETY: `sqlite3_vec_init` is the `extern "C"` symbol that
         // sqlite-vec exports. `register_auto_extension` expects a
@@ -529,9 +531,15 @@ pub mod runtime {
             enable_extension(&conn)?;
 
             let mut embedding = vec![0.0_f32; 768];
-            if let Some(v) = embedding.get_mut(0) { *v = 1.0; }
-            if let Some(v) = embedding.get_mut(100) { *v = 0.5; }
-            if let Some(v) = embedding.get_mut(500) { *v = -0.25; }
+            if let Some(v) = embedding.get_mut(0) {
+                *v = 1.0;
+            }
+            if let Some(v) = embedding.get_mut(100) {
+                *v = 0.5;
+            }
+            if let Some(v) = embedding.get_mut(500) {
+                *v = -0.25;
+            }
 
             store_embedding_vec0(&conn, "node-a", &embedding, "nomic-embed-text-v1.5")?;
 
@@ -549,11 +557,15 @@ pub mod runtime {
             enable_extension(&conn)?;
 
             let mut v1 = vec![0.0_f32; 768];
-            if let Some(slot) = v1.get_mut(0) { *slot = 1.0; }
+            if let Some(slot) = v1.get_mut(0) {
+                *slot = 1.0;
+            }
             store_embedding_vec0(&conn, "node-x", &v1, "m1")?;
 
             let mut v2 = vec![0.0_f32; 768];
-            if let Some(slot) = v2.get_mut(1) { *slot = 1.0; }
+            if let Some(slot) = v2.get_mut(1) {
+                *slot = 1.0;
+            }
             store_embedding_vec0(&conn, "node-x", &v2, "m2")?;
 
             let loaded = load_embedding_vec0(&conn, "node-x")?.ok_or("embedding not found")?;
@@ -575,11 +587,17 @@ pub mod runtime {
             enable_extension(&conn)?;
 
             let mut a = vec![0.0_f32; 768];
-            if let Some(slot) = a.get_mut(0) { *slot = 1.0; }
+            if let Some(slot) = a.get_mut(0) {
+                *slot = 1.0;
+            }
             let mut b = vec![0.0_f32; 768];
-            if let Some(slot) = b.get_mut(1) { *slot = 1.0; }
+            if let Some(slot) = b.get_mut(1) {
+                *slot = 1.0;
+            }
             let mut c = vec![0.0_f32; 768];
-            if let Some(slot) = c.get_mut(2) { *slot = 1.0; }
+            if let Some(slot) = c.get_mut(2) {
+                *slot = 1.0;
+            }
             let query = a.clone();
 
             store_embedding_vec0(&conn, "a", &a, "m")?;
