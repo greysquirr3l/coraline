@@ -879,6 +879,27 @@ fn run_init(args: InitArgs) {
         std::process::exit(1);
     }
 
+    // Phase 5.3: when the binary was built with `--features vec-ext`,
+    // convert the freshly-created v1 BLOB `vectors` table into the
+    // vec0 + vectors_meta pair so subsequent `coraline embed` and
+    // `coraline semantic-search` calls land in vec0 storage.
+    #[cfg(feature = "vec-ext")]
+    {
+        use coraline::vec_ext;
+        if vec_ext::VEC_EXT_ENABLED {
+            match vec_ext::migrate_to_vec0(&project_root) {
+                Ok(()) => {
+                    println!("vec-ext: converted vectors table to vec0.");
+                }
+                Err(err) => {
+                    eprintln!(
+                        "vec-ext: migration to vec0 failed ({err}). The BLOB table is still in place; rerun `coraline init` with `--force` or implement a manual migration."
+                    );
+                }
+            }
+        }
+    }
+
     // Create initial memory templates
     let project_name = project_root
         .file_name()

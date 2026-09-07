@@ -1,4 +1,4 @@
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 
 //! MCP protocol version negotiation and per-request `_meta` parsing.
 //!

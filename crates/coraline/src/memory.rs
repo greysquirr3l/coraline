@@ -1,4 +1,4 @@
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 #![allow(
     clippy::needless_raw_string_hashes,
     clippy::uninlined_format_args,
