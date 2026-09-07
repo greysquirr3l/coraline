@@ -802,7 +802,7 @@ pub fn store_embedding(
     #[cfg(feature = "vec-ext")]
     {
         crate::vec_ext::runtime::enable_extension(conn)?;
-        return crate::vec_ext::runtime::store_embedding_vec0(conn, node_id, embedding, model_name);
+        crate::vec_ext::runtime::store_embedding_vec0(conn, node_id, embedding, model_name)
     }
 
     // Default path: BLOB-cosine storage (no vec-ext feature).
