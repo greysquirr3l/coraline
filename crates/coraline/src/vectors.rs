@@ -893,6 +893,7 @@ pub fn search_similar(
                     .unwrap_or(Language::TypeScript),
                 start_line: row.get(8)?,
                 end_line: row.get(9)?,
+                cluster_id: None,
                 start_column: row.get(10)?,
                 end_column: row.get(11)?,
                 docstring: row.get(12)?,
