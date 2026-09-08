@@ -7,10 +7,10 @@ use std::path::PathBuf;
 use serde_json::{Value, json};
 
 use crate::clustering;
-use crate::vectors::f64_to_f32_lossy;
 use crate::db;
 use crate::graph;
 use crate::types::{EdgeKind, NodeKind, TraversalDirection, TraversalOptions};
+use crate::utils::f64_to_f32_lossy;
 
 use super::{Tool, ToolError, ToolResult};
 

@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 use crate::db;
-use crate::vectors::f64_to_f32_lossy;
+use crate::utils::f64_to_f32_lossy;
 
 use super::{Tool, ToolError, ToolResult};
 
