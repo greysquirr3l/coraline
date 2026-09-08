@@ -1,4 +1,4 @@
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 
 use std::path::{Path, PathBuf};
 
@@ -9,6 +9,7 @@ use crate::types::{
     Edge, EdgeKind, FileRecord, Language, Node, NodeKind, SearchResult, UnresolvedReference,
     Visibility,
 };
+use crate::utils::f64_to_f32_lossy;
 
 pub const DATABASE_FILENAME: &str = "coraline.db";
 pub const SCHEMA_SQL: &str = include_str!("db/schema.sql");
@@ -39,7 +40,7 @@ pub struct UnresolvedRefRow {
     pub reference: UnresolvedReference,
 }
 
-fn io_other(err: impl std::error::Error + Send + Sync + 'static) -> std::io::Error {
+pub fn io_other(err: impl std::error::Error + Send + Sync + 'static) -> std::io::Error {
     std::io::Error::other(err)
 }
 
@@ -58,25 +59,113 @@ pub fn initialize_database(project_root: &Path) -> std::io::Result<PathBuf> {
     let conn = rusqlite::Connection::open(&db_path).map_err(io_other)?;
     conn.execute_batch(PERF_PRAGMAS).map_err(io_other)?;
     conn.execute_batch(SCHEMA_SQL).map_err(io_other)?;
+    apply_incremental_migrations(&conn)?;
     Ok(db_path)
+}
+
+/// Run additive migrations for DBs created before later schema versions.
+///
+/// Each migration is idempotent and only runs when the corresponding
+/// schema column is missing. Additive-only — no destructive changes.
+pub fn apply_incremental_migrations(conn: &Connection) -> std::io::Result<()> {
+    // v2 → v3: add `edges.confidence` for resolution-strength scoring
+    // (Phase 5.2 — borrows GitNexus's `WHERE r.confidence > 0.8` filter).
+    if !column_exists(conn, "edges", "confidence")? {
+        debug!("applying migration: edges.confidence");
+        conn.execute_batch(
+            "ALTER TABLE edges ADD COLUMN confidence REAL NOT NULL DEFAULT 1.0;
+             INSERT OR IGNORE INTO schema_versions (version, applied_at, description)
+             VALUES (2, strftime('%s', 'now') * 1000,
+                     'Add edges.confidence for resolution-strength scoring (Phase 5.2)');",
+        )
+        .map_err(io_other)?;
+    }
+
+    // v3 → v4: add `nodes.cluster_id` + `edges.process_id` (Phase 5.1 —
+    // borrows GitNexus's precomputed Louvain clusters and per-edge
+    // process trace ids).
+    if !column_exists(conn, "nodes", "cluster_id")? {
+        debug!("applying migration: nodes.cluster_id");
+        conn.execute_batch(
+            "ALTER TABLE nodes ADD COLUMN cluster_id INTEGER;
+             INSERT OR IGNORE INTO schema_versions (version, applied_at, description)
+             VALUES (3, strftime('%s', 'now') * 1000,
+                     'Add nodes.cluster_id + edges.process_id for Louvain clustering and process tracing (Phase 5.1)');",
+        )
+        .map_err(io_other)?;
+    }
+
+    if !column_exists(conn, "edges", "process_id")? {
+        debug!("applying migration: edges.process_id");
+        conn.execute_batch("ALTER TABLE edges ADD COLUMN process_id INTEGER;")
+            .map_err(io_other)?;
+    }
+
+    Ok(())
+}
+
+/// Return `true` if the named table has the named column.
+///
+/// `PRAGMA table_info(<table>)` returns one row per column with `name` at
+/// index 1; we scan the rows to find a match.
+fn column_exists(conn: &Connection, table: &str, column: &str) -> std::io::Result<bool> {
+    let mut stmt = conn
+        .prepare(&format!("PRAGMA table_info({table})"))
+        .map_err(io_other)?;
+    let mut rows = stmt.query([]).map_err(io_other)?;
+    while let Some(row) = rows.next().map_err(io_other)? {
+        let name: String = row.get(1).map_err(io_other)?;
+        if name == column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 pub fn open_database(project_root: &Path) -> std::io::Result<Connection> {
     let db_path = database_path(project_root);
     let conn = Connection::open(&db_path).map_err(io_other)?;
     conn.execute_batch(PERF_PRAGMAS).map_err(io_other)?;
+    // Run additive migrations on every open. `apply_incremental_migrations`
+    // is idempotent (column-existence guard) and additive-only, so it is
+    // safe to invoke each time a connection is opened. Without this, DBs
+    // upgraded across a schema-version boundary (e.g. v1 -> v3) only get
+    // the new columns when `coraline init` is run, leaving `coraline sync`
+    // and the post-extraction passes stuck on `no such column`.
+    apply_incremental_migrations(&conn)?;
     Ok(conn)
 }
 
 pub fn clear_database(conn: &Connection) -> std::io::Result<()> {
-    conn.execute_batch(
-        "DELETE FROM unresolved_refs;
-         DELETE FROM vectors;
-         DELETE FROM edges;
-         DELETE FROM nodes;
-         DELETE FROM files;",
-    )
-    .map_err(io_other)
+    // The vectors storage layout depends on the `vec-ext` Cargo feature
+    // (v1: `vectors` BLOB table; v0: `vectors_vec` virtual table plus a
+    // `vectors_meta` companion). The default build's schema is created
+    // by SCHEMA_SQL on every open; under vec-ext, ensure_vec0_schema
+    // (called by the embedding dispatch) migrates to v0 on first use.
+    // Either way, this function unconditionally clears the rows of both
+    // layouts — DELETE FROM a non-existent table is a no-op as long as
+    // the statement parses, and SQLite's `if_exists` flag on
+    // sqlite_master lookup would still error on a bare `DELETE FROM
+    // vectors` here if v0 was always in place.
+    //
+    // Wrapped in a single batch so a partial failure rolls back the
+    // whole delete and the caller sees a consistent state.
+    #[cfg(feature = "vec-ext")]
+    let sql = "DELETE FROM unresolved_refs;
+               DELETE FROM vectors_meta;
+               DELETE FROM vectors_vec;
+               DELETE FROM edges;
+               DELETE FROM nodes;
+               DELETE FROM files;";
+
+    #[cfg(not(feature = "vec-ext"))]
+    let sql = "DELETE FROM unresolved_refs;
+               DELETE FROM vectors;
+               DELETE FROM edges;
+               DELETE FROM nodes;
+               DELETE FROM files;";
+
+    conn.execute_batch(sql).map_err(io_other)
 }
 
 pub fn get_file_record(conn: &Connection, path: &str) -> std::io::Result<Option<FileRecord>> {
@@ -225,8 +314,8 @@ pub fn insert_edges(conn: &mut Connection, edges: &[Edge]) -> std::io::Result<()
     {
         let mut stmt = tx
             .prepare(
-                "INSERT INTO edges (source, target, kind, metadata, line, col)
-                 VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO edges (source, target, kind, metadata, line, col, confidence)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)",
             )
             .map_err(io_other)?;
 
@@ -242,6 +331,7 @@ pub fn insert_edges(conn: &mut Connection, edges: &[Edge]) -> std::io::Result<()
                 metadata,
                 edge.line,
                 edge.column,
+                edge.confidence,
             ])
             .map_err(io_other)?;
         }
@@ -366,8 +456,8 @@ fn insert_edge_batch(tx: &Transaction, edges: &[Edge]) -> std::io::Result<()> {
     }
     let mut stmt = tx
         .prepare(
-            "INSERT INTO edges (source, target, kind, metadata, line, col)
-             VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO edges (source, target, kind, metadata, line, col, confidence)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
         .map_err(io_other)?;
     for edge in edges {
@@ -382,6 +472,7 @@ fn insert_edge_batch(tx: &Transaction, edges: &[Edge]) -> std::io::Result<()> {
             metadata,
             edge.line,
             edge.column,
+            edge.confidence,
         ])
         .map_err(io_other)?;
     }
@@ -487,13 +578,11 @@ pub fn search_nodes(
     let mut stmt = conn.prepare(&sql).map_err(io_other)?;
     let rows = stmt
         .query_map(rusqlite::params_from_iter(params_vec), |row| {
-            // FTS rank is negative, convert to positive score (higher = better)
+            // FTS rank is negative, convert to positive score (higher = better).
+            // f32::from(f64) saturates to ±inf for out-of-range values,
+            // which is acceptable for a relevance score.
             let rank: f64 = row.get(20)?;
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "f64 -> f32 score narrowing; no checked TryFrom<f64> for f32 in std"
-            )]
-            let score = (-rank) as f32;
+            let score = f64_to_f32_lossy(-rank);
             Ok(SearchResult {
                 node: row_to_node(row)?,
                 score,
@@ -596,14 +685,42 @@ pub fn get_edges_by_source(
     kind: Option<EdgeKind>,
     limit: usize,
 ) -> std::io::Result<Vec<Edge>> {
+    get_edges_by_source_with_confidence(conn, source_id, kind, limit, None)
+}
+
+pub fn get_edges_by_target(
+    conn: &Connection,
+    target_id: &str,
+    kind: Option<EdgeKind>,
+    limit: usize,
+) -> std::io::Result<Vec<Edge>> {
+    get_edges_by_target_with_confidence(conn, target_id, kind, limit, None)
+}
+
+/// Variant of [`get_edges_by_source`] that filters out edges below a
+/// resolution-confidence threshold. Pass `min_confidence = None` to keep
+/// the existing behaviour.
+pub fn get_edges_by_source_with_confidence(
+    conn: &Connection,
+    source_id: &str,
+    kind: Option<EdgeKind>,
+    limit: usize,
+    min_confidence: Option<f32>,
+) -> std::io::Result<Vec<Edge>> {
     let mut sql = String::from(
-        "SELECT source, target, kind, metadata, line, col FROM edges WHERE source = ?",
+        "SELECT source, target, kind, metadata, line, col, confidence \
+         FROM edges WHERE source = ?",
     );
     let mut params_vec: Vec<String> = vec![source_id.to_string()];
 
     if let Some(kind) = kind {
         sql.push_str(" AND kind = ?");
         params_vec.push(edge_kind_to_string(kind));
+    }
+
+    if let Some(threshold) = min_confidence {
+        sql.push_str(" AND confidence >= ?");
+        params_vec.push(threshold.to_string());
     }
 
     sql.push_str(" ORDER BY COALESCE(line, 0) ASC, COALESCE(col, 0) ASC, target ASC LIMIT ?");
@@ -621,20 +738,30 @@ pub fn get_edges_by_source(
     Ok(results)
 }
 
-pub fn get_edges_by_target(
+/// Variant of [`get_edges_by_target`] that filters out edges below a
+/// resolution-confidence threshold. Pass `min_confidence = None` to keep
+/// the existing behaviour.
+pub fn get_edges_by_target_with_confidence(
     conn: &Connection,
     target_id: &str,
     kind: Option<EdgeKind>,
     limit: usize,
+    min_confidence: Option<f32>,
 ) -> std::io::Result<Vec<Edge>> {
     let mut sql = String::from(
-        "SELECT source, target, kind, metadata, line, col FROM edges WHERE target = ?",
+        "SELECT source, target, kind, metadata, line, col, confidence \
+         FROM edges WHERE target = ?",
     );
     let mut params_vec: Vec<String> = vec![target_id.to_string()];
 
     if let Some(kind) = kind {
         sql.push_str(" AND kind = ?");
         params_vec.push(edge_kind_to_string(kind));
+    }
+
+    if let Some(threshold) = min_confidence {
+        sql.push_str(" AND confidence >= ?");
+        params_vec.push(threshold.to_string());
     }
 
     sql.push_str(" ORDER BY COALESCE(line, 0) ASC, COALESCE(col, 0) ASC, source ASC LIMIT ?");
@@ -833,7 +960,7 @@ pub fn get_db_stats(conn: &Connection) -> std::io::Result<DbStats> {
     })
 }
 
-fn language_to_string(language: Language) -> String {
+pub fn language_to_string(language: Language) -> String {
     serde_json::to_value(language)
         .ok()
         .and_then(|v| v.as_str().map(std::string::ToString::to_string))
@@ -904,6 +1031,11 @@ pub fn row_to_node(row: &rusqlite::Row<'_>) -> rusqlite::Result<Node> {
         is_abstract: row.get::<_, i64>(16)? != 0,
         decorators: decorators.and_then(|raw| serde_json::from_str(&raw).ok()),
         type_parameters: type_parameters.and_then(|raw| serde_json::from_str(&raw).ok()),
+        // `cluster_id` lives at the same column index as `updated_at` was
+        // before Phase 5.1 — existing SELECT lists don't include it, so
+        // we leave it as `None`. The clustering module uses its own
+        // column-aware queries via `row_to_node_with_cluster`.
+        cluster_id: None,
         updated_at: row.get(19)?,
     })
 }
@@ -919,6 +1051,11 @@ fn row_to_edge(row: &rusqlite::Row<'_>) -> rusqlite::Result<Edge> {
         metadata: metadata.and_then(|raw| serde_json::from_str(&raw).ok()),
         line: row.get(4)?,
         column: row.get(5)?,
+        confidence: row.get(6)?,
+        // `process_id` is at column index 7; existing SELECT lists don't
+        // include it, so the process-tracing module uses its own
+        // column-aware queries via `row_to_edge_with_process`.
+        process_id: None,
     })
 }
 
@@ -1222,6 +1359,107 @@ mod tests {
             if let Ok(count) = query_result {
                 assert!(count >= 1);
             }
+        }
+    }
+
+    // Phase 5.2 — `edges.confidence` resolution-strength scoring.
+
+    fn seed_edge(conn: &Connection, source: &str, target: &str, kind: &str, confidence: f64) {
+        conn.execute(
+            "INSERT INTO edges (source, target, kind, line, col, confidence)
+             VALUES (?1, ?2, ?3, 1, 0, ?4)",
+            rusqlite::params![source, target, kind, confidence],
+        )
+        .expect("insert edge");
+    }
+
+    #[test]
+    fn migration_adds_confidence_column_with_default_one() {
+        // Simulate a v1 DB (no confidence column) by creating the schema
+        // directly, then running the migration runner.
+        let conn = Connection::open_in_memory().expect("open in-memory db");
+        conn.execute_batch(SCHEMA_SQL).expect("apply schema");
+        conn.execute("ALTER TABLE edges DROP COLUMN confidence", [])
+            .expect("drop confidence column to simulate pre-v2 DB");
+
+        super::apply_incremental_migrations(&conn).expect("run migrations");
+
+        // Re-inserting should now succeed and existing rows should get
+        // confidence = 1.0 (DEFAULT).
+        seed_node(&conn, "a");
+        seed_node(&conn, "b");
+        seed_edge(&conn, "a", "b", "calls", 0.5);
+
+        let confidence: f64 = conn
+            .query_row(
+                "SELECT confidence FROM edges WHERE source = 'a' AND target = 'b'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query confidence");
+        assert!(
+            (confidence - 0.5).abs() < 1e-9,
+            "expected 0.5, got {confidence}"
+        );
+    }
+
+    #[test]
+    fn migration_is_idempotent() {
+        let conn = Connection::open_in_memory().expect("open in-memory db");
+        conn.execute_batch(SCHEMA_SQL).expect("apply schema");
+        // Running twice must not error — the column_exists() guard makes
+        // the migration a no-op the second time.
+        super::apply_incremental_migrations(&conn).expect("first run");
+        super::apply_incremental_migrations(&conn).expect("second run");
+    }
+
+    #[test]
+    fn edges_by_target_with_confidence_filters_low_confidence_rows() {
+        let conn = Connection::open_in_memory().expect("open in-memory db");
+        conn.execute_batch(SCHEMA_SQL).expect("apply schema");
+        super::apply_incremental_migrations(&conn).expect("migrations");
+
+        seed_node(&conn, "callee");
+        seed_node(&conn, "high");
+        seed_node(&conn, "low");
+        seed_edge(&conn, "high", "callee", "calls", 0.95);
+        seed_edge(&conn, "low", "callee", "calls", 0.5);
+
+        let all = super::get_edges_by_target_with_confidence(&conn, "callee", None, 100, None)
+            .expect("query all");
+        assert_eq!(all.len(), 2);
+
+        let high_only =
+            super::get_edges_by_target_with_confidence(&conn, "callee", None, 100, Some(0.8))
+                .expect("query high");
+        assert_eq!(high_only.len(), 1);
+        for item in &high_only {
+            assert!((item.confidence - 0.95).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn edges_by_source_with_confidence_filters_low_confidence_rows() {
+        let conn = Connection::open_in_memory().expect("open in-memory db");
+        conn.execute_batch(SCHEMA_SQL).expect("apply schema");
+        super::apply_incremental_migrations(&conn).expect("migrations");
+
+        seed_node(&conn, "caller");
+        seed_node(&conn, "a");
+        seed_node(&conn, "b");
+        seed_edge(&conn, "caller", "a", "calls", 0.95);
+        seed_edge(&conn, "caller", "b", "calls", 0.5);
+
+        let all = super::get_edges_by_source_with_confidence(&conn, "caller", None, 100, None)
+            .expect("query all");
+        assert_eq!(all.len(), 2);
+
+        let high_only =
+            super::get_edges_by_source_with_confidence(&conn, "caller", None, 100, Some(0.8))
+                .expect("query high");
+        assert_eq!(high_only.len(), 1);
+        for item in &high_only {
+            assert!((item.confidence - 0.95).abs() < 1e-6);
         }
     }
 }

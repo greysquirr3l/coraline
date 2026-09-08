@@ -1,4 +1,4 @@
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 
 pub mod frameworks;
 
@@ -82,6 +82,7 @@ impl ReferenceResolver {
             };
 
             if let [target] = candidates.as_slice() {
+                let confidence = confidence_for_reference(&reference.reference_name);
                 resolved_edges.push(Edge {
                     source: reference.from_node_id.clone(),
                     target: target.id.clone(),
@@ -89,6 +90,8 @@ impl ReferenceResolver {
                     metadata: None,
                     line: Some(reference.line),
                     column: Some(reference.column),
+                    confidence,
+                    process_id: None,
                 });
                 resolved_ids.push(row.id);
             }
@@ -107,6 +110,28 @@ impl ReferenceResolver {
             resolved: resolved_ids.len(),
             remaining,
         })
+    }
+}
+
+/// Compute the resolution-confidence score for a single resolved reference.
+///
+/// The thresholds mirror the Phase 5.2 spec (borrows `GitNexus`'s per-edge
+/// confidence field, used in their `WHERE r.confidence > 0.8` Cypher
+/// filters):
+///
+/// - `0.95` — strongly-typed Rust path (`crate::`, `super::`, `self::`).
+/// - `0.5`  — generic name match / framework fallback / heuristic ranker
+///   (the default for everything else).
+///
+/// Alias-chain detection (the `0.7` tier in the spec) would need access to
+/// the originating `use ... as ...` AST node, which isn't currently
+/// surfaced through [`UnresolvedReference`]. Once it is, this function
+/// is the single place to extend.
+fn confidence_for_reference(name: &str) -> f32 {
+    if name.starts_with("crate::") || name.starts_with("super::") || name.starts_with("self::") {
+        0.95
+    } else {
+        0.5
     }
 }
 
@@ -344,4 +369,23 @@ fn parse_import_signature(signature: &str) -> Option<ImportHint> {
         module_path: signature.to_string(),
         export_name: None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::confidence_for_reference;
+
+    #[test]
+    fn confidence_is_high_for_strongly_typed_rust_paths() {
+        assert!((confidence_for_reference("crate::foo::bar") - 0.95).abs() < f32::EPSILON);
+        assert!((confidence_for_reference("super::baz") - 0.95).abs() < f32::EPSILON);
+        assert!((confidence_for_reference("self::quux") - 0.95).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn confidence_is_default_for_generic_or_unresolved_paths() {
+        assert!((confidence_for_reference("foo") - 0.5).abs() < f32::EPSILON);
+        assert!((confidence_for_reference("std::collections::HashMap") - 0.5).abs() < f32::EPSILON);
+        assert!((confidence_for_reference("") - 0.5).abs() < f32::EPSILON);
+    }
 }

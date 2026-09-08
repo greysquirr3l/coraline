@@ -1,10 +1,11 @@
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 #![expect(
     clippy::multiple_crate_versions,
     reason = "transitive dependency version conflicts we can't control (base64, getrandom, hashbrown)"
 )]
 
 pub mod audit;
+pub mod clustering;
 pub mod config;
 pub mod context;
 pub mod db;
@@ -21,6 +22,7 @@ pub mod tools;
 pub mod types;
 pub mod update;
 pub mod utils;
+pub mod vec_ext;
 #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
 pub mod vectors;
 

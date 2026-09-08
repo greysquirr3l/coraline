@@ -1,40 +1,13 @@
 use std::path::Path;
 
-#[cfg(target_os = "macos")]
-fn configure_macos_archiver() {
-    use std::fs;
-    use std::os::unix::fs::PermissionsExt;
-    use std::path::PathBuf;
-
-    if std::env::var_os("AR").is_some() {
-        return;
-    }
-
-    let out_dir =
-        std::env::var_os("OUT_DIR").map_or_else(|| PathBuf::from("target"), PathBuf::from);
-    let wrapper = out_dir.join("bsd-ar-wrapper.sh");
-    let script = r#"#!/usr/bin/env bash
-set -euo pipefail
-args=()
-for arg in "$@"; do
-  if [[ "$arg" =~ ^[A-Za-z-]+$ ]]; then
-    args+=("${arg//D/}")
-  else
-    args+=("$arg")
-  fi
-done
-exec /usr/bin/ar "${args[@]}"
-"#;
-
-    let _ = fs::write(&wrapper, script);
-    let _ = fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o755));
-    std::env::set_var("AR", wrapper);
-}
-
 fn main() {
-    #[cfg(target_os = "macos")]
-    configure_macos_archiver();
-
+    // Previously this build script wrote a wrapper around `/usr/bin/ar`
+    // that stripped GNU-style `-D` (deterministic mode) flags so
+    // `cc-rs` could invoke macOS's BSD `ar`. The regex-based filter
+    // (`${arg//D/}` applied to any `[A-Za-z-]+` arg) was too broad and
+    // also stripped legitimate BSD-ar flags like `-p`, breaking
+    // `cargo lint`. Modern `cc-rs` (>=1.x) handles BSD ar correctly via
+    // the `AR` env var, so we just use the system archiver as-is.
     let mut build = cc::Build::new();
     build.file("src/parser.c").include("src");
 

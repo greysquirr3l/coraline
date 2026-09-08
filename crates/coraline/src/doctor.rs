@@ -1,4 +1,4 @@
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 
 //! Diagnostic checks for the Coraline installation.
 //!
@@ -22,6 +22,8 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use serde::Serialize;
+
+use crate::vec_ext;
 
 use crate::config;
 use crate::db;
@@ -63,6 +65,7 @@ pub fn run_all(project_root: &Path, deep: bool) -> Report {
         check_config(project_root),
         check_db(project_root),
         check_hooks(project_root),
+        vec_ext::check_vec_ext(project_root),
     ];
     probes.extend(embeddings_probes(project_root, deep));
     Report::from_probes(probes)
@@ -696,9 +699,9 @@ mod tests {
         let report = run_all(root.path(), false);
         let names: Vec<&str> = report.probes.iter().map(|p| p.name).collect();
         #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
-        let expected = vec!["config", "database", "git hooks", "model file"];
+        let expected = vec!["config", "database", "git hooks", "vec_ext", "model file"];
         #[cfg(not(any(feature = "embeddings", feature = "embeddings-dynamic")))]
-        let expected = vec!["config", "database", "git hooks"];
+        let expected = vec!["config", "database", "git hooks", "vec_ext"];
         assert_eq!(names, expected);
         Ok(())
     }
@@ -719,6 +722,7 @@ mod tests {
                 "config",
                 "database",
                 "git hooks",
+                "vec_ext",
                 "model file",
                 "model loads",
                 "inference",

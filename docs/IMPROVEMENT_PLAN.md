@@ -3,7 +3,7 @@
 Based on architectural review comparing Coraline with Serena reference project.
 
 **Generated:** February 13, 2026  
-**Updated:** February 19, 2026  
+**Updated:** August 2026  
 **Status:** In Progress
 
 ---
@@ -28,6 +28,7 @@ implementation.
 **Status:** ✅ Complete - All tools abstracted, MCP server fully refactored.
 
 **Files Created:**
+
 - [x] `src/tools/mod.rs` - Tool trait and registry ✅
 - [x] `src/tools/graph_tools.rs` - Graph query tools (search, callers, callees, impact) ✅
 - [x] `src/tools/context_tools.rs` - Context building tools ✅
@@ -35,9 +36,11 @@ implementation.
 - [x] `src/tools/file_tools.rs` - File system tools ✅
 
 **Files to Refactor:**
+
 - [x] `src/mcp.rs` - Reduce to pure protocol handling, delegate to tool registry ✅
 
 **Completed Work:**
+
 - ✅ Created `Tool` trait with name, description, input_schema, and execute methods
 - ✅ Created `ToolRegistry` with registration, execution, and metadata export
 - ✅ Implemented `SearchTool` - search nodes by name/pattern
@@ -50,6 +53,7 @@ implementation.
 - ✅ All Phase 1.1 tests passing
 
 **Benefits:**
+
 - ✅ Tools can be tested independent of MCP (unit tests included in mod.rs)
 - ✅ Tools reusable in CLI, library API, and MCP contexts
 - ✅ Clear separation of concerns per Serena's lessons learned
@@ -62,6 +66,7 @@ implementation.
 **Current State:** ~~No persistent project knowledge storage~~ **COMPLETE**
 
 **Files Created:**
+
 - [x] `src/memory.rs` - Memory CRUD operations ✅
 - [x] `src/tools/memory_tools.rs` - MCP tool wrappers ✅
 
@@ -74,6 +79,7 @@ pub struct MemoryManager {
 ```
 
 **Initial Memory Templates:**
+
 - [x] `project_overview` - High-level architecture description ✅
 - [x] `style_conventions` - Coding style and patterns ✅
 - [x] `suggested_commands` - Common development commands ✅
@@ -82,18 +88,21 @@ pub struct MemoryManager {
 **Storage:** ~~JSON files in `.coraline/memories/`~~ Markdown files in `.coraline/memories/` ✅
 
 **MCP Tools Added:**
+
 - [x] `coraline_write_memory(name, content)` ✅
 - [x] `coraline_read_memory(name)` ✅
 - [x] `coraline_list_memories()` ✅
 - [x] `coraline_delete_memory(name)` ✅
 - [x] `coraline_edit_memory(name, pattern, replacement, mode)` - Edit memory with literal or regex-specific patterns ✅
 
-**✅ Persistent knowledge across sessions
+\*\*✅ Persistent knowledge across sessions
+
 - ✅ Claude can learn and reference project-specific patterns
 - ✅ Reduces need to re-explain architecture
 - ✅ Initial templates created on `coraline init`
 
 **Completed Work:**
+
 - ✅ Implemented `MemoryManager` with CRUD operations
 - ✅ Markdown-based storage (follows Serena pattern)
 - ✅ Auto-strips/adds `.md` extension
@@ -107,13 +116,14 @@ pub struct MemoryManager {
 
 ---
 
-### 1.3 Testing Infrastructure ✅ COMPLETE  
+### 1.3 Testing Infrastructure ✅ COMPLETE
 
 **Current State:** Comprehensive testing with fixtures achieving 97% coverage
 
 **Target State:** Comprehensive testing with fixtures and snapshots
 
 **Files Created:**
+
 - [x] `tests/fixtures/typescript-simple/` - TypeScript test fixtures (3 files: index.ts, math.ts, user.ts) ✅
 - [x] `tests/fixtures/rust-crate/` - Rust test fixtures (4 files) ✅
 - [x] `tests/extraction_test.rs` - Extraction tests (4 tests: 3 passing, 1 marked as future work) ✅
@@ -123,6 +133,7 @@ pub struct MemoryManager {
 **Test Coverage:**
 
 ✅ **Unit Tests (24/24 passing):**
+
 - [x] Memory CRUD operations (5 tests) ✅
 - [x] Tool registry operations (3 tests) ✅
 - [x] Memory MCP tools (5 tests) ✅
@@ -131,6 +142,7 @@ pub struct MemoryManager {
 - [x] Database operations ✅
 
 ✅ **Integration Tests (13/13 passing, 1 ignored):**
+
 - [x] Extract TypeScript functions and classes ✅
 - [x] Extract Rust function signatures ✅
 - [x] Incremental sync after file changes ✅
@@ -146,10 +158,12 @@ pub struct MemoryManager {
 - [x] Cross-file imports (now passing — `import_statement` node type fixed) ✅
 
 **Fixture Projects:**
+
 - [x] `fixtures/typescript-simple/` - Calculator class, User interface, imports ✅
 - [x] `fixtures/rust-crate/` - Simple Rust library ✅
 
 **Key Improvements:**
+
 - ✅ Fixed FTS search to use OR logic for multi-word queries
 - ✅ Search now finds symbols when query contains multiple words (e.g., "calculator functionality")
 - ✅ All context building tests passing with rich output (entry points + code blocks)
@@ -167,12 +181,14 @@ pub struct MemoryManager {
 **Note:** Test count increased from 32→36 as of v0.1.2, and to 37 with cross-file import fix.
 
 **Testing Tools:**
+
 - [x] `insta` for snapshot testing ✅
 - [x] `tempfile` for temporary test projects ✅
 - [x] `globset` for pattern matching (replaced broken regex implementation) ✅
 - [x] `proptest` for property-based testing ✅ (5 property tests for `cosine_similarity`: symmetry, range, self-similarity, length mismatch, scale invariance)
 
 **Test Results:**
+
 - ✅ 24/24 Unit tests passing (memory, tools, vectors, proptest)
 - ✅ 5/5 Vector tests passing
 - ✅ 5/5 Vector property-based tests passing
@@ -183,10 +199,12 @@ pub struct MemoryManager {
 - **Total: 37/37 passing, 0 ignored (100%)**
 
 **Critical Bug Fixed:**
+
 - ✅ Glob pattern matching completely rewritten using `globset` crate
 - ✅ Previous regex-based implementation was non-functional
 
 **Benefits:**
+
 - ✅ Confidence in refactoring
 - ✅ Regression prevention
 - ✅ Documentation through examples
@@ -206,6 +224,7 @@ pub struct MemoryManager {
 **Status:** Complete. Full ONNX pipeline using `ort = "=2.0.0-rc.11"` (latest RC), nomic-embed-text-v1.5, tokenizers, and `coraline embed` CLI command all shipped.
 
 **Completed:**
+
 - [x] `src/vectors.rs` - Vector storage and similarity search implementation ✅
 - [x] `VectorManager` struct with ONNX embedding generation ✅
 - [x] `store_embedding()` - Store embedding vectors to database ✅
@@ -254,11 +273,13 @@ pub fn search_similar(conn: &Connection, query_embedding: &[f32], limit: usize, 
 ```
 
 **Vector Similarity Approach:** Option C selected - Cosine similarity in Rust after loading embeddings
+
 - Simple, no external dependencies
 - Fast enough for reasonable corpus sizes
 - Can be optimized with SIMD later if needed
 
 **Benefits:**
+
 - ✅ Infrastructure ready for semantic search
 - ✅ Database schema supports vector storage
 - ✅ Similarity search algorithm implemented and tested
@@ -275,39 +296,46 @@ pub fn search_similar(conn: &Connection, query_embedding: &[f32], limit: usize, 
 **Target State:** Rich tool set matching Serena's capabilities
 
 **Symbol Tools:**
+
 - [x] `coraline_find_symbol(name_pattern, include_body?, kind?, limit?)` - Find symbols by name with optional body ✅
 - [x] `coraline_get_symbols_overview(file_path)` - Get all symbols in a file, grouped by kind ✅
 - [x] `coraline_find_references(node_id, edge_kind?, limit?)` - Find all references/callers of a symbol ✅
 - [x] `coraline_node(node_id, include_edges?)` - Get full node details with source code body ✅
 
 **Graph Tools (previously implemented):**
+
 - [x] `coraline_search(query, kind?, limit?)` - FTS symbol search ✅
 - [x] `coraline_callers(node_id)` - Who calls this function ✅
 - [x] `coraline_callees(node_id)` - What does this function call ✅
 - [x] `coraline_impact(node_id, max_depth?, max_nodes?)` - Impact radius analysis ✅
 
 **File Tools:**
+
 - [x] `coraline_read_file(path, start_line?, limit?)` - Read file contents with line range ✅
 - [x] `coraline_list_dir(path?)` - List directory contents ✅
 - [x] `coraline_get_file_nodes(file_path, kind?)` - All indexed nodes in a file ✅
 
 **Project Tools:**
+
 - [x] `coraline_status()` - Index status and statistics ✅
 - [x] `coraline_sync()` - Trigger incremental sync ✅
 
 **Deferred (Phase 2.2+):**
+
 - [x] `coraline_dependencies(node_id)` - Outgoing dependency graph ✅
 - [x] `coraline_dependents(node_id)` - Incoming dependency graph ✅
 - [x] `coraline_path(from_id, to_id)` - Find paths between nodes ✅
 - [x] `coraline_stats()` - Detailed graph statistics ✅
 
 **Files Created/Updated:**
+
 - [x] `src/tools/graph_tools.rs` - Added `FindSymbolTool`, `GetSymbolsOverviewTool`, `FindReferencesTool`, `GetNodeTool` ✅
 - [x] `src/tools/file_tools.rs` - New: `ReadFileTool`, `ListDirTool`, `GetFileNodesTool`, `StatusTool` ✅
 - [x] `src/tools/mod.rs` - All new tools registered in default registry ✅
 - [x] `src/db.rs` - Added `get_nodes_by_file()`, `get_db_stats()` ✅
 
 **Benefits:**
+
 - ✅ More powerful code exploration for Claude
 - ✅ Symbol-level source code retrieval (coraline_node)
 - ✅ File-level exploration without needing to index first
@@ -333,12 +361,14 @@ pub fn search_similar(conn: &Connection, query_embedding: &[f32], limit: usize, 
 ```
 
 **Files updated:**
+
 - [x] `src/config.rs` — `CoralineConfig`, `IndexingConfig`, `ContextConfig`, `SyncConfig`, `VectorsConfig`; `load_toml_config`, `save_toml_config`, `write_toml_template`, `apply_toml_to_code_graph` ✅
 - [x] `src/bin/coraline.rs` — `run_index` and `run_sync` load TOML config and merge into `CodeGraphConfig` ✅
 - [x] `src/context.rs` — `build_context` reads TOML `ContextConfig` as default fallback for all `BuildContextOptions` fields ✅
 - [x] Template `.coraline/config.toml` written on `coraline init` ✅
 
 **MCP Tools (in `src/tools/file_tools.rs`):**
+
 - [x] `coraline_get_config()` — returns current `config.toml` as JSON ✅
 - [x] `coraline_update_config(section, key, value)` — patch a single key and persist ✅
 
@@ -351,6 +381,7 @@ pub fn search_similar(conn: &Connection, query_embedding: &[f32], limit: usize, 
 **Added:** February 2026
 
 **Logging infrastructure:**
+
 - [x] `src/logging.rs` — `tracing` subscriber with daily-rotating file appender to `.coraline/logs/coraline.log`; falls back to stderr; log level via `CORALINE_LOG` env var ✅
 - [x] `tracing` call-sites added to hot paths ✅:
   - `extraction.rs` — `index_all` / `sync` info spans + per-file debug events + warn on errors
@@ -360,10 +391,12 @@ pub fn search_similar(conn: &Connection, query_embedding: &[f32], limit: usize, 
 - [x] `CORALINE_LOG` environment variable for runtime log level control ✅
 
 **Progress reporting (already existed):**
+
 - [x] `IndexProgress` struct with `phase`, `current`, `total`, `current_file` ✅
 - [x] `on_progress` callback in `index_all` and `sync` ✅
 
 **Deferred (optional, not planned):**
+
 - TUI dashboard (`ratatui`) — out of scope
 - Web dashboard — out of scope
 
@@ -374,6 +407,7 @@ pub fn search_similar(conn: &Connection, query_embedding: &[f32], limit: usize, 
 **Shipped:** `fd0a787`
 
 **Implemented resolvers** in `src/resolution/frameworks/`:
+
 - [x] `laravel.rs` — `User::find()`, routes, views, facade calls ✅
 - [x] `react.rs` — component imports, barrel files, dynamic imports, CSS modules ✅
 - [x] `rust.rs` — crate imports, macro resolution, trait implementations ✅
@@ -390,6 +424,7 @@ pub trait FrameworkResolver {
 ```
 
 **Benefits:**
+
 - Higher resolution success rate
 - Framework-aware intelligence
 - Better cross-file understanding
@@ -403,6 +438,7 @@ pub trait FrameworkResolver {
 **Current State:** Full-featured CLI
 
 **Commands implemented:**
+
 - [x] `coraline init` ✅
 - [x] `coraline index` ✅
 - [x] `coraline sync` ✅
@@ -418,10 +454,12 @@ pub trait FrameworkResolver {
 - [x] `--json` flag on query, stats, callers, callees, impact, config ✅
 
 **Output Formatting implemented:**
+
 - [x] JSON output with `--json` flag on all query commands ✅
 - [x] Human-readable terminal output (default) ✅
 
 **Benefits:**
+
 - ✅ Standalone tool usage
 - ✅ Developer workflow integration
 - ✅ Scripting and automation
@@ -435,6 +473,7 @@ pub trait FrameworkResolver {
 ### 4.1 Documentation ✅ COMPLETE
 
 **Files Created/Updated:**
+
 - [x] `docs/ARCHITECTURE.md` - System architecture, data model, indexing pipeline ✅
 - [x] `docs/MCP_TOOLS.md` - Full reference for all 25 MCP tools (26 with embeddings) ✅
 - [x] `docs/CLI_REFERENCE.md` - All CLI commands with flags and examples ✅
@@ -450,6 +489,7 @@ pub trait FrameworkResolver {
 **Added:** February 2026
 
 **Optimizations implemented:**
+
 - [x] Parallel file parsing during indexing (`rayon`, CPU-bound phase separated from DB writes)
 - [x] SQLite PRAGMA tuning: `synchronous=NORMAL`, `cache_size=-65536` (64 MB), `temp_store=MEMORY`, `mmap_size=268435456` (256 MB)
 - [x] Single-transaction per-file store: `store_file_batch()` replaces 3 separate transactions
@@ -457,6 +497,7 @@ pub trait FrameworkResolver {
 - [x] Database indexes already comprehensive (reviewed in schema — no changes needed)
 
 **Architecture:**
+
 - `parse_file_only()` — pure CPU-bound function, runs in parallel via rayon
 - `db::store_file_batch()` — single transaction for nodes + edges + unresolved_refs + file record
 - `index_all()` refactored: parallel parse → sequential store
@@ -472,12 +513,14 @@ pub trait FrameworkResolver {
 **Benchmark suite:** `crates/coraline/benches/indexing.rs` (criterion 0.5)
 
 **Run with:**
+
 ```bash
 cargo bench --bench indexing
 cargo bench --bench indexing -- search  # single group
 ```
 
 **Benchmark groups:**
+
 - [x] `indexing/full_index_typescript` — full parse + DB write from TS fixture ✅
 - [x] `indexing/full_index_rust` — full parse + DB write from Rust fixture ✅
 - [x] `indexing/incremental_sync_no_changes` — sync pass with zero modifications ✅
@@ -492,6 +535,48 @@ cargo bench --bench indexing -- search  # single group
 
 ---
 
+## Phase 5: Knowledge-Graph Substrate ✅ COMPLETE
+
+**Added:** August 2026
+
+These three items are taken from the post-Phase-4 GitNexus-style substrate plan (`docs/dev/gitnexus_plan.md`). They add community detection, edge-confidence scoring, and a vector-search backend so the MCP surface can answer "what does this code call", "is this call actually mine?", and "what is semantically close?" without scanning the whole graph.
+
+### 5.1 Clustering + Process Tracing ✅
+
+- [x] Louvain community detection over the call graph (`clustering::run_louvain`)
+- [x] Per-node `cluster_id` on `nodes`
+- [x] Process tracing via DFS from entry-point symbols (exported functions / methods with no incoming `calls` edge), with cycle protection and a depth cap
+- [x] Per-edge `process_id` on `edges` for every edge that participates in a traced process
+- [x] New MCP tools: `coraline_cluster_overview`, `coraline_cluster_members`, `coraline_process_for`
+
+Both column types are nullable — `cluster_id IS NULL` and `process_id IS NULL` mean "not clustered" / "not in any traced process" respectively.
+
+### 5.2 Edge Confidence Scoring ✅
+
+- [x] `edges.confidence: f32` with explicit scale: `1.0` (direct AST), `0.95` (Rust `crate::`/`super::`/`self::`), `0.5` (generic / framework fallback)
+- [x] `min_confidence` parameter on `coraline_callers`, `coraline_callees`, `coraline_find_references` (range 0.0–1.0, default 0.0)
+- [x] DB schema migration gated by `db::apply_incremental_migrations` — additive, idempotent, no backfill required for existing DBs
+
+### 5.3 sqlite-vec Integration ✅
+
+- [x] New `vec-ext` Cargo feature gates the optional `sqlite-vec` extension
+- [x] Auto-extension registration via `sqlite3_auto_extension` so the vec0 virtual table is available on every connection
+- [x] `vec0` virtual table replaces the v1 `vectors.embedding BLOB` column when the feature is enabled; schema is migrated in place on first run
+- [x] KNN query (`MATCH … AND k = ?`) backed by sqlite-vec's cosine distance
+- [x] `doctor::run_probes` includes `vec_ext` check; `coraline_status?include_doctor=true` reports it for self-healing UIs
+
+**Pinned version:** `sqlite-vec = "=0.1.9"` (the alpha series has a broken build with a missing `sqlite-vec-diskann.c`).
+
+### 5.4 Doctor Probe Wired Into Status Tool ✅
+
+- [x] New `coraline_status` MCP tool accepts `include_doctor: bool` (default `false`) and `deep: bool` (default `false`)
+- [x] `include_doctor: true` returns the full `coraline doctor --json` payload under `doctor_report`, plus a top-level `doctor_needs_attention` bool
+- [x] `doctor_needs_attention` is derived from `exit_code == 0` (inverted) so a UI can render a single bool to decide whether to surface a "fix this" prompt
+- [x] Self-healing UIs walk `probes[].fix` to present one actionable suggestion per failing check
+- [x] Back-compat: when `include_doctor` is omitted, the response shape is identical to the prior version (only the four legacy top-level keys appear)
+
+---
+
 ## Phase 1.5: Infrastructure & CI/CD ✅ COMPLETE
 
 **Added:** February 13, 2026
@@ -499,6 +584,7 @@ cargo bench --bench indexing -- search  # single group
 **Target State:** Production-ready CI/CD infrastructure with security scanning
 
 **GitHub Actions Workflows Created:**
+
 - [x] `.github/workflows/ci.yml` - Comprehensive CI pipeline ✅
   - Check, test (with/without --all-features), clippy, fmt, docs, MSRV (1.93)
   - Cross-platform testing (Linux, Windows, macOS)
@@ -524,21 +610,24 @@ cargo bench --bench indexing -- search  # single group
   - libFuzzer + AddressSanitizer; satisfies OpenSSF Scorecard Fuzzing check
 
 **Configuration Files:**
+
 - [x] `deny.toml` - cargo-deny policy configuration ✅
   - Allowed licenses: MIT, Apache-2.0, BSD variants, ISC, Unicode
   - Advisory database integration (rustsec)
   - Multiple version warnings
 
 **Repository Improvements:**
+
 - [x] Updated `.gitignore` with comprehensive platform ignores ✅
-  - Rust artifacts (target/, *.rlib,*.so, etc.)
+  - Rust artifacts (target/, _.rlib,_.so, etc.)
   - macOS (.DS_Store, Spotlight, etc.)
   - Windows (Thumbs.db, desktop.ini, etc.)
-  - Linux (*~, .directory, etc.)
+  - Linux (\*~, .directory, etc.)
   - IDE/Editor ignores
   - Coverage and profiling artifacts
 
 **Project Structure Updates:**
+
 - [x] Renamed `.codegraph/` → `.coraline/` throughout codebase ✅
   - Updated all source files (9 files)
   - Updated documentation
@@ -547,6 +636,7 @@ cargo bench --bench indexing -- search  # single group
   - `~/.claude/CLAUDE.md` updated to reference `coraline init -i` and `.coraline/` ✅ (v0.1.2)
 
 **Benefits:**
+
 - ✅ Automated testing on every push/PR
 - ✅ Cross-platform compatibility validation
 - ✅ Security vulnerability detection
@@ -562,7 +652,7 @@ cargo bench --bench indexing -- search  # single group
 ### Recently Completed
 
 - ✅ Phase 1.1: Tool Abstraction Layer
-- ✅ Phase 1.2: Memory System  
+- ✅ Phase 1.2: Memory System
 - ✅ Phase 1.3: Testing Infrastructure (100%) — 37/37 tests, 0 ignored
 - ✅ Phase 1.5: CI/CD Infrastructure
 - ✅ Folder rename: .codegraph → .coraline (all source + docs + hooks)
@@ -599,6 +689,7 @@ No active work items — all phases complete.
 ## Success Metrics
 
 **Phase 1 Complete When:**
+
 - ✅ All tools extracted to `src/tools/` directory
 - ✅ MCP server uses tool registry
 - ✅ Memory system working with 4 initial templates
@@ -608,6 +699,7 @@ No active work items — all phases complete.
 **Phase 1 Status: 100% Complete** ✅
 
 **Phase 2 Complete When:**
+
 - ✅ Vector search working with nomic-embed-text-v1.5 (`ort` 2.0.0-rc.11)
 - ✅ All enhanced MCP tools implemented (25 tools)
 - ✅ Configuration system with TOML file (`coraline_get_config`, `coraline_update_config`)
@@ -615,6 +707,7 @@ No active work items — all phases complete.
 **Phase 2 Status: 100% Complete** ✅
 
 **Phase 3 Complete When:**
+
 - ✅ Structured logging to files (`tracing` + daily rotation + `CORALINE_LOG`)
 - ✅ Framework-specific resolvers for 4 frameworks (Rust, React, Blazor, Laravel)
 - ✅ CLI with all major commands
@@ -622,6 +715,7 @@ No active work items — all phases complete.
 **Phase 3 Status: 100% Complete** ✅
 
 **Phase 4 Complete When:**
+
 - ✅ Comprehensive documentation
 - ✅ Performance optimizations (rayon parallel parse, SQLite PRAGMA tuning, batch transactions)
 - ✅ Performance benchmarks established (criterion suite, 9 benchmarks across 4 groups)
@@ -631,12 +725,14 @@ No active work items — all phases complete.
 ## Notes from Serena Lessons Learned
 
 **Do:**
+
 - ✅ Separate tool logic from MCP protocol
 - ✅ Use tempfiles/snapshots for testing
 - ✅ Dogfood: use Coraline to index Coraline
 - ✅ Provide unrestricted shell access
 
 **Don't:**
+
 - ❌ Rely on MCP clients for lifespan management
 - ❌ Use line-number-based editing (symbol-based is better)
 - ❌ Mix async concerns with synchronous tool logic
@@ -648,7 +744,7 @@ No active work items — all phases complete.
 - **Phase 1:** 13-18 hours → **Actual: ~15 hours** ✅ (100% complete)
   - Phase 1.1: 4 hours → ~4 hours ✅
   - Phase 1.2: 3-4 hours → ~3 hours ✅
-  - Phase 1.3: 4-5 hours → ~5 hours ✅  
+  - Phase 1.3: 4-5 hours → ~5 hours ✅
   - Phase 1.5 (CI/CD): 4-6 hours → ~3 hours ✅
 - **Phase 2:** 18-23 hours → **~10 hours** ✅ (100% complete)
   - Phase 2.1 (Vectors): 8-10 hours → ~4 hours ✅

@@ -1,4 +1,4 @@
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 
 //! Graph query tools for exploring the code graph
 
@@ -6,9 +6,11 @@ use std::path::PathBuf;
 
 use serde_json::{Value, json};
 
+use crate::clustering;
 use crate::db;
 use crate::graph;
 use crate::types::{EdgeKind, NodeKind, TraversalDirection, TraversalOptions};
+use crate::utils::f64_to_f32_lossy;
 
 use super::{Tool, ToolError, ToolResult};
 
@@ -169,6 +171,13 @@ impl Tool for CallersTool {
                     "description": "Maximum number of callers to return",
                     "default": 20
                 },
+                "min_confidence": {
+                    "type": "number",
+                    "description": "Minimum edge resolution confidence in [0.0, 1.0]. Edges below this threshold are filtered out. Default: 0.0 (include all).",
+                    "minimum": 0.0,
+                    "maximum": 1.0,
+                    "default": 0.0
+                },
                 "output_format": {
                     "type": "string",
                     "description": "Output format: 'full' (verbose) or 'compact' (65% token reduction)",
@@ -202,6 +211,12 @@ impl Tool for CallersTool {
         let limit = usize::try_from(params.get("limit").and_then(Value::as_u64).unwrap_or(20))
             .unwrap_or(usize::MAX);
 
+        let min_confidence = params
+            .get("min_confidence")
+            .and_then(Value::as_f64)
+            .map(f64_to_f32_lossy)
+            .filter(|v| v.is_finite());
+
         let output_format = params
             .get("output_format")
             .and_then(Value::as_str)
@@ -212,8 +227,14 @@ impl Tool for CallersTool {
             .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
 
         // Get edges where this node is the target
-        let edges = db::get_edges_by_target(&conn, node_id, edge_kind, limit)
-            .map_err(|e| ToolError::internal_error(format!("Failed to get edges: {e}")))?;
+        let edges = db::get_edges_by_target_with_confidence(
+            &conn,
+            node_id,
+            edge_kind,
+            limit,
+            min_confidence,
+        )
+        .map_err(|e| ToolError::internal_error(format!("Failed to get edges: {e}")))?;
 
         let mut callers = Vec::new();
         for edge in edges {
@@ -293,6 +314,13 @@ impl Tool for CalleesTool {
                     "description": "Maximum number of callees to return",
                     "default": 20
                 },
+                "min_confidence": {
+                    "type": "number",
+                    "description": "Minimum edge resolution confidence in [0.0, 1.0]. Edges below this threshold are filtered out. Default: 0.0 (include all).",
+                    "minimum": 0.0,
+                    "maximum": 1.0,
+                    "default": 0.0
+                },
                 "output_format": {
                     "type": "string",
                     "description": "Output format: 'full' (verbose) or 'compact' (65% token reduction)",
@@ -326,6 +354,12 @@ impl Tool for CalleesTool {
         let limit = usize::try_from(params.get("limit").and_then(Value::as_u64).unwrap_or(20))
             .unwrap_or(usize::MAX);
 
+        let min_confidence = params
+            .get("min_confidence")
+            .and_then(Value::as_f64)
+            .map(f64_to_f32_lossy)
+            .filter(|v| v.is_finite());
+
         let output_format = params
             .get("output_format")
             .and_then(Value::as_str)
@@ -336,8 +370,14 @@ impl Tool for CalleesTool {
             .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
 
         // Get edges where this node is the source
-        let edges = db::get_edges_by_source(&conn, node_id, edge_kind, limit)
-            .map_err(|e| ToolError::internal_error(format!("Failed to get edges: {e}")))?;
+        let edges = db::get_edges_by_source_with_confidence(
+            &conn,
+            node_id,
+            edge_kind,
+            limit,
+            min_confidence,
+        )
+        .map_err(|e| ToolError::internal_error(format!("Failed to get edges: {e}")))?;
 
         let mut callees = Vec::new();
         for edge in edges {
@@ -744,6 +784,13 @@ impl Tool for FindReferencesTool {
                     "type": "number",
                     "description": "Maximum number of references to return",
                     "default": 50
+                },
+                "min_confidence": {
+                    "type": "number",
+                    "description": "Minimum edge resolution confidence in [0.0, 1.0]. Edges below this threshold are filtered out. Default: 0.0 (include all).",
+                    "minimum": 0.0,
+                    "maximum": 1.0,
+                    "default": 0.0
                 }
             },
             "required": ["node_id"]
@@ -771,11 +818,23 @@ impl Tool for FindReferencesTool {
         let limit = usize::try_from(params.get("limit").and_then(Value::as_u64).unwrap_or(50))
             .unwrap_or(usize::MAX);
 
+        let min_confidence = params
+            .get("min_confidence")
+            .and_then(Value::as_f64)
+            .map(f64_to_f32_lossy)
+            .filter(|v| v.is_finite());
+
         let conn = db::open_database(&self.project_root)
             .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
 
-        let edges = db::get_edges_by_target(&conn, node_id, edge_kind, limit)
-            .map_err(|e| ToolError::internal_error(format!("Failed to get edges: {e}")))?;
+        let edges = db::get_edges_by_target_with_confidence(
+            &conn,
+            node_id,
+            edge_kind,
+            limit,
+            min_confidence,
+        )
+        .map_err(|e| ToolError::internal_error(format!("Failed to get edges: {e}")))?;
 
         let mut references = Vec::new();
         for edge in &edges {
@@ -2209,5 +2268,226 @@ impl Tool for FindByKindInFileTool {
             "file_path": file_path,
             "kind": db::kind_to_string(kind),
         }))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 5.1 — clustering + process-trace tools.
+// ---------------------------------------------------------------------------
+
+/// Tool for listing Louvain clusters discovered during indexing.
+pub struct ClusterOverviewTool {
+    project_root: PathBuf,
+}
+
+impl ClusterOverviewTool {
+    pub const fn new(project_root: PathBuf) -> Self {
+        Self { project_root }
+    }
+}
+
+impl Tool for ClusterOverviewTool {
+    fn name(&self) -> &'static str {
+        "coraline_cluster_overview"
+    }
+
+    fn description(&self) -> &'static str {
+        "List Louvain clusters computed at index time, ordered by size. \
+         Each row includes one representative node per cluster."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "number",
+                    "description": "Maximum number of clusters to return (default 50).",
+                    "default": 50
+                }
+            }
+        })
+    }
+
+    fn execute(&self, params: Value) -> ToolResult {
+        let limit = usize::try_from(params.get("limit").and_then(Value::as_u64).unwrap_or(50))
+            .unwrap_or(usize::MAX);
+
+        let conn = db::open_database(&self.project_root)
+            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
+
+        let clusters = clustering::cluster_overview(&conn, limit)
+            .map_err(|e| ToolError::internal_error(format!("Cluster overview failed: {e}")))?;
+
+        let clusters_json: Vec<Value> = clusters
+            .iter()
+            .map(|c| {
+                json!({
+                    "cluster_id": c.cluster_id,
+                    "size": c.size,
+                    "sample_node_id": c.sample_node_id,
+                    "sample_qualified_name": c.sample_qualified_name,
+                    "sample_kind": db::kind_to_string(c.sample_kind),
+                    "sample_language": db::language_to_string(c.sample_language),
+                })
+            })
+            .collect();
+
+        Ok(json!({
+            "clusters": clusters_json,
+            "count": clusters_json.len(),
+        }))
+    }
+}
+
+/// Tool for listing all nodes that share a given cluster id.
+pub struct ClusterMembersTool {
+    project_root: PathBuf,
+}
+
+impl ClusterMembersTool {
+    pub const fn new(project_root: PathBuf) -> Self {
+        Self { project_root }
+    }
+}
+
+impl Tool for ClusterMembersTool {
+    fn name(&self) -> &'static str {
+        "coraline_cluster_members"
+    }
+
+    fn description(&self) -> &'static str {
+        "List nodes that share the given `cluster_id` (Phase 5.1). \
+         Results are ordered by `qualified_name`."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "cluster_id": {
+                    "type": "number",
+                    "description": "Cluster id returned by `coraline_cluster_overview`.",
+                },
+                "limit": {
+                    "type": "number",
+                    "description": "Maximum number of members to return (default 200).",
+                    "default": 200
+                }
+            },
+            "required": ["cluster_id"]
+        })
+    }
+
+    fn execute(&self, params: Value) -> ToolResult {
+        let cluster_id = params
+            .get("cluster_id")
+            .and_then(Value::as_i64)
+            .ok_or_else(|| ToolError::invalid_params("cluster_id must be an integer"))?;
+        let limit = usize::try_from(params.get("limit").and_then(Value::as_u64).unwrap_or(200))
+            .unwrap_or(usize::MAX);
+
+        let conn = db::open_database(&self.project_root)
+            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
+
+        let nodes = clustering::cluster_members(&conn, cluster_id, limit)
+            .map_err(|e| ToolError::internal_error(format!("Cluster members failed: {e}")))?;
+
+        let nodes_json: Vec<Value> = nodes.iter().map(super::node_to_full_json).collect();
+
+        Ok(json!({
+            "cluster_id": cluster_id,
+            "nodes": nodes_json,
+            "count": nodes_json.len(),
+        }))
+    }
+}
+
+/// Tool for returning the execution-flow trace that owns a given node.
+pub struct ProcessForTool {
+    project_root: PathBuf,
+}
+
+impl ProcessForTool {
+    pub const fn new(project_root: PathBuf) -> Self {
+        Self { project_root }
+    }
+}
+
+impl Tool for ProcessForTool {
+    fn name(&self) -> &'static str {
+        "coraline_process_for"
+    }
+
+    fn description(&self) -> &'static str {
+        "Return the call-graph trace (entry point + nodes + edges) for the \
+         given node, traced from its owning entry point (Phase 5.1). \
+         Returns `null` if the node isn't reachable from any entry point."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "node_id": {
+                    "type": "string",
+                    "description": "ID of the node to trace from."
+                },
+                "max_depth": {
+                    "type": "number",
+                    "description": "Maximum depth to traverse (default 50).",
+                    "default": 50
+                }
+            },
+            "required": ["node_id"]
+        })
+    }
+
+    fn execute(&self, params: Value) -> ToolResult {
+        let node_id = params
+            .get("node_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ToolError::invalid_params("node_id must be a string"))?;
+        let max_depth = usize::try_from(
+            params
+                .get("max_depth")
+                .and_then(Value::as_u64)
+                .unwrap_or(50),
+        )
+        .unwrap_or(usize::MAX);
+
+        let conn = db::open_database(&self.project_root)
+            .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
+
+        let trace = clustering::process_for(&conn, node_id, max_depth)
+            .map_err(|e| ToolError::internal_error(format!("Process trace failed: {e}")))?;
+
+        match trace {
+            Some(t) => {
+                let nodes_json: Vec<Value> = t.nodes.iter().map(super::node_to_full_json).collect();
+                let edges_json: Vec<Value> = t
+                    .edges
+                    .iter()
+                    .map(|e| {
+                        json!({
+                        "source": e.source,
+                        "target": e.target,
+                            "kind": db::edge_kind_to_string(e.kind),
+                            "line": e.line,
+                            "column": e.column,
+                            "confidence": e.confidence,
+                            "process_id": e.process_id,
+                        })
+                    })
+                    .collect();
+                Ok(json!({
+                    "entry_point": super::node_to_full_json(&t.entry_point),
+                    "depth_reached": t.depth_reached,
+                    "nodes": nodes_json,
+                    "edges": edges_json,
+                }))
+            }
+            None => Ok(Value::Null),
+        }
     }
 }

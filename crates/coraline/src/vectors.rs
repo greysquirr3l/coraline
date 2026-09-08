@@ -1,4 +1,4 @@
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 #![allow(
     clippy::cast_possible_truncation,
     clippy::doc_markdown,
@@ -55,7 +55,9 @@ use ort::{
     session::{Session, builder::GraphOptimizationLevel},
     value::TensorRef,
 };
-use rusqlite::{Connection, params};
+use rusqlite::Connection;
+#[cfg(not(feature = "vec-ext"))]
+use rusqlite::params;
 use tokenizers::Tokenizer;
 
 use crate::config::VectorsConfig;
@@ -572,6 +574,30 @@ pub fn global_model_dir() -> PathBuf {
     global_model_dir_for(DEFAULT_MODEL)
 }
 
+/// Per-project model directory: `<project_root>/.coraline/models/<model_name>/`.
+///
+/// Use this when a single global install shouldn't be touched — e.g.
+/// a sandboxed CI environment, a per-repo lockfile pinning a model version,
+/// or a user who explicitly chose local scope during `coraline init`.
+pub fn local_model_dir(project_root: &Path, model_name: &str) -> PathBuf {
+    project_root
+        .join(".coraline")
+        .join("models")
+        .join(model_name)
+}
+
+/// `true` when at least one preferred ONNX variant for `model_name`
+/// exists in `dir`. Used by both `handle_model_decision` (to decide
+/// whether to prompt) and by future download-overwrite checks.
+pub fn is_model_installed(dir: &Path, model_name: &str) -> bool {
+    let Ok(spec) = model_spec(model_name) else {
+        return false;
+    };
+    spec.preference_order
+        .iter()
+        .any(|name| dir.join(name).exists())
+}
+
 /// Default model directory for a project.
 ///
 /// Delegates to [`global_model_dir`]; `_project_root` is kept for backward
@@ -737,22 +763,34 @@ pub fn store_embedding(
     embedding: &[f32],
     model_name: &str,
 ) -> io::Result<()> {
-    // Convert f32 slice to bytes
-    let embedding_bytes: Vec<u8> = embedding.iter().flat_map(|&f| f.to_le_bytes()).collect();
+    // Vec-ext fast path: sqlite-vec KNN storage. Compiled in only
+    // when the `vec-ext` Cargo feature is enabled.
+    #[cfg(feature = "vec-ext")]
+    {
+        crate::vec_ext::runtime::enable_extension(conn)?;
+        crate::vec_ext::runtime::store_embedding_vec0(conn, node_id, embedding, model_name)
+    }
 
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_err(|e| io::Error::other(format!("Failed to get system time: {}", e)))?
-        .as_millis() as i64;
+    // Default path: BLOB-cosine storage (no vec-ext feature).
+    #[cfg(not(feature = "vec-ext"))]
+    {
+        // Convert f32 slice to bytes
+        let embedding_bytes: Vec<u8> = embedding.iter().flat_map(|&f| f.to_le_bytes()).collect();
 
-    conn.execute(
-        "INSERT OR REPLACE INTO vectors (node_id, embedding, model, created_at)
-         VALUES (?1, ?2, ?3, ?4)",
-        params![node_id, embedding_bytes, model_name, now],
-    )
-    .map_err(|e| io::Error::other(format!("Failed to store embedding: {}", e)))?;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| io::Error::other(format!("Failed to get system time: {}", e)))?
+            .as_millis() as i64;
 
-    Ok(())
+        conn.execute(
+            "INSERT OR REPLACE INTO vectors (node_id, embedding, model, created_at)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![node_id, embedding_bytes, model_name, now],
+        )
+        .map_err(|e| io::Error::other(format!("Failed to store embedding: {}", e)))?;
+
+        Ok(())
+    }
 }
 
 /// Load an embedding vector from the database.
@@ -766,26 +804,39 @@ pub fn store_embedding(
 ///
 /// The embedding vector or None if not found.
 pub fn load_embedding(conn: &Connection, node_id: &str) -> io::Result<Option<Vec<f32>>> {
-    let mut stmt = conn
-        .prepare("SELECT embedding FROM vectors WHERE node_id = ?1")
-        .map_err(|e| io::Error::other(format!("Failed to prepare query: {}", e)))?;
+    // Vec-ext fast path.
+    #[cfg(feature = "vec-ext")]
+    {
+        crate::vec_ext::runtime::enable_extension(conn)?;
+        crate::vec_ext::runtime::load_embedding_vec0(conn, node_id)
+    }
 
-    let mut rows = stmt
-        .query(params![node_id])
-        .map_err(|e| io::Error::other(format!("Failed to query: {}", e)))?;
+    // Default BLOB path.
+    #[cfg(not(feature = "vec-ext"))]
+    {
+        let mut stmt = conn
+            .prepare("SELECT embedding FROM vectors WHERE node_id = ?1")
+            .map_err(|e| io::Error::other(format!("Failed to prepare query: {}", e)))?;
 
-    match rows.next().map_err(io::Error::other)? {
-        Some(row) => {
-            let bytes: Vec<u8> = row.get(0).map_err(io::Error::other)?;
+        let mut rows = stmt
+            .query(params![node_id])
+            .map_err(|e| io::Error::other(format!("Failed to query: {}", e)))?;
 
-            // Convert bytes back to f32 slice
-            let embedding: Vec<f32> = bytes
-                .chunks_exact(4)
-                .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
-                .collect();
-            Ok(Some(embedding))
+        match rows.next().map_err(io::Error::other)? {
+            Some(row) => {
+                let bytes: Vec<u8> = row.get(0).map_err(io::Error::other)?;
+
+                // Convert bytes back to f32 slice
+                let embedding: Vec<f32> = bytes
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|chunk| f32::from_le_bytes(*chunk))
+                    .collect();
+                Ok(Some(embedding))
+            }
+            None => Ok(None),
         }
-        None => Ok(None),
     }
 }
 
@@ -849,91 +900,111 @@ pub fn search_similar(
     limit: usize,
     min_similarity: f32,
 ) -> io::Result<Vec<SearchResult>> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT v.node_id, v.embedding,
-                         n.id, n.kind, n.name, n.qualified_name, n.file_path, n.language,
-                         n.start_line, n.end_line, n.start_column, n.end_column,
-                         n.docstring, n.signature, n.visibility,
-                         n.is_exported, n.is_async, n.is_static, n.is_abstract,
-                         n.decorators, n.type_parameters
-                  FROM vectors v
-                  JOIN nodes n ON v.node_id = n.id
-                  WHERE v.model = ?1",
+    // Vec-ext fast path: sqlite-vec KNN operator.
+    #[cfg(feature = "vec-ext")]
+    {
+        crate::vec_ext::runtime::enable_extension(conn)?;
+        crate::vec_ext::runtime::search_similar_vec0(
+            conn,
+            query_embedding,
+            model,
+            limit,
+            min_similarity,
         )
-        .map_err(|e| io::Error::other(format!("Failed to prepare query: {}", e)))?;
+    }
 
-    let rows = stmt
-        .query_map(params![model], |row| {
-            let embedding_bytes: Vec<u8> = row.get(1)?;
+    // Default BLOB-cosine path.
+    #[cfg(not(feature = "vec-ext"))]
+    {
+        let mut stmt = conn
+            .prepare(
+                "SELECT v.node_id, v.embedding,
+                             n.id, n.kind, n.name, n.qualified_name, n.file_path, n.language,
+                             n.start_line, n.end_line, n.start_column, n.end_column,
+                             n.docstring, n.signature, n.visibility,
+                             n.is_exported, n.is_async, n.is_static, n.is_abstract,
+                             n.decorators, n.type_parameters
+                      FROM vectors v
+                      JOIN nodes n ON v.node_id = n.id
+                      WHERE v.model = ?1",
+            )
+            .map_err(|e| io::Error::other(format!("Failed to prepare query: {}", e)))?;
 
-            // Convert bytes to f32 vector
-            let embedding: Vec<f32> = embedding_bytes
-                .chunks_exact(4)
-                .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
-                .collect();
+        let rows = stmt
+            .query_map(params![model], |row| {
+                let embedding_bytes: Vec<u8> = row.get(1)?;
 
-            let similarity = cosine_similarity(query_embedding, &embedding);
+                // Convert bytes to f32 vector
+                let embedding: Vec<f32> = embedding_bytes
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|chunk| f32::from_le_bytes(*chunk))
+                    .collect();
 
-            // Parse node from row (offset by 2 since we have node_id and embedding first)
-            use crate::types::{Language, Node, NodeKind};
+                let similarity = cosine_similarity(query_embedding, &embedding);
 
-            let node = Node {
-                id: row.get(2)?,
-                kind: serde_json::from_str(&format!("\"{}\"", row.get::<_, String>(3)?))
-                    .unwrap_or(NodeKind::Function),
-                name: row.get(4)?,
-                qualified_name: row.get(5)?,
-                file_path: row.get(6)?,
-                language: serde_json::from_str(&format!("\"{}\"", row.get::<_, String>(7)?))
-                    .unwrap_or(Language::TypeScript),
-                start_line: row.get(8)?,
-                end_line: row.get(9)?,
-                start_column: row.get(10)?,
-                end_column: row.get(11)?,
-                docstring: row.get(12)?,
-                signature: row.get(13)?,
-                visibility: row
-                    .get::<_, Option<String>>(14)?
-                    .and_then(|s| serde_json::from_str(&format!("\"{}\"", s)).ok()),
-                is_exported: row.get(15)?,
-                is_async: row.get(16)?,
-                is_static: row.get(17)?,
-                is_abstract: row.get(18)?,
-                decorators: row
-                    .get::<_, Option<String>>(19)?
-                    .and_then(|s| serde_json::from_str(&s).ok()),
-                type_parameters: row
-                    .get::<_, Option<String>>(20)?
-                    .and_then(|s| serde_json::from_str(&s).ok()),
-                updated_at: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?
-                    .as_millis() as i64,
-            };
+                // Parse node from row (offset by 2 since we have node_id and embedding first)
+                use crate::types::{Language, Node, NodeKind};
 
-            Ok((similarity, node))
-        })
-        .map_err(|e| io::Error::other(format!("Failed to execute query: {}", e)))?;
+                let node = Node {
+                    id: row.get(2)?,
+                    kind: serde_json::from_str(&format!("\"{}\"", row.get::<_, String>(3)?))
+                        .unwrap_or(NodeKind::Function),
+                    name: row.get(4)?,
+                    qualified_name: row.get(5)?,
+                    file_path: row.get(6)?,
+                    language: serde_json::from_str(&format!("\"{}\"", row.get::<_, String>(7)?))
+                        .unwrap_or(Language::TypeScript),
+                    start_line: row.get(8)?,
+                    end_line: row.get(9)?,
+                    cluster_id: None,
+                    start_column: row.get(10)?,
+                    end_column: row.get(11)?,
+                    docstring: row.get(12)?,
+                    signature: row.get(13)?,
+                    visibility: row
+                        .get::<_, Option<String>>(14)?
+                        .and_then(|s| serde_json::from_str(&format!("\"{}\"", s)).ok()),
+                    is_exported: row.get(15)?,
+                    is_async: row.get(16)?,
+                    is_static: row.get(17)?,
+                    is_abstract: row.get(18)?,
+                    decorators: row
+                        .get::<_, Option<String>>(19)?
+                        .and_then(|s| serde_json::from_str(&s).ok()),
+                    type_parameters: row
+                        .get::<_, Option<String>>(20)?
+                        .and_then(|s| serde_json::from_str(&s).ok()),
+                    updated_at: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?
+                        .as_millis() as i64,
+                };
 
-    let mut results: Vec<_> = rows
-        .filter_map(|r| r.ok())
-        .filter(|(sim, _)| *sim >= min_similarity)
-        .collect();
+                Ok((similarity, node))
+            })
+            .map_err(|e| io::Error::other(format!("Failed to execute query: {}", e)))?;
 
-    // Sort by similarity (highest first)
-    results.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+        let mut results: Vec<_> = rows
+            .filter_map(|r| r.ok())
+            .filter(|(sim, _)| *sim >= min_similarity)
+            .collect();
 
-    // Take top N and convert to SearchResult
-    Ok(results
-        .into_iter()
-        .take(limit)
-        .map(|(similarity, node)| SearchResult {
-            node,
-            score: similarity,
-            highlights: None,
-        })
-        .collect())
+        // Sort by similarity (highest first)
+        results.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+
+        // Take top N and convert to SearchResult
+        Ok(results
+            .into_iter()
+            .take(limit)
+            .map(|(similarity, node)| SearchResult {
+                node,
+                score: similarity,
+                highlights: None,
+            })
+            .collect())
+    }
 }
 
 #[cfg(test)]
@@ -1134,5 +1205,44 @@ mod tests {
         assert!(err.contains("model_int8.onnx"));
         assert!(err.contains("jina-embeddings-v2-base-code"));
         assert!(!dir.exists());
+    }
+
+    // ── Global vs local model dir helpers (Phase 5.x — `coraline init` scope prompt) ──
+
+    #[test]
+    fn local_model_dir_returns_project_local_path() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp = tempfile::tempdir()?;
+        let dir = local_model_dir(tmp.path(), "nomic-embed-text-v1.5");
+        assert_eq!(
+            dir,
+            tmp.path()
+                .join(".coraline")
+                .join("models")
+                .join("nomic-embed-text-v1.5")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn is_model_installed_false_for_empty_dir() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp = tempfile::tempdir()?;
+        assert!(!is_model_installed(tmp.path(), DEFAULT_MODEL));
+        Ok(())
+    }
+
+    #[test]
+    fn is_model_installed_true_when_preferred_variant_present()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let tmp = tempfile::tempdir()?;
+        // Drop the first preferred variant file in place — `is_model_installed`
+        // should detect it and return true.
+        let spec = model_spec(DEFAULT_MODEL)?;
+        let preferred = spec
+            .preference_order
+            .first()
+            .ok_or("model_spec returned no preferred variants")?;
+        std::fs::write(tmp.path().join(preferred), b"fake onnx")?;
+        assert!(is_model_installed(tmp.path(), DEFAULT_MODEL));
+        Ok(())
     }
 }

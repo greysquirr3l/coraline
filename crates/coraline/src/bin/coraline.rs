@@ -5,6 +5,7 @@
 use std::path::{Path, PathBuf};
 
 use coraline::audit;
+use coraline::clustering;
 use coraline::config;
 use coraline::context;
 use coraline::db;
@@ -323,6 +324,20 @@ enum ModelAction {
 }
 
 fn main() {
+    // Register sqlite-vec as a process-wide auto-extension before any
+    // `Connection::open` runs. The auto-extension fires for every new
+    // connection opened after this call, so vec0 is available to all
+    // subsequent `db::open_database` calls without needing a
+    // per-connection init step. A failure here means sqlite-vec's
+    // process-global registration was rejected — bail before any
+    // connection is opened, rather than getting a confusing
+    // `no such module: vec0` error halfway through a command.
+    #[cfg(feature = "vec-ext")]
+    if let Err(err) = coraline::vec_ext::runtime::register_global_init() {
+        eprintln!("error: failed to register sqlite-vec auto-extension: {err}");
+        std::process::exit(2);
+    }
+
     let cli = Cli::parse();
     if matches!(cli.command, None | Some(Command::Install)) {
         run_installer();
@@ -878,6 +893,28 @@ fn run_init(args: InitArgs) {
         std::process::exit(1);
     }
 
+    // Phase 5.3: when the binary was built with `--features vec-ext`,
+    // convert the freshly-created v1 BLOB `vectors` table into the
+    // vec0 + vectors_meta pair so subsequent `coraline embed` and
+    // `coraline semantic-search` calls land in vec0 storage.
+    #[cfg(feature = "vec-ext")]
+    {
+        use coraline::vec_ext;
+        if vec_ext::VEC_EXT_ENABLED {
+            #[cfg(feature = "vec-ext")]
+            match vec_ext::migrate_to_vec0(&project_root) {
+                Ok(()) => {
+                    println!("vec-ext: converted vectors table to vec0.");
+                }
+                Err(err) => {
+                    eprintln!(
+                        "vec-ext: migration to vec0 failed ({err}). The BLOB table is still in place; rerun `coraline init` with `--force` or implement a manual migration."
+                    );
+                }
+            }
+        }
+    }
+
     // Create initial memory templates
     let project_name = project_root
         .file_name()
@@ -937,12 +974,16 @@ mod init_model {
     /// model is already on disk. All non-embedding tools remain fully
     /// functional regardless of the chosen action.
     pub fn handle_model_decision(project_root: &Path, embed: bool, no_embed: bool, yes: bool) {
-        let (model_name, model_dir) = resolve_configured_model(project_root);
-        let model_present = vectors::model_spec(&model_name).is_ok_and(|spec| {
-            spec.preference_order
-                .iter()
-                .any(|name| model_dir.join(name).exists())
-        });
+        let (model_name, _) = resolve_configured_model(project_root);
+        // The model counts as "present" if it's installed at *any* known
+        // location — globally (shared cache) or locally (project-locked).
+        // We check both because users can pre-install globally with
+        // `coraline model download` and expect `coraline init` to skip the
+        // prompt entirely.
+        let global_dir = vectors::global_model_dir_for(&model_name);
+        let local_dir = vectors::local_model_dir(project_root, &model_name);
+        let model_present = vectors::is_model_installed(&global_dir, &model_name)
+            || vectors::is_model_installed(&local_dir, &model_name);
         let is_tty = std::io::IsTerminal::is_terminal(&std::io::stdin());
         let inputs = ModelInputs {
             model_present,
@@ -1007,7 +1048,9 @@ mod init_model {
 
     pub fn execute_model_action(project_root: &Path, action: &ModelAction) {
         use std::io::Write as _;
-        let (model_name, model_dir) = resolve_configured_model(project_root);
+        let (model_name, _) = resolve_configured_model(project_root);
+        let global_dir = vectors::global_model_dir_for(&model_name);
+        let local_dir = vectors::local_model_dir(project_root, &model_name);
 
         match action {
             ModelAction::NoOp => {}
@@ -1015,18 +1058,31 @@ mod init_model {
                 println!("Skipped. Run `coraline model download` later to enable semantic search.");
             }
             ModelAction::Download => {
-                download_model_and_report(&model_name, &model_dir);
+                // Non-interactive flags (`--embed` / `--yes`) default to
+                // the global cache so a fresh `init` in CI doesn't
+                // duplicate the model across projects.
+                download_model_and_report(&model_name, &global_dir);
             }
             ModelAction::Prompt => {
-                eprint!("Download embedding model for semantic search? (~137 MB) [Y/n] ");
+                // Interactive path: ask the user whether to install
+                // globally (default) or locally. Global is the better
+                // choice when the same model is used across multiple
+                // projects on the same machine; local is the right
+                // choice when the project pins a specific model or
+                // when global storage is read-only.
+                eprint!(
+                    "Download embedding model for semantic search? (~137 MB) [G]lobally / [L]ocally / [N]o: "
+                );
                 let _ = std::io::stderr().flush();
                 let mut input = String::new();
                 if std::io::stdin().read_line(&mut input).is_err() {
                     return;
                 }
                 let answer = input.trim();
-                if answer.is_empty() || answer.eq_ignore_ascii_case("y") {
-                    download_model_and_report(&model_name, &model_dir);
+                if answer.is_empty() || answer.eq_ignore_ascii_case("g") {
+                    download_model_and_report(&model_name, &global_dir);
+                } else if answer.eq_ignore_ascii_case("l") {
+                    download_model_and_report(&model_name, &local_dir);
                 } else {
                     println!(
                         "Skipped. Run `coraline model download` later to enable semantic search."
@@ -1098,6 +1154,9 @@ fn run_index(args: IndexArgs) {
         println!("Created {} nodes", result.nodes_created);
         println!("Completed in {}ms", result.duration_ms);
     }
+
+    // Phase 5.1 post-extraction passes: Louvain clustering + process tracing.
+    run_post_extraction_passes(&project_root, args.quiet);
 }
 
 fn run_sync(args: SyncArgs) {
@@ -1149,6 +1208,48 @@ fn run_sync(args: SyncArgs) {
             }
             println!("Updated {} nodes", result.nodes_updated);
         }
+    }
+
+    // Phase 5.1 post-extraction passes: Louvain clustering + process tracing.
+    run_post_extraction_passes(&project_root, args.quiet);
+}
+
+/// Phase 5.1: run Louvain community detection and process tracing on the
+/// just-built (or just-synced) graph. Both passes are additive — they
+/// write `nodes.cluster_id` and `edges.process_id` and never delete
+/// other data, so they can be re-run independently.
+fn run_post_extraction_passes(project_root: &Path, quiet: bool) {
+    let Ok(mut conn) = db::open_database(project_root) else {
+        if !quiet {
+            eprintln!("post-extraction: failed to open database, skipping clustering");
+        }
+        return;
+    };
+
+    match clustering::run_louvain(&mut conn) {
+        Ok(stats) if !quiet => {
+            println!(
+                "Louvain: {} clusters across {} nodes",
+                stats.num_clusters, stats.num_nodes_assigned
+            );
+        }
+        Err(err) if !quiet => {
+            eprintln!("Louvain failed: {err}");
+        }
+        _ => {}
+    }
+
+    match clustering::run_process_tracing(&mut conn, clustering::DEFAULT_MAX_PROCESS_DEPTH) {
+        Ok(stats) if !quiet => {
+            println!(
+                "Process tracing: {} entry points, {} edges assigned, {} unreached",
+                stats.num_entry_points, stats.num_edges_assigned, stats.num_edges_unreached
+            );
+        }
+        Err(err) if !quiet => {
+            eprintln!("Process tracing failed: {err}");
+        }
+        _ => {}
     }
 }
 
@@ -1845,34 +1946,30 @@ const SPINNER_TICK_MS: u64 = 80;
 
 /// Build a styled `ProgressBar` that animates a braille spinner while showing a
 /// counter and message. When stdout is not a TTY the bar falls back to a static
-/// line that still updates on `set_message`.
-#[expect(
-    clippy::expect_used,
-    reason = "templates are compile-time constants we control"
-)]
+/// line that still updates on `set_message`. Falls back to `ProgressStyle::default()`
+/// if the template string fails to compile — the bar still works, just without the
+/// custom tick animation.
 fn spinner_bar(len: u64, template: &str) -> ProgressBar {
     let pb = ProgressBar::new(len);
-    pb.set_style(
-        ProgressStyle::with_template(template)
-            .expect("valid progress template")
-            .tick_strings(SPINNER_FRAMES),
+    let style = ProgressStyle::with_template(template).map_or_else(
+        |_| ProgressStyle::default_bar(),
+        |s| s.tick_strings(SPINNER_FRAMES),
     );
+    pb.set_style(style);
     pb.enable_steady_tick(std::time::Duration::from_millis(SPINNER_TICK_MS));
     pb
 }
 
 /// Spinner for indeterminate operations (no known total, e.g. model download).
-#[expect(
-    clippy::expect_used,
-    reason = "template is a compile-time constant we control"
-)]
 fn spinner_indefinite(message: &'static str) -> ProgressBar {
     let pb = ProgressBar::new_spinner();
-    pb.set_style(
-        ProgressStyle::with_template("{spinner:.cyan} {msg}")
-            .expect("valid spinner template")
-            .tick_strings(SPINNER_FRAMES),
+    // Fall back to `ProgressStyle::default_bar()` if the template fails to
+    // compile — the spinner still works, just without the cyan tint.
+    let style = ProgressStyle::with_template("{spinner:.cyan} {msg}").map_or_else(
+        |_| ProgressStyle::default_bar(),
+        |s| s.tick_strings(SPINNER_FRAMES),
     );
+    pb.set_style(style);
     pb.set_message(message);
     pb.enable_steady_tick(std::time::Duration::from_millis(SPINNER_TICK_MS));
     pb

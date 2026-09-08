@@ -1,4 +1,4 @@
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 #![allow(
     clippy::assigning_clones,
     clippy::cast_precision_loss,

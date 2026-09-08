@@ -1,6 +1,6 @@
 [package]
 name = "coraline"
-version = "0.12.0"
+version = "0.13.1"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Coraline: semantic code knowledge graph for faster AI-assisted development."
@@ -29,6 +29,7 @@ sha2 = "0.11"
 hex = "0.4"
 regex = "1"
 globset = "0.4.18"
+petgraph = "0.7"
 rayon = "1"
 indicatif = "0.18"
 ndarray = { version = "0.17", optional = true }
@@ -50,7 +51,7 @@ tree-sitter-c = "0.24"
 tree-sitter-cpp = "0.23"
 tree-sitter-c-sharp = "0.23"
 tree-sitter-ruby = "0.23"
-tree-sitter-blazor = { version = "0.2.0", path = "../tree-sitter-blazor" }
+tree-sitter-blazor = { version = "0.3.1", path = "../tree-sitter-blazor" }
 
 # Additional language parsers
 tree-sitter-bash = "0.25.1"
@@ -78,11 +79,13 @@ tree-sitter-zig = "1.1.2"
 tree-sitter-php = "0.24.2"
 tree-sitter-swift = "0.7.1"
 tree-sitter-kotlin-ng = "1.1.0"  # Using -ng fork which is compatible with tree-sitter 0.26
+sqlite-vec = { version = "=0.1.9", default-features = false, optional = true }
 
 [features]
 default = ["embeddings"]
 embeddings = ["dep:ort", "dep:tokenizers", "dep:ndarray", "ort/download-binaries", "ort/tls-rustls"]
 embeddings-dynamic = ["dep:ort", "dep:tokenizers", "dep:ndarray", "ort/load-dynamic"]
+vec-ext = ["dep:sqlite-vec"]
 
 [dev-dependencies]
 tempfile = "3"
@@ -90,6 +93,7 @@ insta = "1.47"
 regex = "1"
 proptest = "1"
 criterion = { version = "0.8", features = ["html_reports"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
 
 [[bench]]
 name = "indexing"
