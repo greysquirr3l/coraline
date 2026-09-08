@@ -177,10 +177,11 @@ pub fn migrate_to_vec0(project_root: &Path) -> std::io::Result<()> {
     ensure_vec0_schema(&conn)
 }
 
-/// Idempotently ensure the vec0 (`vectors_vec`) + meta (`vectors_meta`)
-/// tables exist. If the legacy v1 `vectors` BLOB table is present,
-/// migrate its contents into vec0 (one-time, transactional) and drop
-/// the v1 table.
+/// Idempotently ensure the vec0 embedding tables exist.
+///
+/// If the legacy v1 `vectors` BLOB table is present, migrate its
+/// contents into `vectors_vec` + `vectors_meta` (one-shot,
+/// transactional) and drop the v1 table.
 ///
 /// Safe to call on every connection open — once `vectors_vec` exists,
 /// the function is a fast no-op. The vec0 embed / load / search
@@ -339,16 +340,16 @@ pub mod runtime {
         Ok(())
     }
 
-    /// Process-wide one-time registration of the sqlite-vec
-    /// auto-extension. Must be called at startup — *before* any
-    /// `Connection::open` happens — so that every new connection the
-    /// process opens has `vec0` available as a virtual-table module.
+    /// Process-wide one-time registration of the sqlite-vec auto-extension.
     ///
-    /// The per-connection [`enable_extension`] entry point covers the
-    /// case where vec_ext is being used from a library context that
-    /// has its own connection lifecycle. For the CLI binary, call
-    /// this from `main()` and the auto-extension handles every
-    /// connection automatically.
+    /// Call this at startup — *before* any `Connection::open` happens —
+    /// so every new connection the process opens has `vec0` available
+    /// as a virtual-table module. The per-connection
+    /// [`enable_extension`] entry point covers the case where
+    /// `vec_ext` is being used from a library context that has its
+    /// own connection lifecycle; for the CLI binary, calling this
+    /// from `main()` is enough — the auto-extension handles every
+    /// subsequent connection automatically.
     pub fn register_global_init() -> io::Result<()> {
         let raw: rusqlite::auto_extension::RawAutoExtension = init_auto_extension;
         unsafe {
