@@ -357,11 +357,21 @@ jobs:
       - name: Create or update GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Passed via env (not spliced directly into the script below) so
+          # that release-notes content is never interpreted as shell syntax.
+          # GitHub Actions substitutes `${{ }}` as literal text *before*
+          # bash parses the script; a changelog entry containing backticks
+          # (e.g. `coraline doctor`) would otherwise be executed as command
+          # substitution — even inside double quotes — instead of treated
+          # as inert string content.
+          RELEASE_TAG: ${{ needs.resolve-tag.outputs.tag }}
+          RELEASE_SHA: ${{ needs.resolve-tag.outputs.sha }}
+          RELEASE_BODY: ${{ steps.changelog.outputs.notes }}
         run: |
           set -euo pipefail
-          TAG="${{ needs.resolve-tag.outputs.tag }}"
-          SHA="${{ needs.resolve-tag.outputs.sha }}"
-          BODY="${{ steps.changelog.outputs.notes }}"
+          TAG="$RELEASE_TAG"
+          SHA="$RELEASE_SHA"
+          BODY="$RELEASE_BODY"
           PRERELEASE_FLAG=""
           if [[ "$TAG" == *-alpha* || "$TAG" == *-beta* || "$TAG" == *-rc* ]]; then
             PRERELEASE_FLAG="--prerelease"
