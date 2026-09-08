@@ -7,6 +7,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-09-08
+
+Patch release. Re-issue of `0.13.0` plus six bug-fix commits
+that landed on the `feat/phase5-substrate` branch between
+`0.13.0` and the merge of PR #91. See the v0.13.0 entry below
+for the feature additions in this release.
+
+### Fixed
+
+- **Additive migrations now run on every connection open**
+  (`fix(db): run additive migrations on every db::open_database`).
+  Previously, only `coraline init` invoked
+  `apply_incremental_migrations` — projects upgraded across
+  a schema-version boundary (e.g. v0.12.0 → v0.13.0) wouldn't
+  pick up the new `edges.confidence` / `nodes.cluster_id` /
+  `edges.process_id` columns until they re-ran `coraline init`,
+  leaving `coraline sync` failing with `no such column: cluster_id`
+  halfway through the post-extraction passes.
+- **Extraction honors `pub` / `pub(crate)` / `pub(super)`**
+  (`fix(extraction): read declaration visibility from tree-sitter
+AST`). Every Node-construction site in `extraction.rs` was
+  hardcoding `is_exported = false`; only `Export`-kind nodes got
+  `is_exported = true`. Process-tracing entry-point discovery
+  (Phase 5.1) filters on `is_exported = 1`, so before this fix
+  every real `pub fn` was filtered out and
+  `coraline_process_for` returned empty for every project.
+- **Embed works on a project whose v1 `vectors` BLOB table has
+  already been migrated**
+  (`fix(vec-ext): lazy vec0 schema setup + process-wide
+auto-extension register`). Two changes: (a) a
+  `runtime::register_global_init()` called from `main()` so the
+  sqlite-vec auto-extension is registered before any
+  `Connection::open` (so vec0 is available to every subsequent
+  db connection), and (b) an idempotent `ensure_vec0_schema(conn)`
+  that creates `vectors_vec` + `vectors_meta` and migrates any
+  existing v1 rows on first call. Both `coraline embed` paths
+  were failing end-to-end with `no such module: vec0` /
+  `no such table: vectors_meta` before this change.
+- **`cargo-fuzz` build under `default-features = false`**
+  (`fix(ci): unblock cargo-fuzz build under default-features=false`).
+  The `pub mod vectors;` module in `lib.rs` is gated behind the
+  `embeddings` / `embeddings-dynamic` features, but `f64_to_f32_lossy`
+  (an IEEE 754 f64→f32 helper) didn't actually need either feature
+  — moved to `crate::utils` (always compiled) so fuzz targets and
+  any other default-features=false build path can resolve it.
+  Also backticked `clippy::cast_possible_truncation` in the
+  docstring and reordered one import alphabetically for the Format
+  check.
+- **`clippy::expect_used` and `clippy::too_long_first_doc_paragraph`
+  pass for the new vec-ext helpers**
+  (`chore: pass clippy::too_long_first_doc_paragraph +
+clippy::expect_used`). `main()` now surfaces
+  `register_global_init` errors to stderr and exits 2, rather
+  than calling `.expect(...)` on a `Result`. Docstrings on
+  `ensure_vec0_schema` and `register_global_init` were re-shaped
+  to fit the 25-word opening-paragraph lint.
+- **`db::clear_database` is feature-aware**
+  (`fix(db): make clear_database feature-aware (vec-ext vs BLOB
+storage)`). On a project whose embedding table is the v0
+  `vectors_vec` virtual table, `coraline index -f` now drops
+  `vectors_meta` + `vectors_vec` instead of the non-existent
+  `vectors`. Wrapped in a single `execute_batch` so partial
+  failure still rolls back atomically.
+
 ## [0.13.0] - 2026-09-07
 
 ### Added
