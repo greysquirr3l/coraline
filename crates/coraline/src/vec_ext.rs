@@ -26,6 +26,12 @@ use serde::Serialize;
 
 use crate::doctor;
 
+#[cfg(feature = "vec-ext")]
+use std::io;
+
+#[cfg(feature = "vec-ext")]
+use rusqlite::params;
+
 /// `true` when the binary was compiled with the `vec-ext` feature.
 pub const VEC_EXT_ENABLED: bool = cfg!(feature = "vec-ext");
 
@@ -165,31 +171,32 @@ use crate::db;
 ///
 /// The whole thing runs in a single transaction so the v1 table is
 /// only dropped after the new tables are ready.
+#[cfg(feature = "vec-ext")]
 pub fn migrate_to_vec0(project_root: &Path) -> std::io::Result<()> {
-    let mut conn = db::open_database(project_root)?;
+    let conn = db::open_database(project_root)?;
+    ensure_vec0_schema(&conn)
+}
 
-    // 1. Read existing v1 embeddings + metadata into memory.
-    let mut backup: Vec<(String, Vec<f32>, String, i64)> = Vec::new();
-    {
-        let mut stmt = conn
-            .prepare("SELECT node_id, embedding, model, created_at FROM vectors")
-            .map_err(db::io_other)?;
-        let mut rows = stmt.query([]).map_err(db::io_other)?;
-        while let Some(row) = rows.next().map_err(db::io_other)? {
-            let node_id: String = row.get(0).map_err(db::io_other)?;
-            let bytes: Vec<u8> = row.get(1).map_err(db::io_other)?;
-            let model: String = row.get(2).map_err(db::io_other)?;
-            let created_at: i64 = row.get(3).map_err(db::io_other)?;
-            let floats = decode_le_f32_vec(&bytes);
-            backup.push((node_id, floats, model, created_at));
-        }
+/// Idempotently ensure the vec0 (`vectors_vec`) + meta (`vectors_meta`)
+/// tables exist. If the legacy v1 `vectors` BLOB table is present,
+/// migrate its contents into vec0 (one-time, transactional) and drop
+/// the v1 table.
+///
+/// Safe to call on every connection open — once `vectors_vec` exists,
+/// the function is a fast no-op. The vec0 embed / load / search
+/// code paths call this on entry so a project can upgrade to the
+/// vec-ext build and have the schema auto-set up on the first
+/// vec0-bearing operation, with no manual migration step.
+#[cfg(feature = "vec-ext")]
+pub fn ensure_vec0_schema(conn: &Connection) -> io::Result<()> {
+    if table_exists(conn, "vectors_vec")? {
+        return Ok(());
     }
 
-    // 2. Drop v1, create v0 (vec0 + meta), re-insert, bump schema_versions.
-    let tx = conn.transaction().map_err(db::io_other)?;
-    tx.execute_batch(
-        "DROP TABLE vectors;
-         CREATE VIRTUAL TABLE IF NOT EXISTS vectors_vec USING vec0(
+    let has_v1 = table_exists(conn, "vectors")?;
+
+    conn.execute_batch(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS vectors_vec USING vec0(
              embedding float[768]
          );
          CREATE TABLE IF NOT EXISTS vectors_meta (
@@ -199,32 +206,60 @@ pub fn migrate_to_vec0(project_root: &Path) -> std::io::Result<()> {
              created_at INTEGER NOT NULL
          );",
     )
-    .map_err(db::io_other)?;
+    .map_err(super::db::io_other)?;
 
-    for (node_id, floats, model, created_at) in &backup {
-        let json = floats_to_json(floats);
-        tx.execute(
-            "INSERT INTO vectors_vec (embedding) VALUES (vec_f32(?1))",
-            rusqlite::params![json],
-        )
-        .map_err(db::io_other)?;
-        let rowid = tx.last_insert_rowid();
-        tx.execute(
-            "INSERT INTO vectors_meta (rowid, node_id, model, created_at) \
-             VALUES (?1, ?2, ?3, ?4)",
-            rusqlite::params![rowid, node_id, model, created_at],
-        )
-        .map_err(db::io_other)?;
+    if has_v1 {
+        let mut stmt = conn
+            .prepare("SELECT node_id, embedding, model, created_at FROM vectors")
+            .map_err(super::db::io_other)?;
+        let mut rows = stmt.query([]).map_err(super::db::io_other)?;
+        let mut backup: Vec<(String, Vec<f32>, String, i64)> = Vec::new();
+        while let Some(row) = rows.next().map_err(super::db::io_other)? {
+            let node_id: String = row.get(0).map_err(super::db::io_other)?;
+            let bytes: Vec<u8> = row.get(1).map_err(super::db::io_other)?;
+            let model: String = row.get(2).map_err(super::db::io_other)?;
+            let created_at: i64 = row.get(3).map_err(super::db::io_other)?;
+            backup.push((node_id, decode_le_f32_vec(&bytes), model, created_at));
+        }
+        drop(rows);
+        drop(stmt);
+
+        conn.execute_batch("DROP INDEX IF EXISTS idx_vectors_model; DROP TABLE IF EXISTS vectors;")
+            .map_err(super::db::io_other)?;
+
+        for (node_id, floats, model, created_at) in &backup {
+            let json = floats_to_json(floats);
+            conn.execute(
+                "INSERT INTO vectors_vec (embedding) VALUES (vec_f32(?1))",
+                params![json],
+            )
+            .map_err(super::db::io_other)?;
+            let rowid = conn.last_insert_rowid();
+            conn.execute(
+                "INSERT INTO vectors_meta (rowid, node_id, model, created_at)
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![rowid, node_id, model, created_at],
+            )
+            .map_err(super::db::io_other)?;
+        }
     }
 
-    tx.execute_batch(
+    conn.execute_batch(
         "INSERT OR IGNORE INTO schema_versions (version, applied_at, description)
          VALUES (4, strftime('%s', 'now') * 1000,
-                 'Convert vectors table to vec0 (Phase 5.3)');",
+                 'Create vec0 embedding tables (Phase 5.3)');",
     )
-    .map_err(db::io_other)?;
-    tx.commit().map_err(db::io_other)?;
+    .map_err(super::db::io_other)?;
     Ok(())
+}
+
+#[cfg(feature = "vec-ext")]
+fn table_exists(conn: &Connection, name: &str) -> io::Result<bool> {
+    let mut stmt = conn
+        .prepare("SELECT 1 FROM sqlite_master WHERE type IN ('table','view') AND name = ?1 LIMIT 1")
+        .map_err(super::db::io_other)?;
+    let mut rows = stmt.query(params![name]).map_err(super::db::io_other)?;
+    Ok(rows.next().map_err(super::db::io_other)?.is_some())
 }
 
 /// Decode a little-endian f32 BLOB (the v1 storage format) back into a
@@ -280,6 +315,8 @@ pub mod runtime {
 
     use rusqlite::{Connection, params};
 
+    use super::ensure_vec0_schema;
+
     /// Register `sqlite-vec` as a SQLite auto-extension on every new
     /// connection.
     ///
@@ -295,6 +332,24 @@ pub mod runtime {
         // `extern "C" fn()` to the `RawAutoExtension` signature. The
         // init function itself is idempotent (it just registers a
         // virtual-table module).
+        let raw: rusqlite::auto_extension::RawAutoExtension = init_auto_extension;
+        unsafe {
+            rusqlite::auto_extension::register_auto_extension(raw).map_err(io::Error::other)?;
+        }
+        Ok(())
+    }
+
+    /// Process-wide one-time registration of the sqlite-vec
+    /// auto-extension. Must be called at startup — *before* any
+    /// `Connection::open` happens — so that every new connection the
+    /// process opens has `vec0` available as a virtual-table module.
+    ///
+    /// The per-connection [`enable_extension`] entry point covers the
+    /// case where vec_ext is being used from a library context that
+    /// has its own connection lifecycle. For the CLI binary, call
+    /// this from `main()` and the auto-extension handles every
+    /// connection automatically.
+    pub fn register_global_init() -> io::Result<()> {
         let raw: rusqlite::auto_extension::RawAutoExtension = init_auto_extension;
         unsafe {
             rusqlite::auto_extension::register_auto_extension(raw).map_err(io::Error::other)?;
@@ -323,6 +378,7 @@ pub mod runtime {
         embedding: &[f32],
         model_name: &str,
     ) -> io::Result<()> {
+        ensure_vec0_schema(conn)?;
         let json = super::floats_to_json(embedding);
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -357,6 +413,7 @@ pub mod runtime {
     }
 
     pub fn load_embedding_vec0(conn: &Connection, node_id: &str) -> io::Result<Option<Vec<f32>>> {
+        ensure_vec0_schema(conn)?;
         let mut stmt = conn
             .prepare(
                 "SELECT v.embedding
@@ -401,6 +458,7 @@ pub mod runtime {
         limit: usize,
         min_similarity: f32,
     ) -> io::Result<Vec<crate::types::SearchResult>> {
+        ensure_vec0_schema(conn)?;
         let json = super::floats_to_json(query_embedding);
         let max_distance = 1.0_f32 - min_similarity;
         // sqlite-vec KNN requires the `k = ?` constraint directly in

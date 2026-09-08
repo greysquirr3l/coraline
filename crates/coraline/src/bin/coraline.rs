@@ -324,6 +324,15 @@ enum ModelAction {
 }
 
 fn main() {
+    // Register sqlite-vec as a process-wide auto-extension before any
+    // `Connection::open` runs. The auto-extension fires for every new
+    // connection opened after this call, so vec0 is available to all
+    // subsequent `db::open_database` calls without needing a
+    // per-connection init step.
+    #[cfg(feature = "vec-ext")]
+    coraline::vec_ext::runtime::register_global_init()
+        .expect("failed to register sqlite-vec auto-extension");
+
     let cli = Cli::parse();
     if matches!(cli.command, None | Some(Command::Install)) {
         run_installer();
@@ -887,6 +896,7 @@ fn run_init(args: InitArgs) {
     {
         use coraline::vec_ext;
         if vec_ext::VEC_EXT_ENABLED {
+            #[cfg(feature = "vec-ext")]
             match vec_ext::migrate_to_vec0(&project_root) {
                 Ok(()) => {
                     println!("vec-ext: converted vectors table to vec0.");
