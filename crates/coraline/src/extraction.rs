@@ -31,7 +31,7 @@ use crate::db;
 use crate::resolution::ReferenceResolver;
 use crate::types::{
     CodeGraphConfig, Edge, EdgeKind, ExtractionError, ExtractionErrorSeverity, FileRecord,
-    Language, Node, NodeKind, UnresolvedReference,
+    Language, Node, NodeKind, UnresolvedReference, Visibility,
 };
 use crate::utils::{hash_sha256, node_id_for_symbol};
 use tracing::{debug, info, warn};
@@ -632,6 +632,81 @@ struct SymbolIndex {
     callable_ids: HashSet<String>,
 }
 
+/// Read visibility from a declaration tree-sitter node.
+///
+/// Returns `(visibility, is_exported)`. `is_exported` is true iff the
+/// node is exposed to consumers outside the declaring module — i.e.,
+/// reachable from a downstream crate's `use` statement or a library
+/// consumer's import. Restricted-visibility keywords (`pub(crate)`,
+/// `pub(super)`, `pub(in path)`) are exported = false because they
+/// are NOT part of the public API surface, even though they ARE
+/// reachable from inside the crate.
+///
+/// - **Rust** — looks for a `visibility_modifier` child. Plain `pub`
+///   maps to `(Visibility::Public, true)`; qualified forms
+///   (`pub(crate)`, `pub(super)`, `pub(in path)`) map to
+///   `(Visibility::Internal, false)`; missing modifier is `None`.
+/// - **TypeScript / JavaScript** — walks ancestors for
+///   `export_statement`. Maps to `(Visibility::Public, true)`.
+/// - **Java / C# / Blazor** — walks children for a `modifiers` node
+///   containing `public`. Maps to `(Visibility::Public, true)`.
+///
+/// Languages without a keyword-based visibility concept (Python,
+/// Ruby, etc.) return `None`. Convention-based visibility (e.g.
+/// Python's leading-underscore) is left to a follow-up.
+fn read_declaration_visibility(
+    node: TsNode,
+    language: Language,
+    source: &str,
+) -> Option<(Visibility, bool)> {
+    match language {
+        Language::Rust => {
+            // tree-sitter-rust's grammar names the visibility child
+            // `visibility_modifier`, but the field name has shifted
+            // between minor versions; fall back to scanning the direct
+            // children by node kind to stay robust.
+            let vis = node
+                .child_by_field_name("visibility_modifier")
+                .or_else(|| {
+                    let mut cursor = node.walk();
+                    node.children(&mut cursor)
+                        .find(|c| c.kind() == "visibility_modifier")
+                })?;
+            let text = vis.utf8_text(source.as_bytes()).ok()?.trim();
+            if text == "pub" {
+                Some((Visibility::Public, true))
+            } else if text.starts_with("pub(") {
+                Some((Visibility::Internal, false))
+            } else {
+                None
+            }
+        }
+        Language::TypeScript | Language::Tsx | Language::JavaScript => {
+            let mut current = node;
+            loop {
+                if current.kind() == "export_statement" {
+                    return Some((Visibility::Public, true));
+                }
+                let parent = current.parent()?;
+                current = parent;
+            }
+        }
+        Language::Java | Language::CSharp | Language::Blazor => {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if child.kind() == "modifiers" {
+                    let text = child.utf8_text(source.as_bytes()).ok()?;
+                    if text.contains("public") {
+                        return Some((Visibility::Public, true));
+                    }
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
 fn walk_tree_collect(
     node: TsNode,
     source: &str,
@@ -709,6 +784,10 @@ fn walk_tree_collect(
         );
         let start = node.start_position();
         let end = node.end_position();
+        let (visibility, is_exported) = match read_declaration_visibility(node, language, source) {
+            Some((text, exported)) => (Some(text), exported),
+            None => (None, false),
+        };
 
         nodes.push(Node {
             id: id.clone(),
@@ -723,8 +802,8 @@ fn walk_tree_collect(
             end_column: end.column as i64,
             docstring: None,
             signature: None,
-            visibility: None,
-            is_exported: false,
+            visibility,
+            is_exported,
             is_async: false,
             is_static: false,
             is_abstract: false,
@@ -1538,6 +1617,11 @@ fn add_module_node(
         _ => None,
     };
 
+    let (visibility, is_exported) = match read_declaration_visibility(*node, language, source) {
+        Some((vis, exported)) => (Some(vis), exported),
+        None => (None, false),
+    };
+
     nodes.push(Node {
         id: id.clone(),
         kind: NodeKind::Module,
@@ -1551,8 +1635,8 @@ fn add_module_node(
         end_column: end.column as i64,
         docstring: None,
         signature,
-        visibility: None,
-        is_exported: false,
+        visibility,
+        is_exported,
         is_async: false,
         is_static: false,
         is_abstract: false,
