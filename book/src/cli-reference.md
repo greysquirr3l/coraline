@@ -8,24 +8,24 @@ When `[PATH]` is omitted, the current working directory is used as the project r
 
 ## Commands at a Glance
 
-| Command | Description |
-|---|---|
-| `init` | Initialize a new project |
-| `index` | Full reindex of the project |
-| `sync` | Incremental update (git-diff based) |
-| `status` | Show project status and paths |
-| `stats` | Show index statistics |
-| `query` | Search symbols by name |
-| `context` | Build AI context for a task |
-| `callers` | Find what calls a node |
-| `callees` | Find what a node calls |
-| `impact` | Analyze change impact radius |
-| `config` | Read or update configuration |
-| `hooks` | Manage git hooks |
-| `doctor` | Run diagnostic checks (config, database, model, embed coverage) |
-| `serve` | Start the MCP server |
-| `embed` | Generate vector embeddings for indexed nodes |
-| `model` | Manage the ONNX embedding model |
+| Command   | Description                                                     |
+| --------- | --------------------------------------------------------------- |
+| `init`    | Initialize a new project                                        |
+| `index`   | Full reindex of the project                                     |
+| `sync`    | Incremental update (git-diff based)                             |
+| `status`  | Show project status and paths                                   |
+| `stats`   | Show index statistics                                           |
+| `query`   | Search symbols by name                                          |
+| `context` | Build AI context for a task                                     |
+| `callers` | Find what calls a node                                          |
+| `callees` | Find what a node calls                                          |
+| `impact`  | Analyze change impact radius                                    |
+| `config`  | Read or update configuration                                    |
+| `hooks`   | Manage git hooks                                                |
+| `doctor`  | Run diagnostic checks (config, database, model, embed coverage) |
+| `serve`   | Start the MCP server                                            |
+| `embed`   | Generate vector embeddings for indexed nodes                    |
+| `model`   | Manage the ONNX embedding model                                 |
 
 ---
 
@@ -39,16 +39,17 @@ If `.coraline/` already exists and `--index` is passed **without** `--force`, `i
 
 **Options:**
 
-| Flag | Description |
-|---|---|
-| `-i`, `--index` | Run a full index immediately after initialization |
-| `-f`, `--force` | Overwrite an existing `.coraline/` directory without prompting |
-| `--no-hooks` | Skip automatic git hook installation |
-| `--embed` | Download the embedding model during init (skips the TTY prompt) |
-| `--no-embed` | Skip the embedding model entirely — no prompt, no download. Conflicts with `--embed` and always wins over `--yes` |
-| `-y`, `--yes` | Non-interactive mode: auto-accept the model download prompt |
+| Flag            | Description                                                                                                       |
+| --------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `-i`, `--index` | Run a full index immediately after initialization                                                                 |
+| `-f`, `--force` | Overwrite an existing `.coraline/` directory without prompting                                                    |
+| `--no-hooks`    | Skip automatic git hook installation                                                                              |
+| `--embed`       | Download the embedding model during init (skips the TTY prompt)                                                   |
+| `--no-embed`    | Skip the embedding model entirely — no prompt, no download. Conflicts with `--embed` and always wins over `--yes` |
+| `-y`, `--yes`   | Non-interactive mode: auto-accept the model download prompt                                                       |
 
 **Examples:**
+
 ```bash
 coraline init                    # Initialize current directory
 coraline init /path/to/my-app   # Initialize a specific path
@@ -63,6 +64,7 @@ coraline init --yes              # Initialize non-interactively; auto-downloads 
 > Which model is downloaded is controlled by `vectors.model` in config (default `nomic-embed-text-v1.5`), not by an `init` flag — see `coraline model` below and the `[vectors]` section in [Configuration](configuration.md).
 
 **On success, creates:**
+
 - `.coraline/coraline.db` — SQLite knowledge graph
 - `.coraline/config.toml` — Annotated config template
 - `.coraline/memories/` — Initial memory files
@@ -77,12 +79,13 @@ Perform a full reindex of the project. Parses all matching source files, extract
 
 **Options:**
 
-| Flag | Description |
-|---|---|
+| Flag            | Description                                   |
+| --------------- | --------------------------------------------- |
 | `-f`, `--force` | Force re-parse all files, even unchanged ones |
-| `-q`, `--quiet` | Suppress progress output |
+| `-q`, `--quiet` | Suppress progress output                      |
 
 **Examples:**
+
 ```bash
 coraline index                   # Index current directory
 coraline index /path/to/project  # Index a specific path
@@ -98,11 +101,12 @@ Perform an incremental update using git-diff to identify changed files. Faster t
 
 **Options:**
 
-| Flag | Description |
-|---|---|
+| Flag            | Description              |
+| --------------- | ------------------------ |
 | `-q`, `--quiet` | Suppress progress output |
 
 **Examples:**
+
 ```bash
 coraline sync                    # Sync current directory
 coraline sync -q                 # Silent sync (used by git hook)
@@ -115,11 +119,13 @@ coraline sync -q                 # Silent sync (used by git hook)
 Show the current project status: initialization state, paths to config and database, database size, embedding-model state, and git hook status.
 
 **Examples:**
+
 ```bash
 coraline status
 ```
 
 **Sample output:**
+
 ```
 Coraline Status
 
@@ -134,6 +140,8 @@ Git hooks: installed
 
 The `Embeddings` line shows `not present` (with a fix hint) when no model file has been downloaded yet for the project's configured model (`vectors.model`, default `nomic-embed-text-v1.5`). See `coraline model` and `coraline doctor` below.
 
+For deeper diagnostics (every probe with detail + fix hints, deep model-load / inference / embed-coverage checks, machine-readable JSON), use `coraline doctor` — it's the same probe set that the MCP `coraline_status` tool runs when called with `include_doctor: true`.
+
 ---
 
 ## `coraline stats [PATH]`
@@ -142,17 +150,19 @@ Show index statistics: file count, node count, edge count, and unresolved refere
 
 **Options:**
 
-| Flag | Description |
-|---|---|
+| Flag           | Description    |
+| -------------- | -------------- |
 | `-j`, `--json` | Output as JSON |
 
 **Examples:**
+
 ```bash
 coraline stats
 coraline stats --json
 ```
 
 **Sample output:**
+
 ```
 Coraline Statistics
 
@@ -170,23 +180,24 @@ Search for symbols in the knowledge graph by name. Uses SQLite full-text search 
 
 **Arguments:**
 
-| Argument | Description |
-|---|---|
+| Argument | Description                   |
+| -------- | ----------------------------- |
 | `SEARCH` | Symbol name or search pattern |
 
 **Options:**
 
-| Flag | Description |
-|---|---|
-| `-p`, `--path PATH` | Project root path |
-| `-l`, `--limit N` | Maximum results (default: `10`) |
+| Flag                | Description                     |
+| ------------------- | ------------------------------- |
+| `-p`, `--path PATH` | Project root path               |
+| `-l`, `--limit N`   | Maximum results (default: `10`) |
 | `-k`, `--kind KIND` | Filter by node kind (see below) |
-| `-j`, `--json` | Output as JSON |
+| `-j`, `--json`      | Output as JSON                  |
 
 **Valid `KIND` values:**
 `file`, `module`, `class`, `struct`, `interface`, `trait`, `protocol`, `function`, `method`, `property`, `field`, `variable`, `constant`, `enum`, `enum_member`, `type_alias`, `namespace`, `parameter`, `import`, `export`, `route`, `component`
 
 **Examples:**
+
 ```bash
 coraline query resolve_unresolved
 coraline query "index" --kind function --limit 5
@@ -201,21 +212,22 @@ Build structured context for an AI task description. Searches the graph, travers
 
 **Arguments:**
 
-| Argument | Description |
-|---|---|
-| `TASK` | Natural language task description |
+| Argument | Description                       |
+| -------- | --------------------------------- |
+| `TASK`   | Natural language task description |
 
 **Options:**
 
-| Flag | Description |
-|---|---|
-| `-p`, `--path PATH` | Project root path |
+| Flag                  | Description                     |
+| --------------------- | ------------------------------- |
+| `-p`, `--path PATH`   | Project root path               |
 | `-n`, `--max-nodes N` | Max graph nodes (default: `50`) |
-| `-c`, `--max-code N` | Max code blocks (default: `10`) |
-| `--no-code` | Omit source code snippets |
-| `-f`, `--format FMT` | `markdown` (default) or `json` |
+| `-c`, `--max-code N`  | Max code blocks (default: `10`) |
+| `--no-code`           | Omit source code snippets       |
+| `-f`, `--format FMT`  | `markdown` (default) or `json`  |
 
 **Examples:**
+
 ```bash
 coraline context "add authentication middleware"
 coraline context "how does indexing work" --format json
@@ -230,19 +242,20 @@ Find all nodes that call the specified node (incoming `calls` edges).
 
 **Arguments:**
 
-| Argument | Description |
-|---|---|
+| Argument  | Description                                     |
+| --------- | ----------------------------------------------- |
 | `NODE_ID` | Node ID (from `query` or `stats --json` output) |
 
 **Options:**
 
-| Flag | Description |
-|---|---|
-| `-p`, `--path PATH` | Project root path |
-| `-l`, `--limit N` | Maximum results (default: `20`) |
-| `-j`, `--json` | Output as JSON |
+| Flag                | Description                     |
+| ------------------- | ------------------------------- |
+| `-p`, `--path PATH` | Project root path               |
+| `-l`, `--limit N`   | Maximum results (default: `20`) |
+| `-j`, `--json`      | Output as JSON                  |
 
 **Examples:**
+
 ```bash
 coraline callers abc123
 coraline callers abc123 --limit 50 --json
@@ -264,19 +277,20 @@ Analyze the impact radius of a symbol — what would be affected if it changed. 
 
 **Arguments:**
 
-| Argument | Description |
-|---|---|
+| Argument  | Description        |
+| --------- | ------------------ |
 | `NODE_ID` | Node ID to analyze |
 
 **Options:**
 
-| Flag | Description |
-|---|---|
-| `-p`, `--path PATH` | Project root path |
-| `-d`, `--depth N` | BFS depth (default: `3`) |
-| `-j`, `--json` | Output as JSON |
+| Flag                | Description              |
+| ------------------- | ------------------------ |
+| `-p`, `--path PATH` | Project root path        |
+| `-d`, `--depth N`   | BFS depth (default: `3`) |
+| `-j`, `--json`      | Output as JSON           |
 
 **Examples:**
+
 ```bash
 coraline impact abc123
 coraline impact abc123 --depth 5 --json
@@ -290,14 +304,15 @@ Read or update the project configuration at `.coraline/config.toml`.
 
 **Options:**
 
-| Flag | Description |
-|---|---|
-| `-p`, `--path PATH` | Project root path |
-| `-j`, `--json` | Print config as JSON |
+| Flag                  | Description                                                     |
+| --------------------- | --------------------------------------------------------------- |
+| `-p`, `--path PATH`   | Project root path                                               |
+| `-j`, `--json`        | Print config as JSON                                            |
 | `-s`, `--section SEC` | Print only a section (`indexing`, `context`, `sync`, `vectors`) |
-| `--set KEY=VALUE` | Set a value: `section.key=value` |
+| `--set KEY=VALUE`     | Set a value: `section.key=value`                                |
 
 **Examples:**
+
 ```bash
 coraline config                                 # Print full config (TOML)
 coraline config --section context               # Print one section
@@ -315,19 +330,20 @@ Manage the git `post-commit` hook that runs `coraline sync` automatically after 
 
 **Actions:**
 
-| Action | Description |
-|---|---|
-| `install` | Install the hook (backs up existing hook) |
-| `remove` | Remove the hook (restores backup if present) |
-| `status` | Show whether the hook is installed |
+| Action    | Description                                  |
+| --------- | -------------------------------------------- |
+| `install` | Install the hook (backs up existing hook)    |
+| `remove`  | Remove the hook (restores backup if present) |
+| `status`  | Show whether the hook is installed           |
 
 **Options:**
 
-| Flag | Description |
-|---|---|
+| Flag                | Description       |
+| ------------------- | ----------------- |
 | `-p`, `--path PATH` | Project root path |
 
 **Examples:**
+
 ```bash
 coraline hooks install
 coraline hooks status
@@ -342,27 +358,28 @@ Run diagnostic checks against a project and report pass/fail per check, with a f
 
 **Checks (in order):**
 
-| Check | What it verifies |
-|---|---|
-| `config` | `.coraline/config.toml` exists and is readable |
-| `database` | `.coraline/coraline.db` opens and returns stats (node/edge/file counts) |
-| `git hooks` | The post-commit hook is installed (or the project isn't a git repo, which is fine) |
-| `model file` | At least one ONNX variant of the configured model (`vectors.model`) is present on disk |
-| `model loads` *(deep only)* | The ONNX model actually loads into an inference session |
-| `inference` *(deep only)* | A sample embedding runs through the loaded model successfully |
-| `embed coverage` *(deep only)* | Every indexed node has an embedding for the configured model |
+| Check                          | What it verifies                                                                       |
+| ------------------------------ | -------------------------------------------------------------------------------------- |
+| `config`                       | `.coraline/config.toml` exists and is readable                                         |
+| `database`                     | `.coraline/coraline.db` opens and returns stats (node/edge/file counts)                |
+| `git hooks`                    | The post-commit hook is installed (or the project isn't a git repo, which is fine)     |
+| `model file`                   | At least one ONNX variant of the configured model (`vectors.model`) is present on disk |
+| `model loads` _(deep only)_    | The ONNX model actually loads into an inference session                                |
+| `inference` _(deep only)_      | A sample embedding runs through the loaded model successfully                          |
+| `embed coverage` _(deep only)_ | Every indexed node has an embedding for the configured model                           |
 
 The three deep checks require a build with the `embeddings` or `embeddings-dynamic` feature; they're skipped (not failed) on builds without it.
 
 **Options:**
 
-| Flag | Description |
-|---|---|
+| Flag      | Description                                                                             |
+| --------- | --------------------------------------------------------------------------------------- |
 | `--quick` | Skip the three deep model-load/inference/coverage checks (fast, no ONNX runtime needed) |
-| `--deep` | Explicit deep mode — this is already the default; mutually exclusive with `--quick` |
-| `--json` | Print the report as JSON instead of the human-readable `✔`/`✘` list |
+| `--deep`  | Explicit deep mode — this is already the default; mutually exclusive with `--quick`     |
+| `--json`  | Print the report as JSON instead of the human-readable `✔`/`✘` list                     |
 
 **Examples:**
+
 ```bash
 coraline doctor                  # Full diagnostic run (deep checks included)
 coraline doctor --quick          # Skip slow model checks — good for CI
@@ -370,6 +387,7 @@ coraline doctor --json           # Machine-readable report
 ```
 
 **Sample output:**
+
 ```
 ✔  config
 ✔  database
@@ -379,17 +397,33 @@ coraline doctor --json           # Machine-readable report
 ```
 
 **Sample `--json` output:**
+
 ```json
 {
   "probes": [
-    { "name": "config", "ok": true, "detail": "/path/.coraline/config.toml (3775 bytes)" },
-    { "name": "database", "ok": true, "detail": "/path/.coraline/coraline.db (2 nodes, 1 edges, 1 files)" },
+    {
+      "name": "config",
+      "ok": true,
+      "detail": "/path/.coraline/config.toml (3775 bytes)"
+    },
+    {
+      "name": "database",
+      "ok": true,
+      "detail": "/path/.coraline/coraline.db (2 nodes, 1 edges, 1 files)"
+    },
     { "name": "git hooks", "ok": true, "detail": "installed" },
-    { "name": "model file", "ok": false, "detail": "no model file for 'nomic-embed-text-v1.5' in ...", "fix": "Run `coraline model download`." }
+    {
+      "name": "model file",
+      "ok": false,
+      "detail": "no model file for 'nomic-embed-text-v1.5' in ...",
+      "fix": "Run `coraline model download`."
+    }
   ],
   "exit_code": 1
 }
 ```
+
+The same `--json` shape is exposed by the MCP `coraline_status` tool when called with `include_doctor: true` (plus a top-level `doctor_needs_attention` bool) — see [`mcp-tools.md`](mcp-tools.md) for the full MCP tool reference. This means MCP clients don't need a separate `coraline doctor` invocation; one round-trip via `coraline_status` returns both the index stats and the full probe report.
 
 ---
 
@@ -399,12 +433,13 @@ Start the MCP server. With `--mcp`, communicates over stdio using the Model Cont
 
 **Options:**
 
-| Flag | Description |
-|---|---|
-| `-p`, `--path PATH` | Project root path |
-| `--mcp` | Start MCP stdio server (required) |
+| Flag                | Description                       |
+| ------------------- | --------------------------------- |
+| `-p`, `--path PATH` | Project root path                 |
+| `--mcp`             | Start MCP stdio server (required) |
 
 **Examples:**
+
 ```bash
 coraline serve --mcp
 coraline serve --mcp --path /path/to/project
@@ -416,11 +451,12 @@ Typically invoked by an MCP client (Claude Desktop, Claude Code, etc.) rather th
 
 ## Environment Variables
 
-| Variable | Description |
-|---|---|
+| Variable       | Description                                                                              |
+| -------------- | ---------------------------------------------------------------------------------------- |
 | `CORALINE_LOG` | Log level filter (default: `coraline=info`). Examples: `debug`, `coraline=trace`, `warn` |
 
 **Examples:**
+
 ```bash
 CORALINE_LOG=debug coraline index
 CORALINE_LOG=coraline=trace coraline serve --mcp
@@ -436,14 +472,15 @@ Generate vector embeddings for all indexed nodes using the local ONNX model. Emb
 
 **Options:**
 
-| Flag | Description |
-|---|---|
-| `--download` | Download the model automatically before embedding |
+| Flag                 | Description                                                                    |
+| -------------------- | ------------------------------------------------------------------------------ |
+| `--download`         | Download the model automatically before embedding                              |
 | `--variant FILENAME` | ONNX variant to download (default: the configured model's recommended variant) |
-| `--batch-size N` | Nodes per progress batch (default: `50`) |
-| `-q`, `--quiet` | Suppress progress output |
+| `--batch-size N`     | Nodes per progress batch (default: `50`)                                       |
+| `-q`, `--quiet`      | Suppress progress output                                                       |
 
 **Examples:**
+
 ```bash
 coraline embed                        # Embed using already-downloaded model
 coraline embed --download             # Download the configured model then embed
@@ -470,31 +507,31 @@ coraline model list
 
 Download model files from HuggingFace.
 
-| Flag | Description |
-|---|---|
-| `--model NAME` | Which supported model to download (default: `vectors.model` from config.toml) |
-| `--variant FILENAME` | ONNX variant to download (default: the model's recommended variant) |
-| `-f`, `--force` | Re-download even if files already exist |
-| `-q`, `--quiet` | Suppress progress output |
+| Flag                 | Description                                                                   |
+| -------------------- | ----------------------------------------------------------------------------- |
+| `--model NAME`       | Which supported model to download (default: `vectors.model` from config.toml) |
+| `--variant FILENAME` | ONNX variant to download (default: the model's recommended variant)           |
+| `-f`, `--force`      | Re-download even if files already exist                                       |
+| `-q`, `--quiet`      | Suppress progress output                                                      |
 
 Downloads `tokenizer.json`, `tokenizer_config.json`, and the chosen ONNX weights into the shared model directory `~/.config/coraline/models/<model>/`.
 
 **`nomic-embed-text-v1.5` variants (smallest to largest):**
 
-| Variant | Size | Notes |
-|---|---|---|
-| `model_q4f16.onnx` | ~111 MB | Q4 + fp16 mixed (smallest) |
-| `model_int8.onnx` | ~137 MB | int8 quantized (recommended) |
-| `model_fp16.onnx` | ~274 MB | fp16 |
-| `model.onnx` | ~547 MB | full f32 |
+| Variant            | Size    | Notes                        |
+| ------------------ | ------- | ---------------------------- |
+| `model_q4f16.onnx` | ~111 MB | Q4 + fp16 mixed (smallest)   |
+| `model_int8.onnx`  | ~137 MB | int8 quantized (recommended) |
+| `model_fp16.onnx`  | ~274 MB | fp16                         |
+| `model.onnx`       | ~547 MB | full f32                     |
 
 **`jina-embeddings-v2-base-code` variants:**
 
-| Variant | Size | Notes |
-|---|---|---|
+| Variant                | Size    | Notes                        |
+| ---------------------- | ------- | ---------------------------- |
 | `model_quantized.onnx` | ~162 MB | int8 quantized (recommended) |
-| `model_fp16.onnx` | ~321 MB | fp16 |
-| `model.onnx` | ~642 MB | full f32 |
+| `model_fp16.onnx`      | ~321 MB | fp16                         |
+| `model.onnx`           | ~642 MB | full f32                     |
 
 ```bash
 coraline model download                                    # download vectors.model's default variant
@@ -505,8 +542,8 @@ coraline model download --model jina-embeddings-v2-base-code
 
 Show which model files are present in the model directory for the configured (or `--model`-selected) model.
 
-| Flag | Description |
-|---|---|
+| Flag           | Description                                                                  |
+| -------------- | ---------------------------------------------------------------------------- |
 | `--model NAME` | Which supported model to inspect (default: `vectors.model` from config.toml) |
 
 ```bash

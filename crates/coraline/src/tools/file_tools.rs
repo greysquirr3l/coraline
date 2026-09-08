@@ -453,7 +453,15 @@ fn glob_match_inner(pattern: &[char], name: &[char]) -> bool {
     }
 }
 
-/// Tool for project index status and statistics
+/// Tool for project index status and statistics.
+///
+/// Backward-compatible: with no `include_doctor` parameter the tool
+/// returns the same index stats it always did. Set
+/// `include_doctor = true` to additionally get a `doctor_report`
+/// field with the full `coraline doctor --json` payload (probes +
+/// remediation hints + exit code). A self-healing UI can inspect
+/// `doctor_report.exit_code == 0` to know whether to surface a
+/// "fix this" prompt.
 pub struct StatusTool {
     project_root: PathBuf,
 }
@@ -470,17 +478,37 @@ impl Tool for StatusTool {
     }
 
     fn description(&self) -> &'static str {
-        "Get the current index status and statistics for the project."
+        "Get the current index status and statistics for the project. \
+         Pass `include_doctor: true` to also receive the full \
+         `coraline doctor` report (probes + remediation hints) for \
+         self-healing UIs."
     }
 
     fn input_schema(&self) -> Value {
         json!({
             "type": "object",
-            "properties": {}
+            "properties": {
+                "include_doctor": {
+                    "type": "boolean",
+                    "description": "When true, also runs `coraline doctor` probes and returns the full report as `doctor_report`. Default false.",
+                    "default": false
+                },
+                "deep": {
+                    "type": "boolean",
+                    "description": "Only meaningful when `include_doctor` is true. When true, runs the slower model-load / inference / coverage probes. Default false (cheap probes only).",
+                    "default": false
+                }
+            }
         })
     }
 
-    fn execute(&self, _params: Value) -> ToolResult {
+    fn execute(&self, params: Value) -> ToolResult {
+        let include_doctor = params
+            .get("include_doctor")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let deep = params.get("deep").and_then(Value::as_bool).unwrap_or(false);
+
         let conn = db::open_database(&self.project_root)
             .map_err(|e| ToolError::internal_error(format!("Failed to open database: {e}")))?;
 
@@ -490,7 +518,7 @@ impl Tool for StatusTool {
         let db_path = db::database_path(&self.project_root);
         let db_size = std::fs::metadata(&db_path).map_or(0, |m| m.len());
 
-        Ok(json!({
+        let mut response = json!({
             "project_root": self.project_root,
             "database": db_path,
             "database_size_bytes": db_size,
@@ -500,7 +528,32 @@ impl Tool for StatusTool {
                 "files": stats.file_count,
                 "unresolved_references": stats.unresolved_count,
             }
-        }))
+        });
+
+        if include_doctor {
+            // The doctor probes call back into our own DB handle for
+            // the migration / vec-ext probes, so we always close `conn`
+            // first to release the WAL writer lock.
+            drop(conn);
+            let report = crate::doctor::run_all(&self.project_root, deep);
+            // Serialize via serde_json::Value so a UI can pull either
+            // `probes[i].ok`, `probes[i].fix`, or `exit_code` without
+            // needing to re-parse text.
+            let report_value = serde_json::to_value(&report).map_err(|e| {
+                ToolError::internal_error(format!("Failed to serialize doctor report: {e}"))
+            })?;
+            // `ok` is derived from `exit_code == 0` so a UI can show a
+            // single boolean instead of parsing the exit code.
+            let all_ok = report.exit_code == 0;
+            let needs_attention = !all_ok;
+            let map = response
+                .as_object_mut()
+                .ok_or_else(|| ToolError::internal_error("status response is not an object"))?;
+            map.insert("doctor_report".to_string(), report_value);
+            map.insert("doctor_needs_attention".to_string(), json!(needs_attention));
+        }
+
+        Ok(response)
     }
 }
 
@@ -1062,6 +1115,8 @@ mod tests {
         clippy::expect_used,
         reason = "test assertions: panicking on setup failure is the correct behavior"
     )]
+    use super::StatusTool;
+    use super::Tool;
     use super::stale_embedding_count;
     use rusqlite::Connection;
 
@@ -1110,5 +1165,101 @@ mod tests {
 
         let count = stale_embedding_count(&conn, "nomic-embed-text-v1.5").expect("count stale");
         assert_eq!(count, 0);
+    }
+
+    // ---- coraline_status include_doctor flag (Phase 5.x) ----
+
+    /// Build a fully-initialised project in a tempdir: config.toml,
+    /// `.coraline/` directory, and an empty SQLite database matching the
+    /// shipped schema. Returns the project root.
+    fn initialised_project() -> tempfile::TempDir {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir_all(tmp.path().join(".coraline")).expect("create .coraline");
+        std::fs::write(
+            tmp.path().join(".coraline").join("config.toml"),
+            "# minimal config for doctor tests\n",
+        )
+        .expect("write config.toml");
+        let db_path = crate::db::database_path(tmp.path());
+        let conn = rusqlite::Connection::open(&db_path).expect("open db");
+        conn.execute_batch(crate::db::SCHEMA_SQL)
+            .expect("apply schema");
+        drop(conn);
+        tmp
+    }
+
+    #[test]
+    fn status_without_include_doctor_matches_legacy_shape() {
+        // Default behaviour — no `include_doctor` param — must NOT add
+        // any new keys. This is the back-compat contract: existing
+        // tooling that parses `stats` / `database_size_bytes` keeps
+        // working.
+        let tmp = initialised_project();
+        let tool = StatusTool::new(tmp.path().to_path_buf());
+        let response = tool.execute(serde_json::json!({})).expect("status ok");
+
+        assert!(
+            response.get("doctor_report").is_none(),
+            "doctor_report should not appear without include_doctor=true"
+        );
+        assert!(
+            response.get("doctor_needs_attention").is_none(),
+            "doctor_needs_attention should not appear without include_doctor=true"
+        );
+        // The original keys must still be present.
+        assert!(response.get("stats").is_some());
+        assert!(response.get("database").is_some());
+        assert!(response.get("database_size_bytes").is_some());
+    }
+
+    #[test]
+    fn status_with_include_doctor_returns_full_report_and_needs_attention_flag() {
+        let tmp = initialised_project();
+        let tool = StatusTool::new(tmp.path().to_path_buf());
+        let response = tool
+            .execute(serde_json::json!({ "include_doctor": true }))
+            .expect("status with doctor ok");
+
+        // `doctor_report` must be present and contain both `probes` and
+        // `exit_code` fields — the same shape `coraline doctor --json`
+        // produces.
+        let report = response
+            .get("doctor_report")
+            .expect("doctor_report present");
+        assert!(report.get("probes").is_some(), "probes array missing");
+        assert!(
+            report.get("exit_code").is_some(),
+            "exit_code missing from doctor_report"
+        );
+
+        // `doctor_needs_attention` is a top-level bool derived from
+        // `exit_code == 0`. A UI can render this directly without
+        // walking the probes array.
+        let needs_attention = response
+            .get("doctor_needs_attention")
+            .and_then(serde_json::Value::as_bool)
+            .expect("doctor_needs_attention bool missing");
+        // The freshly-initialised project has no embeddings / no model
+        // yet — the `model file` probe should mark `needs_attention = true`.
+        assert!(
+            needs_attention,
+            "freshly-initialised project should need attention (no model file)"
+        );
+    }
+
+    #[test]
+    fn status_include_doctor_default_is_false_even_when_other_params_present() {
+        // Passing only `deep` must NOT enable the doctor report —
+        // `include_doctor` is the explicit opt-in.
+        let tmp = initialised_project();
+        let tool = StatusTool::new(tmp.path().to_path_buf());
+        let response = tool
+            .execute(serde_json::json!({ "deep": true }))
+            .expect("status with deep=true ok");
+
+        assert!(
+            response.get("doctor_report").is_none(),
+            "doctor_report should not appear when only `deep` is set"
+        );
     }
 }
