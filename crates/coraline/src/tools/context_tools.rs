@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 
 use crate::context;
 use crate::types::{BuildContextOptions, ContextFormat};
-use crate::vectors::f64_to_f32_lossy;
+use crate::utils::f64_to_f32_lossy;
 
 use super::{Tool, ToolError, ToolResult};
 

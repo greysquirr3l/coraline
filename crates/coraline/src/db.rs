@@ -9,7 +9,7 @@ use crate::types::{
     Edge, EdgeKind, FileRecord, Language, Node, NodeKind, SearchResult, UnresolvedReference,
     Visibility,
 };
-use crate::vectors::f64_to_f32_lossy;
+use crate::utils::f64_to_f32_lossy;
 
 pub const DATABASE_FILENAME: &str = "coraline.db";
 pub const SCHEMA_SQL: &str = include_str!("db/schema.sql");
