@@ -3,6 +3,7 @@
 
 use std::path::Path;
 
+use coraline::types::{Node, Visibility};
 use coraline::{config, db, extraction};
 use tempfile::TempDir;
 
@@ -118,6 +119,74 @@ fn test_extract_rust_code() {
     let results =
         db::search_nodes(&conn, "App", None, 10).expect("Failed to search for App struct");
     assert!(!results.is_empty(), "Should find 'App' struct");
+}
+
+#[test]
+fn test_extract_rust_visibility_modifiers() {
+    let (_temp, project_root) = setup_test_db();
+    let project_path = Path::new(&project_root);
+
+    let src_dir = project_path.join("src");
+    std::fs::create_dir_all(&src_dir).expect("Failed to create src directory");
+    let rust_source = "\
+pub fn public_function() -> i32 {\n    42\n}\n\n\
+fn private_function() -> i32 {\n    0\n}\n\n\
+pub(crate) fn crate_visible_function() -> i32 {\n    1\n}\n\n\
+pub(super) fn super_visible_function() -> i32 {\n    2\n}\n";
+    std::fs::write(src_dir.join("lib.rs"), rust_source).expect("Failed to write lib.rs");
+
+    let cfg = config::create_default_config(project_path);
+    let _result = extraction::index_all(project_path, &cfg, false, None)
+        .expect("Failed to index Rust project");
+
+    let conn = db::open_database(project_path).expect("Failed to open database");
+
+    // Direct SQL lookup (bypasses FTS tokenization on underscores, which
+    // would split `crate_visible_function` into separate terms).
+    let lookup = |name: &str| -> Option<Node> {
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, kind, name, qualified_name, file_path, language,
+                        start_line, end_line, start_column, end_column,
+                        docstring, signature, visibility,
+                        is_exported, is_async, is_static, is_abstract,
+                        decorators, type_parameters, updated_at, cluster_id
+                 FROM nodes
+                 WHERE name = ?1 AND kind = 'function'
+                 LIMIT 1",
+            )
+            .expect("prepare");
+        let mut rows = stmt.query(rusqlite::params![name]).expect("query");
+        rows.next()
+            .expect("row")
+            .map(|row| db::row_to_node(row).expect("row_to_node"))
+    };
+
+    // `pub fn` → exported, Visibility::Public
+    let pub_fn = lookup("public_function").expect("public_function not extracted");
+    assert!(pub_fn.is_exported, "pub fn should be exported");
+    assert_eq!(pub_fn.visibility, Some(Visibility::Public));
+
+    // Private `fn` → not exported, no visibility
+    let priv_fn = lookup("private_function").expect("private_function not extracted");
+    assert!(!priv_fn.is_exported, "private fn should NOT be exported");
+    assert_eq!(priv_fn.visibility, None);
+
+    // `pub(crate) fn` → internal only, not exported
+    let crate_fn = lookup("crate_visible_function").expect("crate_visible_function not extracted");
+    assert!(
+        !crate_fn.is_exported,
+        "pub(crate) fn should NOT be exported (internal only)"
+    );
+    assert_eq!(crate_fn.visibility, Some(Visibility::Internal));
+
+    // `pub(super) fn` → internal only, not exported
+    let super_fn = lookup("super_visible_function").expect("super_visible_function not extracted");
+    assert!(
+        !super_fn.is_exported,
+        "pub(super) fn should NOT be exported (internal only)"
+    );
+    assert_eq!(super_fn.visibility, Some(Visibility::Internal));
 }
 
 #[test]

@@ -93,6 +93,7 @@ insta = "1.47"
 regex = "1"
 proptest = "1"
 criterion = { version = "0.8", features = ["html_reports"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
 
 [[bench]]
 name = "indexing"
