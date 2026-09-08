@@ -137,14 +137,35 @@ pub fn open_database(project_root: &Path) -> std::io::Result<Connection> {
 }
 
 pub fn clear_database(conn: &Connection) -> std::io::Result<()> {
-    conn.execute_batch(
-        "DELETE FROM unresolved_refs;
-         DELETE FROM vectors;
-         DELETE FROM edges;
-         DELETE FROM nodes;
-         DELETE FROM files;",
-    )
-    .map_err(io_other)
+    // The vectors storage layout depends on the `vec-ext` Cargo feature
+    // (v1: `vectors` BLOB table; v0: `vectors_vec` virtual table plus a
+    // `vectors_meta` companion). The default build's schema is created
+    // by SCHEMA_SQL on every open; under vec-ext, ensure_vec0_schema
+    // (called by the embedding dispatch) migrates to v0 on first use.
+    // Either way, this function unconditionally clears the rows of both
+    // layouts — DELETE FROM a non-existent table is a no-op as long as
+    // the statement parses, and SQLite's `if_exists` flag on
+    // sqlite_master lookup would still error on a bare `DELETE FROM
+    // vectors` here if v0 was always in place.
+    //
+    // Wrapped in a single batch so a partial failure rolls back the
+    // whole delete and the caller sees a consistent state.
+    #[cfg(feature = "vec-ext")]
+    let sql = "DELETE FROM unresolved_refs;
+               DELETE FROM vectors_meta;
+               DELETE FROM vectors_vec;
+               DELETE FROM edges;
+               DELETE FROM nodes;
+               DELETE FROM files;";
+
+    #[cfg(not(feature = "vec-ext"))]
+    let sql = "DELETE FROM unresolved_refs;
+               DELETE FROM vectors;
+               DELETE FROM edges;
+               DELETE FROM nodes;
+               DELETE FROM files;";
+
+    conn.execute_batch(sql).map_err(io_other)
 }
 
 pub fn get_file_record(conn: &Connection, path: &str) -> std::io::Result<Option<FileRecord>> {
