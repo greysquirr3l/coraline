@@ -328,10 +328,15 @@ fn main() {
     // `Connection::open` runs. The auto-extension fires for every new
     // connection opened after this call, so vec0 is available to all
     // subsequent `db::open_database` calls without needing a
-    // per-connection init step.
+    // per-connection init step. A failure here means sqlite-vec's
+    // process-global registration was rejected — bail before any
+    // connection is opened, rather than getting a confusing
+    // `no such module: vec0` error halfway through a command.
     #[cfg(feature = "vec-ext")]
-    coraline::vec_ext::runtime::register_global_init()
-        .expect("failed to register sqlite-vec auto-extension");
+    if let Err(err) = coraline::vec_ext::runtime::register_global_init() {
+        eprintln!("error: failed to register sqlite-vec auto-extension: {err}");
+        std::process::exit(2);
+    }
 
     let cli = Cli::parse();
     if matches!(cli.command, None | Some(Command::Install)) {
