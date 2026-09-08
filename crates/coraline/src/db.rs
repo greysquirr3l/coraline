@@ -126,6 +126,13 @@ pub fn open_database(project_root: &Path) -> std::io::Result<Connection> {
     let db_path = database_path(project_root);
     let conn = Connection::open(&db_path).map_err(io_other)?;
     conn.execute_batch(PERF_PRAGMAS).map_err(io_other)?;
+    // Run additive migrations on every open. `apply_incremental_migrations`
+    // is idempotent (column-existence guard) and additive-only, so it is
+    // safe to invoke each time a connection is opened. Without this, DBs
+    // upgraded across a schema-version boundary (e.g. v1 -> v3) only get
+    // the new columns when `coraline init` is run, leaving `coraline sync`
+    // and the post-extraction passes stuck on `no such column`.
+    apply_incremental_migrations(&conn)?;
     Ok(conn)
 }
 
