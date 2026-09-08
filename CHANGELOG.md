@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-09-07
+
+### Added
+
+- **5.1 Clustering + process tracing** — Louvain community detection over the call graph writes `nodes.cluster_id` per indexed node. A forward DFS from exported entry points (functions / methods with no incoming `calls` edge) writes `edges.process_id` for every edge that participates in a traced process, with cycle protection and a depth cap. Three new MCP tools expose the result:
+  - `coraline_cluster_overview` — list of Louvain clusters with a representative node per cluster.
+  - `coraline_cluster_members` — list all nodes sharing a `cluster_id`.
+  - `coraline_process_for` — given a node id, return the full execution-flow trace (entry point + nodes + edges).
+  Both columns are nullable; `cluster_id IS NULL` and `process_id IS NULL` mean "not clustered" / "not in any traced process" respectively. Runs as post-extraction passes 6 (Cluster) and 7 (Trace processes) of every `coraline index` / `coraline sync`.
+- **5.2 Edge confidence scoring** — every `Edge` carries `confidence: f32` in `[0.0, 1.0]`: `1.0` direct AST-extracted, `0.95` strongly-typed Rust path (`crate::` / `super::` / `self::`), `0.5` generic name match / framework fallback / heuristic ranker. `coraline_callers`, `coraline_callees`, and `coraline_find_references` accept a `min_confidence` parameter (default `0.0` includes every edge; `0.8` is a typical working value to suppress generic matches). Schema migration v2 — additive, idempotent on existing DBs.
+- **5.3 sqlite-vec integration** — optional `sqlite-vec = 0.1.9` backend behind the new `vec-ext` Cargo feature. Auto-extension registration via `sqlite3_auto_extension` makes the `vec0` virtual table available on every connection. Migration from the v1 BLOB column to the `vec0` table is in-place; existing DBs remain readable through the legacy path. The `doctor` probe set and `coraline_status?include_doctor=true` report the `vec_ext` state.
+- **5.4 Doctor probe wired into `coraline_status`** — new `include_doctor` (default `false`) and `deep` (default `false`) parameters on the MCP `coraline_status` tool. With `include_doctor: true`, the response carries the full `coraline doctor --json` payload under `doctor_report` plus a top-level bool `doctor_needs_attention` derived from `exit_code == 0`, so self-healing UIs can gate a single boolean and walk `probes[].fix` for one actionable remediation hint per failing check. Back-compat: with `include_doctor` omitted, the response shape is identical to the prior version. Two new unit tests pin the contract: `status_without_include_doctor_matches_legacy_shape` and `status_with_include_doctor_returns_full_report_and_needs_attention_flag`.
+- **Three new MCP tools** — `coraline_cluster_overview`, `coraline_cluster_members`, `coraline_process_for` (see 5.1). Tool count 35 → 38.
+
+### Schema migrations
+
+- v2 — `edges.confidence REAL NOT NULL DEFAULT 1.0`.
+- v3 — `nodes.cluster_id INTEGER`, `edges.process_id INTEGER`.
+
+Both are additive and idempotent: `db::apply_incremental_migrations` gates on `PRAGMA table_info(<table>)` and writes a row to `schema_versions`. Existing DBs migrate in place on next `coraline init` / `coraline sync` without backfill.
+
+### Documentation
+
+- `docs/MCP_TOOLS.md` / `book/src/mcp-tools.md` — `include_doctor` + `deep` on `coraline_status`, `doctor_report` / `doctor_needs_attention` output, `min_confidence` on `coraline_callers` / `coraline_callees` / `coraline_find_references`, three new cluster/process tools, tool count 35 → 38.
+- `docs/ARCHITECTURE.md` / `book/src/architecture.md` — `nodes.cluster_id` and `edges.confidence` / `edges.process_id` added to Node/Edge struct definitions; Edge confidence scale table; indexing pipeline expanded with Phase 5.1 steps 6 (Cluster) and 7 (Trace processes); schema table now includes `vectors` + `schema_versions`; additive-migrations section (v2, v3); source-layout block refreshed with the new modules (`clustering.rs`, `vec_ext.rs`, `doctor.rs`, `security.rs`, `audit.rs`, `update.rs`, `db/`); tool descriptor count 20 → 38.
+- `docs/CLI_REFERENCE.md` / `book/src/cli-reference.md` — cross-link `coraline_status` ↔ `coraline doctor` and document the shared `doctor_report` JSON shape.
+- `docs/IMPROVEMENT_PLAN.md` — new Phase 5 section.
+
 ## [0.12.0] - 2026-08-19
 
 ### Added
