@@ -1,51 +1,54 @@
 # Coraline MCP Tools Reference
 
-Coraline exposes **35 MCP tools** when running as an MCP server (`coraline serve --mcp`).
+Coraline exposes **38 MCP tools** when running as an MCP server (`coraline serve --mcp`).
 All tool names are prefixed with `coraline_` to avoid collisions with other MCP servers.
 
-`coraline_semantic_search` is available by default (the `embeddings` feature ships enabled) but only registered when an ONNX model is present in the shared model directory (`~/.config/coraline/models/<model>/`, where `<model>` is `vectors.model` from config, default `nomic-embed-text-v1.5`). Run `coraline model download` then `coraline embed` to activate it — see `coraline model list` for every supported model. All other 34 tools are always available.
+`coraline_semantic_search` is available by default (the `embeddings` feature ships enabled) but only registered when an ONNX model is present in the shared model directory (`~/.config/coraline/models/<model>/`, where `<model>` is `vectors.model` from config, default `nomic-embed-text-v1.5`). Run `coraline model download` then `coraline embed` to activate it — see `coraline model list` for every supported model. The remaining 37 tools are always available.
 
 ---
 
 ## Quick Reference
 
-| Category | Tool | Description |
-|---|---|---|
-| **Graph** | `coraline_search` | Find symbols by name or pattern |
-| | `coraline_callers` | Find what calls a symbol |
-| | `coraline_callees` | Find what a symbol calls |
-| | `coraline_impact` | Analyze change impact radius |
-| | `coraline_dependencies` | Outgoing dependency graph from a node |
-| | `coraline_dependents` | Incoming dependency graph (what depends on a node) |
-| | `coraline_path` | Find a path between two nodes |
-| | `coraline_stats` | Detailed graph statistics by language/kind/edge |
-| | `coraline_find_symbol` | Find symbols with rich metadata + optional body |
-| | `coraline_get_symbols_overview` | List all symbols in a file |
-| | `coraline_find_references` | Find all references to a symbol |
-| | `coraline_node` | Get full node details and source code |
-| **Batch** | `coraline_batch_get_nodes` | Fetch multiple nodes by ID in one call |
-| | `coraline_batch_callers` | Get callers for multiple symbols in one call |
-| | `coraline_batch_callees` | Get callees for multiple symbols in one call |
-| **Advanced Search** | `coraline_search_by_signature` | Find symbols by type signature pattern |
-| | `coraline_search_by_docstring` | Find symbols by documentation/comment content |
-| | `coraline_search_exported_symbols` | Search only public/exported symbols |
-| | `coraline_find_by_kind_in_file` | Get all symbols of a kind in one file |
-| **Context** | `coraline_context` | Build structured context for an AI task |
-| **Audit** | `coraline_audit_docs` | Audit Markdown docs for stale references and undocumented exports |
-| **File** | `coraline_read_file` | Read file contents |
-| | `coraline_list_dir` | List directory contents |
-| | `coraline_find_file` | Find files by glob pattern |
-| | `coraline_get_file_nodes` | Get all indexed nodes in a file |
-| | `coraline_status` | Show project index statistics |
-| | `coraline_sync` | Trigger incremental index sync |
-| | `coraline_get_config` | Read project configuration |
-| | `coraline_update_config` | Update a config value |
-| | `coraline_semantic_search` | Vector similarity search (requires model download — see below) |
-| **Memory** | `coraline_write_memory` | Write or update a project memory |
-| | `coraline_read_memory` | Read a project memory |
-| | `coraline_list_memories` | List all memories |
-| | `coraline_delete_memory` | Delete a memory |
-| | `coraline_edit_memory` | Edit memory via literal or regex replace |
+| Category            | Tool                               | Description                                                                  |
+| ------------------- | ---------------------------------- | ---------------------------------------------------------------------------- |
+| **Graph**           | `coraline_search`                  | Find symbols by name or pattern                                              |
+|                     | `coraline_callers`                 | Find what calls a symbol                                                     |
+|                     | `coraline_callees`                 | Find what a symbol calls                                                     |
+|                     | `coraline_impact`                  | Analyze change impact radius                                                 |
+|                     | `coraline_dependencies`            | Outgoing dependency graph from a node                                        |
+|                     | `coraline_dependents`              | Incoming dependency graph (what depends on a node)                           |
+|                     | `coraline_path`                    | Find a path between two nodes                                                |
+|                     | `coraline_stats`                   | Detailed graph statistics by language/kind/edge                              |
+|                     | `coraline_find_symbol`             | Find symbols with rich metadata + optional body                              |
+|                     | `coraline_get_symbols_overview`    | List all symbols in a file                                                   |
+|                     | `coraline_find_references`         | Find all references to a symbol                                              |
+|                     | `coraline_node`                    | Get full node details and source code                                        |
+|                     | `coraline_cluster_overview`        | List Louvain clusters with one representative node per cluster               |
+|                     | `coraline_cluster_members`         | List nodes that share a given `cluster_id`                                   |
+|                     | `coraline_process_for`             | Return the call-graph trace (entry point + nodes + edges) for the given node |
+| **Batch**           | `coraline_batch_get_nodes`         | Fetch multiple nodes by ID in one call                                       |
+|                     | `coraline_batch_callers`           | Get callers for multiple symbols in one call                                 |
+|                     | `coraline_batch_callees`           | Get callees for multiple symbols in one call                                 |
+| **Advanced Search** | `coraline_search_by_signature`     | Find symbols by type signature pattern                                       |
+|                     | `coraline_search_by_docstring`     | Find symbols by documentation/comment content                                |
+|                     | `coraline_search_exported_symbols` | Search only public/exported symbols                                          |
+|                     | `coraline_find_by_kind_in_file`    | Get all symbols of a kind in one file                                        |
+| **Context**         | `coraline_context`                 | Build structured context for an AI task                                      |
+| **Audit**           | `coraline_audit_docs`              | Audit Markdown docs for stale references and undocumented exports            |
+| **File**            | `coraline_read_file`               | Read file contents                                                           |
+|                     | `coraline_list_dir`                | List directory contents                                                      |
+|                     | `coraline_find_file`               | Find files by glob pattern                                                   |
+|                     | `coraline_get_file_nodes`          | Get all indexed nodes in a file                                              |
+|                     | `coraline_status`                  | Show project index statistics                                                |
+|                     | `coraline_sync`                    | Trigger incremental index sync                                               |
+|                     | `coraline_get_config`              | Read project configuration                                                   |
+|                     | `coraline_update_config`           | Update a config value                                                        |
+|                     | `coraline_semantic_search`         | Vector similarity search (requires model download — see below)               |
+| **Memory**          | `coraline_write_memory`            | Write or update a project memory                                             |
+|                     | `coraline_read_memory`             | Read a project memory                                                        |
+|                     | `coraline_list_memories`           | List all memories                                                            |
+|                     | `coraline_delete_memory`           | Delete a memory                                                              |
+|                     | `coraline_edit_memory`             | Edit memory via literal or regex replace                                     |
 
 ---
 
@@ -57,13 +60,14 @@ Search for code symbols by name or pattern across the indexed codebase.
 
 **Input:**
 
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `query` | string | ✅ | — | Symbol name or FTS pattern |
-| `kind` | string | | — | Filter: `function`, `method`, `class`, `struct`, `interface`, `trait`, `module` |
-| `limit` | number | | `10` | Maximum results |
+| Parameter | Type   | Required | Default | Description                                                                     |
+| --------- | ------ | -------- | ------- | ------------------------------------------------------------------------------- |
+| `query`   | string | ✅       | —       | Symbol name or FTS pattern                                                      |
+| `kind`    | string |          | —       | Filter: `function`, `method`, `class`, `struct`, `interface`, `trait`, `module` |
+| `limit`   | number |          | `10`    | Maximum results                                                                 |
 
 **Output:**
+
 ```json
 {
   "results": [
@@ -94,12 +98,14 @@ Find all functions/methods that call a given symbol (incoming `calls` edges).
 
 **Input:**
 
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `node_id` | string | ✅ | — | ID of the target node |
-| `limit` | number | | `20` | Maximum callers to return |
+| Parameter        | Type   | Required | Default | Description                                                                                                                                                                                                                                                                                                                                      |
+| ---------------- | ------ | -------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `node_id`        | string | ✅       | —       | ID of the target node                                                                                                                                                                                                                                                                                                                            |
+| `limit`          | number |          | `20`    | Maximum callers to return                                                                                                                                                                                                                                                                                                                        |
+| `min_confidence` | number |          | `0.0`   | Minimum edge resolution confidence in `[0.0, 1.0]`. Edges below this threshold are filtered out. Direct AST-extracted edges have confidence `1.0`; strongly-typed Rust `crate::` / `super::` / `self::` resolutions have confidence `0.95`; generic name matches / framework fallbacks have confidence `0.5`. Default `0.0` includes every edge. |
 
 **Output:**
+
 ```json
 {
   "callers": [
@@ -125,10 +131,12 @@ Find all functions/methods that a given symbol calls (outgoing `calls` edges).
 
 **Input:**
 
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `node_id` | string | ✅ | — | ID of the source node |
-| `limit` | number | | `20` | Maximum callees to return |
+| Parameter        | Type   | Required | Default | Description                                                                           |
+| ---------------- | ------ | -------- | ------- | ------------------------------------------------------------------------------------- |
+| `node_id`        | string | ✅       | —       | ID of the source node                                                                 |
+| `limit`          | number |          | `20`    | Maximum callees to return                                                             |
+| `min_confidence` | number |          | `0.0`   | Minimum edge resolution confidence in `[0.0, 1.0]`. Same scale as `coraline_callers`. |
+| `limit`          | number |          | `20`    | Maximum callees to return                                                             |
 
 **Output:** Same shape as `coraline_callers` but field is `callees`.
 
@@ -140,13 +148,14 @@ Analyze the impact radius of changing a symbol — finds everything that directl
 
 **Input:**
 
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `node_id` | string | ✅ | — | ID of the node to analyze |
-| `max_depth` | number | | `2` | BFS traversal depth |
-| `max_nodes` | number | | `50` | Cap on returned nodes |
+| Parameter   | Type   | Required | Default | Description               |
+| ----------- | ------ | -------- | ------- | ------------------------- |
+| `node_id`   | string | ✅       | —       | ID of the node to analyze |
+| `max_depth` | number |          | `2`     | BFS traversal depth       |
+| `max_nodes` | number |          | `50`    | Cap on returned nodes     |
 
 **Output:**
+
 ```json
 {
   "nodes": [ ... ],
@@ -168,14 +177,15 @@ Get the outgoing dependency graph from a node — what does this symbol import, 
 
 **Input:**
 
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `node_id` | string | ✅ | — | ID of the source node |
-| `max_depth` | number | | `2` | BFS traversal depth |
-| `max_nodes` | number | | `50` | Cap on returned nodes |
-| `edge_kinds` | string[] | | all | Edge kinds to follow (e.g. `["calls", "imports"]`) |
+| Parameter    | Type     | Required | Default | Description                                        |
+| ------------ | -------- | -------- | ------- | -------------------------------------------------- |
+| `node_id`    | string   | ✅       | —       | ID of the source node                              |
+| `max_depth`  | number   |          | `2`     | BFS traversal depth                                |
+| `max_nodes`  | number   |          | `50`    | Cap on returned nodes                              |
+| `edge_kinds` | string[] |          | all     | Edge kinds to follow (e.g. `["calls", "imports"]`) |
 
 **Output:**
+
 ```json
 {
   "root_id": "abc123",
@@ -203,12 +213,13 @@ Find a path between two nodes in the graph, using BFS over all edge kinds.
 
 **Input:**
 
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `from_id` | string | ✅ | Starting node ID |
-| `to_id` | string | ✅ | Target node ID |
+| Parameter | Type   | Required | Description      |
+| --------- | ------ | -------- | ---------------- |
+| `from_id` | string | ✅       | Starting node ID |
+| `to_id`   | string | ✅       | Target node ID   |
 
 **Output:**
+
 ```json
 {
   "from_id": "abc123",
@@ -218,6 +229,7 @@ Find a path between two nodes in the graph, using BFS over all edge kinds.
   "length": 3
 }
 ```
+
 Returns `{ "path_found": false }` if no path exists.
 
 ---
@@ -229,6 +241,7 @@ Return detailed graph statistics: total counts, per-language file breakdown, nod
 **Input:** None.
 
 **Output:**
+
 ```json
 {
   "totals": {
@@ -239,8 +252,18 @@ Return detailed graph statistics: total counts, per-language file breakdown, nod
     "vectors": 0
   },
   "files_by_language": { "rust": 28, "typescript": 14, "toml": 5 },
-  "nodes_by_kind":     { "function": 412, "method": 287, "import": 201, "struct": 88 },
-  "edges_by_kind":     { "contains": 1842, "calls": 987, "imports": 201, "exports": 178 }
+  "nodes_by_kind": {
+    "function": 412,
+    "method": 287,
+    "import": 201,
+    "struct": 88
+  },
+  "edges_by_kind": {
+    "contains": 1842,
+    "calls": 987,
+    "imports": 201,
+    "exports": 178
+  }
 }
 ```
 
@@ -252,12 +275,12 @@ Find symbols by name pattern with richer metadata than `coraline_search`, includ
 
 **Input:**
 
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `name_pattern` | string | ✅ | — | Symbol name or substring |
-| `kind` | string | | — | Same kind filter as `coraline_search` |
-| `include_body` | boolean | | `false` | Attach source code body |
-| `limit` | number | | `10` | Maximum results |
+| Parameter      | Type    | Required | Default | Description                           |
+| -------------- | ------- | -------- | ------- | ------------------------------------- |
+| `name_pattern` | string  | ✅       | —       | Symbol name or substring              |
+| `kind`         | string  |          | —       | Same kind filter as `coraline_search` |
+| `include_body` | boolean |          | `false` | Attach source code body               |
+| `limit`        | number  |          | `10`    | Maximum results                       |
 
 **Output:** `{ "symbols": [...], "count": N }` — each symbol includes `docstring`, `is_exported`, `is_async`, `is_static`, `score`, and optionally `body`.
 
@@ -269,11 +292,12 @@ Get an overview of all symbols in a file, grouped by kind and ordered by line nu
 
 **Input:**
 
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `file_path` | string | ✅ | Path to file (relative to project root or absolute) |
+| Parameter   | Type   | Required | Description                                         |
+| ----------- | ------ | -------- | --------------------------------------------------- |
+| `file_path` | string | ✅       | Path to file (relative to project root or absolute) |
 
 **Output:**
+
 ```json
 {
   "file_path": "src/lib.rs",
@@ -294,11 +318,12 @@ Find all nodes that reference (call, import, extend, implement, etc.) a given sy
 
 **Input:**
 
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `node_id` | string | ✅ | — | ID of the target node |
-| `edge_kind` | string | | all | Filter: `calls`, `imports`, `extends`, `implements`, `references` |
-| `limit` | number | | `50` | Maximum references |
+| Parameter        | Type   | Required | Default | Description                                                                                                                                                                                                                                  |
+| ---------------- | ------ | -------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `node_id`        | string | ✅       | —       | ID of the target node                                                                                                                                                                                                                        |
+| `edge_kind`      | string |          | all     | Filter: `calls`, `imports`, `extends`, `implements`, `references`                                                                                                                                                                            |
+| `limit`          | number |          | `50`    | Maximum references                                                                                                                                                                                                                           |
+| `min_confidence` | number |          | `0.0`   | Minimum edge resolution confidence in `[0.0, 1.0]`. Same scale as `coraline_callers` / `coraline_callees`: `1.0` = direct AST-extracted, `0.95` = strong Rust path, `0.5` = generic / framework fallback. Default `0.0` includes every edge. |
 
 **Output:** `{ "node_id": "...", "references": [...], "count": N }` — each reference includes its `edge_kind` and the line number of the edge.
 
@@ -310,10 +335,10 @@ Get complete details for a specific node by ID, including its source code body r
 
 **Input:**
 
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `node_id` | string | ✅ | — | The node ID |
-| `include_edges` | boolean | | `false` | Also return incoming/outgoing edge counts |
+| Parameter       | Type    | Required | Default | Description                               |
+| --------------- | ------- | -------- | ------- | ----------------------------------------- |
+| `node_id`       | string  | ✅       | —       | The node ID                               |
+| `include_edges` | boolean |          | `false` | Also return incoming/outgoing edge counts |
 
 **Output:** Full node record including `body` (source lines), `visibility`, `decorators`, `type_parameters`, `is_async`, `is_static`, `is_abstract`, and optionally `incoming_edge_count` / `outgoing_edge_count`.
 
@@ -329,11 +354,11 @@ Fetch multiple nodes by ID in a single call.
 
 **Input:**
 
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `node_ids` | array of string | ✅ | — | Node IDs to fetch |
-| `include_body` | boolean | | `false` | Include source code body for each node |
-| `output_format` | string | | `"full"` | `"full"` or `"compact"` (65% token reduction) |
+| Parameter       | Type            | Required | Default  | Description                                   |
+| --------------- | --------------- | -------- | -------- | --------------------------------------------- |
+| `node_ids`      | array of string | ✅       | —        | Node IDs to fetch                             |
+| `include_body`  | boolean         |          | `false`  | Include source code body for each node        |
+| `output_format` | string          |          | `"full"` | `"full"` or `"compact"` (65% token reduction) |
 
 **Output:** `{ "nodes": [...], "count": N, "not_found": [...] }`
 
@@ -345,10 +370,10 @@ Get callers for multiple symbols in a single call.
 
 **Input:**
 
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `node_ids` | array of string | ✅ | — | Node IDs to find callers for |
-| `limit_per_node` | number | | `20` | Maximum callers to return per node |
+| Parameter        | Type            | Required | Default | Description                        |
+| ---------------- | --------------- | -------- | ------- | ---------------------------------- |
+| `node_ids`       | array of string | ✅       | —       | Node IDs to find callers for       |
+| `limit_per_node` | number          |          | `20`    | Maximum callers to return per node |
 
 **Output:** `{ "callers": { "<node_id>": [...] }, "node_count": N }`
 
@@ -360,10 +385,10 @@ Get callees for multiple symbols in a single call.
 
 **Input:**
 
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `node_ids` | array of string | ✅ | — | Node IDs to find callees for |
-| `limit_per_node` | number | | `20` | Maximum callees to return per node |
+| Parameter        | Type            | Required | Default | Description                        |
+| ---------------- | --------------- | -------- | ------- | ---------------------------------- |
+| `node_ids`       | array of string | ✅       | —       | Node IDs to find callees for       |
+| `limit_per_node` | number          |          | `20`    | Maximum callees to return per node |
 
 **Output:** `{ "callees": { "<node_id>": [...] }, "node_count": N }`
 
@@ -379,12 +404,12 @@ Find symbols by type signature pattern (case-insensitive substring match) — e.
 
 **Input:**
 
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `pattern` | string | ✅ | — | Signature substring to search for (e.g. `"Result<"`, `"async fn"`, `"<T>"`) |
-| `kind` | string | | — | Filter: `function`, `method`, `class`, `struct`, `interface`, `trait` |
-| `limit` | number | | `20` | Maximum results |
-| `output_format` | string | | `"full"` | `"full"` or `"compact"` (65% token reduction) |
+| Parameter       | Type   | Required | Default  | Description                                                                 |
+| --------------- | ------ | -------- | -------- | --------------------------------------------------------------------------- |
+| `pattern`       | string | ✅       | —        | Signature substring to search for (e.g. `"Result<"`, `"async fn"`, `"<T>"`) |
+| `kind`          | string |          | —        | Filter: `function`, `method`, `class`, `struct`, `interface`, `trait`       |
+| `limit`         | number |          | `20`     | Maximum results                                                             |
+| `output_format` | string |          | `"full"` | `"full"` or `"compact"` (65% token reduction)                               |
 
 ---
 
@@ -394,12 +419,12 @@ Search symbols by documentation/comment content — find code by what it does, n
 
 **Input:**
 
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `query` | string | ✅ | — | Text to search for in docstrings/comments |
-| `kind` | string | | — | Filter: `function`, `method`, `class`, `struct`, `interface`, `trait` |
-| `limit` | number | | `20` | Maximum results |
-| `output_format` | string | | `"full"` | `"full"` or `"compact"` (65% token reduction) |
+| Parameter       | Type   | Required | Default  | Description                                                           |
+| --------------- | ------ | -------- | -------- | --------------------------------------------------------------------- |
+| `query`         | string | ✅       | —        | Text to search for in docstrings/comments                             |
+| `kind`          | string |          | —        | Filter: `function`, `method`, `class`, `struct`, `interface`, `trait` |
+| `limit`         | number |          | `20`     | Maximum results                                                       |
+| `output_format` | string |          | `"full"` | `"full"` or `"compact"` (65% token reduction)                         |
 
 ---
 
@@ -409,12 +434,12 @@ Search only public/exported symbols — filters out internal implementation deta
 
 **Input:**
 
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `query` | string | ✅ | — | Symbol name pattern; use `"*"` to list all |
-| `kind` | string | | — | Filter: `function`, `method`, `class`, `struct`, `interface`, `trait`, `module` |
-| `limit` | number | | `20` | Maximum results |
-| `output_format` | string | | `"full"` | `"full"` or `"compact"` (65% token reduction) |
+| Parameter       | Type   | Required | Default  | Description                                                                     |
+| --------------- | ------ | -------- | -------- | ------------------------------------------------------------------------------- |
+| `query`         | string | ✅       | —        | Symbol name pattern; use `"*"` to list all                                      |
+| `kind`          | string |          | —        | Filter: `function`, `method`, `class`, `struct`, `interface`, `trait`, `module` |
+| `limit`         | number |          | `20`     | Maximum results                                                                 |
+| `output_format` | string |          | `"full"` | `"full"` or `"compact"` (65% token reduction)                                   |
 
 ---
 
@@ -424,11 +449,11 @@ Get all symbols of a specific kind in one file — fast file-scoped exploration.
 
 **Input:**
 
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `file_path` | string | ✅ | — | Path to the file (relative to project root) |
-| `kind` | string | ✅ | — | `function`, `method`, `class`, `struct`, `interface`, `trait`, `module`, `constant`, or `variable` |
-| `output_format` | string | | `"full"` | `"full"` or `"compact"` (65% token reduction) |
+| Parameter       | Type   | Required | Default  | Description                                                                                        |
+| --------------- | ------ | -------- | -------- | -------------------------------------------------------------------------------------------------- |
+| `file_path`     | string | ✅       | —        | Path to the file (relative to project root)                                                        |
+| `kind`          | string | ✅       | —        | `function`, `method`, `class`, `struct`, `interface`, `trait`, `module`, `constant`, or `variable` |
+| `output_format` | string |          | `"full"` | `"full"` or `"compact"` (65% token reduction)                                                      |
 
 ---
 
@@ -440,15 +465,15 @@ Build structured context for an AI task description. Searches the graph, travers
 
 **Input:**
 
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `task` | string | ✅ | — | Natural language task description |
-| `max_nodes` | number | | `20` | Max graph nodes to include |
-| `max_code_blocks` | number | | `5` | Max code block attachments |
-| `max_code_block_size` | number | | `1500` | Max chars per code block |
-| `include_code` | boolean | | `true` | Attach source code snippets |
-| `traversal_depth` | number | | `1` | Graph traversal depth |
-| `format` | string | | `"markdown"` | `"markdown"` or `"json"` |
+| Parameter             | Type    | Required | Default      | Description                       |
+| --------------------- | ------- | -------- | ------------ | --------------------------------- |
+| `task`                | string  | ✅       | —            | Natural language task description |
+| `max_nodes`           | number  |          | `20`         | Max graph nodes to include        |
+| `max_code_blocks`     | number  |          | `5`          | Max code block attachments        |
+| `max_code_block_size` | number  |          | `1500`       | Max chars per code block          |
+| `include_code`        | boolean |          | `true`       | Attach source code snippets       |
+| `traversal_depth`     | number  |          | `1`          | Graph traversal depth             |
+| `format`              | string  |          | `"markdown"` | `"markdown"` or `"json"`          |
 
 **Output:** A Markdown or JSON document containing relevant symbols and code, ready to paste as context for an LLM.
 
@@ -461,18 +486,20 @@ Build structured context for an AI task description. Searches the graph, travers
 Audit Markdown documentation coverage against the indexed code graph.
 
 Detects two classes of issues:
+
 - `stale_refs`: inline code-span symbol references in Markdown that do not resolve to indexed symbols
 - `undocumented_exports`: exported code symbols with no inbound `references` edge from Markdown docs
 
 **Input:**
 
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `show_undocumented` | boolean | | `true` | Include undocumented export results |
-| `show_stale` | boolean | | `true` | Include stale reference results |
-| `limit` | number | | `50` | Max items returned per result set |
+| Parameter           | Type    | Required | Default | Description                         |
+| ------------------- | ------- | -------- | ------- | ----------------------------------- |
+| `show_undocumented` | boolean |          | `true`  | Include undocumented export results |
+| `show_stale`        | boolean |          | `true`  | Include stale reference results     |
+| `limit`             | number  |          | `50`    | Max items returned per result set   |
 
 **Output:**
+
 ```json
 {
   "summary": {
@@ -512,11 +539,11 @@ Read the contents of a file within the project.
 
 **Input:**
 
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `file_path` | string | ✅ | — | File path (relative or absolute) |
-| `start_line` | number | | — | Start line (1-based, inclusive) |
-| `end_line` | number | | — | End line (1-based, inclusive) |
+| Parameter    | Type   | Required | Default | Description                      |
+| ------------ | ------ | -------- | ------- | -------------------------------- |
+| `file_path`  | string | ✅       | —       | File path (relative or absolute) |
+| `start_line` | number |          | —       | Start line (1-based, inclusive)  |
+| `end_line`   | number |          | —       | End line (1-based, inclusive)    |
 
 ---
 
@@ -526,10 +553,10 @@ List the contents of a directory within the project.
 
 **Input:**
 
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `path` | string | | `.` | Directory path (relative or absolute) |
-| `recursive` | boolean | | `false` | Recurse into subdirectories |
+| Parameter   | Type    | Required | Default | Description                           |
+| ----------- | ------- | -------- | ------- | ------------------------------------- |
+| `path`      | string  |          | `.`     | Directory path (relative or absolute) |
+| `recursive` | boolean |          | `false` | Recurse into subdirectories           |
 
 ---
 
@@ -539,9 +566,9 @@ Get all indexed symbols (nodes) for a specific file.
 
 **Input:**
 
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `file_path` | string | ✅ | File path (relative or absolute) |
+| Parameter   | Type   | Required | Description                      |
+| ----------- | ------ | -------- | -------------------------------- |
+| `file_path` | string | ✅       | File path (relative or absolute) |
 
 **Output:** `{ "file_path": "...", "nodes": [...], "count": N }`
 
@@ -553,12 +580,13 @@ Find files by name or glob pattern. Recursively walks the project tree, skipping
 
 **Input:**
 
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `pattern` | string | ✅ | — | File name, substring, or glob pattern (`*.rs`, `test_*`, `[Cc]argo.toml`) |
-| `limit` | number | | `20` | Maximum results |
+| Parameter | Type   | Required | Default | Description                                                               |
+| --------- | ------ | -------- | ------- | ------------------------------------------------------------------------- |
+| `pattern` | string | ✅       | —       | File name, substring, or glob pattern (`*.rs`, `test_*`, `[Cc]argo.toml`) |
+| `limit`   | number |          | `20`    | Maximum results                                                           |
 
 **Output:**
+
 ```json
 {
   "pattern": "*.rs",
@@ -571,20 +599,59 @@ Find files by name or glob pattern. Recursively walks the project tree, skipping
 
 ### `coraline_status`
 
-Show project statistics: total files, nodes, edges, and unresolved reference counts.
+Show project index statistics: total files, nodes, edges, and unresolved reference counts. Optionally include the full `coraline doctor --json` report for self-healing UIs.
 
-**Input:** None.
+**Input:**
 
-**Output:**
+| Parameter        | Type | Required | Default | Description                                                                                                                                        |
+| ---------------- | ---- | -------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `include_doctor` | bool |          | `false` | When `true`, also runs `coraline doctor` probes and returns the full report under `doctor_report`, plus a top-level `doctor_needs_attention` bool. |
+| `deep`           | bool |          | `false` | Only meaningful when `include_doctor` is `true`. When `true`, runs the slower model-load / inference / coverage probes.                            |
+
+**Output (without `include_doctor`):**
+
 ```json
 {
-  "files": 128,
-  "nodes": 4201,
-  "edges": 9872,
-  "unresolved": 153,
-  "db_size_bytes": 2097152
+  "project_root": "/abs/path/to/project",
+  "database": "/abs/path/to/project/.coraline/coraline.db",
+  "database_size_bytes": 2097152,
+  "stats": {
+    "nodes": 4201,
+    "edges": 9872,
+    "files": 128,
+    "unresolved_references": 153
+  }
 }
 ```
+
+**Output (with `include_doctor: true`):** the same fields above, plus:
+
+```json
+{
+  "doctor_report": {
+    "probes": [
+      { "name": "config", "ok": true, "detail": "...", "fix": null },
+      { "name": "database", "ok": true, "detail": "...", "fix": null },
+      { "name": "git hooks", "ok": false, "detail": "...", "fix": "..." },
+      { "name": "vec_ext", "ok": true, "detail": "...", "fix": null },
+      {
+        "name": "model file",
+        "ok": false,
+        "detail": "...",
+        "fix": "Run `coraline model download`..."
+      }
+    ],
+    "exit_code": 1
+  },
+  "doctor_needs_attention": true
+}
+```
+
+`doctor_needs_attention` is derived from `exit_code == 0` (inverted) so a UI can render a single bool to decide whether to surface a "fix this" prompt. The `probes` array carries the per-check `name` / `ok` / `detail` / `fix` fields — `fix` is the human-readable remediation hint (e.g. "Run `coraline model download` to enable semantic search.").
+
+Back-compat: when `include_doctor` is omitted (or `false`), the response shape is identical to the prior version — only the four legacy top-level keys appear.
+
+Connection hygiene: the tool opens the SQLite database for the index stats query and drops that handle before invoking `coraline doctor`, so the WAL writer lock isn't held by both queries simultaneously.
 
 ---
 
@@ -604,10 +671,10 @@ Update a single configuration value using dot-notation path.
 
 **Input:**
 
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `key` | string | ✅ | Dot-notation path, e.g. `context.max_nodes` |
-| `value` | any | ✅ | New value (type must match the field) |
+| Parameter | Type   | Required | Description                                 |
+| --------- | ------ | -------- | ------------------------------------------- |
+| `key`     | string | ✅       | Dot-notation path, e.g. `context.max_nodes` |
+| `value`   | any    | ✅       | New value (type must match the field)       |
 
 ---
 
@@ -618,6 +685,7 @@ Trigger an incremental sync of the index. Detects files added, modified, or remo
 **Input:** None.
 
 **Output:**
+
 ```json
 {
   "files_checked": 42,
@@ -659,17 +727,23 @@ If the ONNX model can't be loaded (not downloaded yet, or `tokenizer.json`/weigh
 
 **Input:**
 
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `query` | string | ✅ | — | Natural-language description of what you're looking for |
-| `limit` | number | | `10` | Max results |
-| `min_similarity` | number | | `0.3` | Minimum cosine similarity threshold (0–1) |
+| Parameter        | Type   | Required | Default | Description                                             |
+| ---------------- | ------ | -------- | ------- | ------------------------------------------------------- |
+| `query`          | string | ✅       | —       | Natural-language description of what you're looking for |
+| `limit`          | number |          | `10`    | Max results                                             |
+| `min_similarity` | number |          | `0.3`   | Minimum cosine similarity threshold (0–1)               |
 
 **Output:**
+
 ```json
 {
   "results": [
-    { "node_id": "abc123", "name": "resolve_unresolved", "similarity": 0.87, "file_path": "src/resolution/mod.rs" }
+    {
+      "node_id": "abc123",
+      "name": "resolve_unresolved",
+      "similarity": 0.87,
+      "file_path": "src/resolution/mod.rs"
+    }
   ],
   "count": 1
 }
@@ -687,10 +761,10 @@ Write or update a project memory.
 
 **Input:**
 
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `name` | string | ✅ | Memory name (without `.md`). E.g. `project_overview` |
-| `content` | string | ✅ | Memory content in Markdown format |
+| Parameter | Type   | Required | Description                                          |
+| --------- | ------ | -------- | ---------------------------------------------------- |
+| `name`    | string | ✅       | Memory name (without `.md`). E.g. `project_overview` |
+| `content` | string | ✅       | Memory content in Markdown format                    |
 
 ---
 
@@ -700,9 +774,9 @@ Read a project memory by name.
 
 **Input:**
 
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `name` | string | ✅ | Memory name (without `.md`) |
+| Parameter | Type   | Required | Description                 |
+| --------- | ------ | -------- | --------------------------- |
+| `name`    | string | ✅       | Memory name (without `.md`) |
 
 **Output:** `{ "name": "...", "content": "..." }`
 
@@ -724,9 +798,9 @@ Delete a project memory.
 
 **Input:**
 
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `name` | string | ✅ | Memory name to delete |
+| Parameter | Type   | Required | Description           |
+| --------- | ------ | -------- | --------------------- |
+| `name`    | string | ✅       | Memory name to delete |
 
 ---
 
@@ -736,12 +810,111 @@ Edit a memory file by replacing text — either as a literal string match or a r
 
 **Input:**
 
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `name` | string | ✅ | — | Memory name (without `.md`) |
-| `pattern` | string | ✅ | — | Text to find |
-| `replacement` | string | ✅ | — | Replacement text |
-| `mode` | string | | `"literal"` | `"literal"` or `"regex"` |
+| Parameter     | Type   | Required | Default     | Description                 |
+| ------------- | ------ | -------- | ----------- | --------------------------- |
+| `name`        | string | ✅       | —           | Memory name (without `.md`) |
+| `pattern`     | string | ✅       | —           | Text to find                |
+| `replacement` | string | ✅       | —           | Replacement text            |
+| `mode`        | string |          | `"literal"` | `"literal"` or `"regex"`    |
+
+---
+
+## Cluster & Process Trace Tools
+
+Louvain community detection (`coraline_cluster_overview`, `coraline_cluster_members`) and per-node execution-flow traces (`coraline_process_for`) are computed at index time during the post-extraction passes (run automatically by `coraline index` and `coraline sync`). Both column types are nullable — `nodes.cluster_id IS NULL` and `edges.process_id IS NULL` mean "not clustered" / "not part of any traced process" respectively. The tools return data only when the post-extraction passes have completed at least once.
+
+### `coraline_cluster_overview`
+
+List Louvain clusters discovered during indexing, ordered by size, with one representative node per cluster.
+
+**Input:**
+
+| Parameter | Type   | Required | Default | Description                |
+| --------- | ------ | -------- | ------- | -------------------------- |
+| `limit`   | number |          | `50`    | Maximum clusters to return |
+
+**Output:**
+
+```json
+{
+  "clusters": [
+    {
+      "cluster_id": 0,
+      "size": 42,
+      "sample_node_id": "abc123",
+      "sample_qualified_name": "coraline::extraction::index_all",
+      "sample_kind": "function",
+      "sample_language": "rust"
+    },
+    {
+      "cluster_id": 1,
+      "size": 17,
+      "sample_node_id": "def456",
+      "sample_qualified_name": "coraline::db::query",
+      "sample_kind": "function",
+      "sample_language": "rust"
+    }
+  ],
+  "count": 2
+}
+```
+
+### `coraline_cluster_members`
+
+List all nodes that share the given `cluster_id`, ordered by `qualified_name`. Use the output of `coraline_cluster_overview` to pick a `cluster_id`.
+
+**Input:**
+
+| Parameter    | Type   | Required | Default | Description                                 |
+| ------------ | ------ | -------- | ------- | ------------------------------------------- |
+| `cluster_id` | number | ✅       | —       | Cluster id from `coraline_cluster_overview` |
+| `limit`      | number |          | `200`   | Maximum members to return                   |
+
+**Output:**
+
+```json
+{
+  "cluster_id": 0,
+  "nodes": [ ... full node records ... ],
+  "count": 42
+}
+```
+
+### `coraline_process_for`
+
+Return the call-graph trace (entry point + nodes + edges) for the given node. Walks backward through incoming `calls` edges to find the owning entry point, then DFS forward through the call graph (with cycle protection + depth cap, default 50) to surface every node and edge in the process trace. Returns `null` when the node isn't reachable from any entry point.
+
+**Input:**
+
+| Parameter   | Type   | Required | Default | Description                            |
+| ----------- | ------ | -------- | ------- | -------------------------------------- |
+| `node_id`   | string | ✅       | —       | ID of the node to trace                |
+| `max_depth` | number |          | `50`    | Maximum DFS depth from the entry point |
+
+**Output (node reachable):**
+
+```json
+{
+  "entry_point": { /* full node record */ },
+  "depth_reached": 3,
+  "nodes": [ ... full node records ... ],
+  "edges": [
+    {
+      "source": "abc123",
+      "target": "def456",
+      "kind": "calls",
+      "line": 158,
+      "column": 4,
+      "confidence": 1.0,
+      "process_id": 1
+    }
+  ]
+}
+```
+
+**Output (node unreachable):** JSON `null`.
+
+Each edge includes its `process_id` (matches the entry point's trace ordinal) and `confidence` (same scale as `coraline_callers` / `coraline_callees`).
 
 ---
 
