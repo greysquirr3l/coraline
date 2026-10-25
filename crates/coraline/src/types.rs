@@ -208,6 +208,13 @@ pub struct UnresolvedReference {
     pub line: i64,
     pub column: i64,
     pub candidates: Option<Vec<String>>,
+    /// The receiver of a qualified reference, when the call site had one.
+    ///
+    /// For `Helper.doThing()` the reference name is `doThing` and the
+    /// qualifier is `Helper`. The resolver uses the qualifier to match the
+    /// reference against the local name of an import, which is what lets
+    /// cross-package calls resolve.
+    pub qualifier: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
