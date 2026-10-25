@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-25
+
 ### Added
 
 - **Per-language grammar contract** (`crates/coraline/src/grammar.rs`).
@@ -30,10 +32,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   produce `Extends` / `Implements` edges. The #43 guard (unscoped calls
   must not link to global name matches) is preserved.
 - **Per-language multi-package fixture tests**
-  (`crates/coraline/tests/language_fixture_test.rs`). Seven fixtures —
-  Kotlin, Java, Swift, Go, Python, Ruby and C# — each assert
-  declarations, cross-package call edges, import edges and inheritance
-  edges.
+  (`crates/coraline/tests/language_fixture_test.rs`). Nine fixtures —
+  Kotlin, Java, Swift, Go, Python, Ruby, C#, C/C++ and a TypeScript
+  barrel — each assert declarations, cross-package call edges, import
+  edges and inheritance edges.
 - **Resolver keyset pagination.** Unresolved references are walked
   forward through the backlog with a keyset cursor (`ORDER BY id`)
   instead of an unordered `LIMIT`, so a reference beyond the first page
@@ -129,6 +131,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and every Rust cross-module call fell back to a name search. The
   module directory is now compared with the segment before the
   imported symbol.
+- **A Rust local takes its type.** `let hooks = SyncManager::new()` did
+  not record the type, so the receiver of `hooks.install_hook()` was
+  resolved as a variable name rather than as a type, and the call was
+  never matched against the type's member.
 - **TSX, JSX and Blazor are parsed with their own grammars.** TSX and
   JSX were parsed with the plain TypeScript and JavaScript grammars, so
   every JSX element was a syntax error and the file produced no nodes;
