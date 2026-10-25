@@ -163,6 +163,17 @@ const fn default_edge_confidence() -> f32 {
     1.0
 }
 
+/// Metadata key under which an edge records the receiver of the reference
+/// it was resolved from.
+///
+/// For a qualified call such as `util.Area()` the receiver is `util`. It is
+/// the only thing that distinguishes `util.Area` from an unrelated `Area`
+/// with the same name, so it has to outlive the resolution: when the
+/// target file is re-indexed the edge is rebuilt as an unresolved
+/// reference, and a reference that has lost its qualifier can be
+/// re-pointed at a different symbol.
+pub const EDGE_QUALIFIER_METADATA: &str = "qualifier";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileRecord {
     pub path: String,
@@ -208,6 +219,13 @@ pub struct UnresolvedReference {
     pub line: i64,
     pub column: i64,
     pub candidates: Option<Vec<String>>,
+    /// The receiver of a qualified reference, when the call site had one.
+    ///
+    /// For `Helper.doThing()` the reference name is `doThing` and the
+    /// qualifier is `Helper`. The resolver uses the qualifier to match the
+    /// reference against the local name of an import, which is what lets
+    /// cross-package calls resolve.
+    pub qualifier: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -115,6 +115,9 @@ pub fn default_include_patterns() -> Vec<String> {
         "**/*.cs",
         "**/*.php",
         "**/*.rb",
+        "**/*.kt",
+        "**/*.kts",
+        "**/*.swift",
         "**/*.liquid",
         "**/*.razor",
     ]
@@ -248,7 +251,6 @@ pub const fn is_language_supported(language: &Language) -> bool {
             | Language::Liquid
             | Language::Markdown
             | Language::Blazor
-            | Language::Unknown
     )
 }
 

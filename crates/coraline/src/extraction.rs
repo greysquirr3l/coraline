@@ -28,6 +28,7 @@ use tree_sitter::{Node as TsNode, Parser};
 
 use crate::config::is_language_supported;
 use crate::db;
+use crate::grammar;
 use crate::resolution::ReferenceResolver;
 use crate::types::{
     CodeGraphConfig, Edge, EdgeKind, ExtractionError, ExtractionErrorSeverity, FileRecord,
@@ -71,6 +72,12 @@ pub struct SyncResult {
     pub files_removed: usize,
     pub nodes_updated: usize,
     pub duration_ms: u128,
+    /// Problems encountered while syncing.
+    ///
+    /// A sync that fails to resolve its references still produced a
+    /// usable index, so the failure is reported rather than raised: the
+    /// caller decides whether it matters.
+    pub errors: Vec<ExtractionError>,
 }
 
 struct ParsedFile {
@@ -295,6 +302,12 @@ pub fn index_all(
         }
     }
 
+    // A full index may have introduced the declaration a previously-failed
+    // reference was looking for, so every reference goes back in the queue.
+    if let Err(err) = db::reset_unresolved_refs_attempted(&conn) {
+        warn!(error = %err, "failed to re-queue unresolved references");
+    }
+
     if let Err(err) = ReferenceResolver::resolve_unresolved(&mut conn, project_root, 10_000) {
         warn!(error = %err, "reference resolver failed");
         errors.push(ExtractionError {
@@ -397,7 +410,31 @@ pub fn sync(
         }
     }
 
-    let _ = ReferenceResolver::resolve_unresolved(&mut conn, project_root, 10_000);
+    // A changed or added file may declare the symbol a previously-failed
+    // reference was looking for, so those references go back in the queue.
+    // When nothing changed there is nothing new to resolve, and the failed
+    // references (calls into the standard library, typically) are left
+    // alone rather than retried on every run.
+    if files_added > 0 || files_modified > 0 || files_removed > 0 {
+        if let Err(err) = db::reset_unresolved_refs_attempted(&conn) {
+            warn!(error = %err, "failed to re-queue unresolved references");
+        }
+    }
+
+    // A failed resolution is reported rather than swallowed: the index is
+    // still usable, but the caller has to know that some references were
+    // not resolved.
+    let mut errors = Vec::new();
+    if let Err(err) = ReferenceResolver::resolve_unresolved(&mut conn, project_root, 10_000) {
+        warn!(error = %err, "reference resolver failed");
+        errors.push(ExtractionError {
+            message: format!("Resolver failed: {err}"),
+            line: None,
+            column: None,
+            severity: ExtractionErrorSeverity::Warning,
+            code: Some("resolver_failed".to_string()),
+        });
+    }
 
     info!(
         files_added,
@@ -415,6 +452,7 @@ pub fn sync(
         files_removed,
         nodes_updated,
         duration_ms: start.elapsed().as_millis(),
+        errors,
     })
 }
 
@@ -558,6 +596,8 @@ fn extract_nodes(
         &mut nodes,
         &mut edges,
         &mut symbol_index,
+        &mut unresolved_refs,
+        None,
         now_ms,
     );
     walk_tree_calls(
@@ -566,9 +606,11 @@ fn extract_nodes(
         file_path,
         language,
         &symbol_index,
+        root_id,
         &mut edges,
         &mut unresolved_refs,
         &mut Vec::new(),
+        &mut HashMap::new(),
     );
     (nodes, edges, unresolved_refs)
 }
@@ -590,10 +632,8 @@ fn language_to_parser(language: Language) -> Option<tree_sitter::Language> {
         Language::Java => Some(tree_sitter::Language::new(tree_sitter_java::LANGUAGE)),
         Language::C => Some(tree_sitter::Language::new(tree_sitter_c::LANGUAGE)),
         Language::Cpp => Some(tree_sitter::Language::new(tree_sitter_cpp::LANGUAGE)),
-        Language::CSharp | Language::Blazor => {
-            // Use C# parser for both C# and Blazor files
-            Some(tree_sitter::Language::new(tree_sitter_c_sharp::LANGUAGE))
-        }
+        Language::CSharp => Some(tree_sitter::Language::new(tree_sitter_c_sharp::LANGUAGE)),
+        Language::Blazor => Some(tree_sitter::Language::new(tree_sitter_blazor::LANGUAGE)),
         Language::Ruby => Some(tree_sitter::Language::new(tree_sitter_ruby::LANGUAGE)),
         // New language parsers
         Language::Bash => Some(tree_sitter::Language::new(tree_sitter_bash::LANGUAGE)),
@@ -630,6 +670,21 @@ struct SymbolIndex {
     by_name: HashMap<String, Vec<String>>,
     by_key: HashMap<String, String>,
     callable_ids: HashSet<String>,
+    /// Ids of nodes that name a type (class, struct, interface, enum), used
+    /// to tell `Circle(2.0)` (an instantiation) from `circle.area()` (a call).
+    type_ids: HashSet<String>,
+    /// Names imported from another module that look like type names.
+    ///
+    /// Kotlin and Swift spell a constructor call `Circle(2.0)` — the same
+    /// shape as a function call — so the callee has to be recognised as a
+    /// type for the edge to be an `Instantiates` rather than a `Calls`.
+    imported_type_names: HashSet<String>,
+    /// Members of each type declared in this file: type name → member name →
+    /// node id.
+    ///
+    /// This is what makes `helper.area()` resolve to `Circle.area` rather
+    /// than to whichever `area` happens to be declared nearby.
+    type_members: HashMap<String, HashMap<String, String>>,
 }
 
 /// Read visibility from a declaration tree-sitter node.
@@ -718,14 +773,24 @@ fn walk_tree_collect(
     nodes: &mut Vec<Node>,
     edges: &mut Vec<Edge>,
     symbol_index: &mut SymbolIndex,
+    unresolved_refs: &mut Vec<UnresolvedReference>,
+    enclosing_type_name: Option<&str>,
     now_ms: i64,
 ) {
-    let (kind, is_container) = map_node_kind(node.kind(), language);
+    let (kind, is_container) = map_node_kind(&node, language);
 
     if let Some(NodeKind::Import) = kind {
         if let Some(parent_id) = parent_id.clone() {
             add_import_nodes(
-                &node, source, language, file_path, parent_id, nodes, edges, now_ms,
+                &node,
+                source,
+                language,
+                file_path,
+                parent_id,
+                nodes,
+                edges,
+                symbol_index,
+                now_ms,
             );
             return;
         }
@@ -762,12 +827,16 @@ fn walk_tree_collect(
         None
     } else {
         match kind {
-            Some(_) => node_name(&node, source),
+            Some(_) => node_name(&node, source, language),
             None => None,
         }
     };
 
     let mut next_parent_id = parent_id.clone();
+
+    // The name of the type this node is declared in, if any — used to scope
+    // member lookup so `helper.area()` resolves against `Circle`.
+    let mut next_enclosing_type: Option<String> = enclosing_type_name.map(str::to_string);
 
     if let (Some(kind), Some(name)) = (kind, name.clone()) {
         let qualified_name = if stack.is_empty() {
@@ -822,6 +891,81 @@ fn walk_tree_collect(
                 .or_default()
                 .push(id.clone());
             symbol_index.callable_ids.insert(id.clone());
+        }
+
+        if matches!(
+            kind,
+            NodeKind::Class | NodeKind::Struct | NodeKind::Interface | NodeKind::Enum
+        ) {
+            symbol_index
+                .by_name
+                .entry(name.clone())
+                .or_default()
+                .push(id.clone());
+            symbol_index.type_ids.insert(id.clone());
+        }
+
+        // A type declaration becomes the enclosing type for its children.
+        if matches!(
+            kind,
+            NodeKind::Class | NodeKind::Struct | NodeKind::Interface | NodeKind::Enum
+        ) {
+            next_enclosing_type = Some(name.clone());
+        }
+
+        // Record the member under its enclosing type so that a qualified
+        // call can be scoped to the right type.
+        if let Some(enclosing_type) = enclosing_type_name {
+            symbol_index
+                .type_members
+                .entry(enclosing_type.to_string())
+                .or_default()
+                .insert(name.clone(), id.clone());
+        }
+
+        // Inheritance: link the declaration to its supertypes.
+        for (supertype, supertype_kind) in heritage_names(&node, source, language) {
+            let edge_kind = match supertype_kind {
+                grammar::HeritageKind::Extends => EdgeKind::Extends,
+                grammar::HeritageKind::Implements => EdgeKind::Implements,
+            };
+
+            match symbol_index.by_name.get(&supertype) {
+                Some(targets) if targets.len() == 1 => {
+                    edges.push(Edge {
+                        source: id.clone(),
+                        target: targets[0].clone(),
+                        kind: edge_kind,
+                        metadata: None,
+                        line: Some(start.row as i64 + 1),
+                        column: Some(start.column as i64),
+                        confidence: 1.0,
+                        process_id: None,
+                    });
+                }
+                Some(targets) => {
+                    unresolved_refs.push(UnresolvedReference {
+                        from_node_id: id.clone(),
+                        reference_name: supertype.clone(),
+                        reference_kind: edge_kind,
+                        line: start.row as i64 + 1,
+                        column: start.column as i64,
+                        candidates: Some(targets.clone()),
+                        qualifier: None,
+                    });
+                }
+                None => {
+                    unresolved_refs.push(UnresolvedReference {
+                        from_node_id: id.clone(),
+                        reference_name: supertype.clone(),
+                        reference_kind: edge_kind,
+                        line: start.row as i64 + 1,
+                        column: start.column as i64,
+                        candidates: None,
+                        qualifier: None,
+                    });
+                }
+            }
         }
 
         if let Some(parent_id) = parent_id.clone() {
@@ -881,6 +1025,8 @@ fn walk_tree_collect(
             nodes,
             edges,
             symbol_index,
+            unresolved_refs,
+            next_enclosing_type.as_deref(),
             now_ms,
         );
     }
@@ -896,13 +1042,15 @@ fn walk_tree_calls(
     _file_path: &str,
     language: Language,
     symbol_index: &SymbolIndex,
+    file_id: &str,
     edges: &mut Vec<Edge>,
     unresolved_refs: &mut Vec<UnresolvedReference>,
     scope_stack: &mut Vec<String>,
+    local_types: &mut HashMap<String, String>,
 ) {
-    let (kind, _) = map_node_kind(node.kind(), language);
+    let (kind, _) = map_node_kind(&node, language);
     let name = if kind.is_some() {
-        node_name(&node, source)
+        node_name(&node, source, language)
     } else {
         None
     };
@@ -916,43 +1064,120 @@ fn walk_tree_calls(
         }
     }
 
+    // Track the declared type of local variables so that a qualified call
+    // like `helper.area()` can be attributed to the type of `helper`
+    // (`Circle`) rather than to a bare local name.
+    if let Some((var_name, type_name)) = local_variable_type(&node, source, language) {
+        local_types.insert(var_name, type_name);
+    }
+
     if is_call_expression(node.kind(), language) {
-        if let Some(source_id) = scope_stack.last() {
-            if let Some(callee_name) = call_name(&node, source, language) {
-                let start = node.start_position();
-                match symbol_index.by_name.get(&callee_name) {
-                    Some(targets) if targets.len() == 1 => {
-                        edges.push(Edge {
-                            source: source_id.clone(),
-                            target: targets[0].clone(),
-                            kind: EdgeKind::Calls,
-                            metadata: None,
-                            line: Some(start.row as i64 + 1),
-                            column: Some(start.column as i64),
-                            confidence: 1.0,
-                            process_id: None,
-                        });
+        // Calls that appear outside any function scope (property initialisers,
+        // `init {}` blocks, top-level statements, unnamed arrow functions)
+        // are anchored to the file node so the edge is not silently dropped.
+        let source_id = scope_stack
+            .last()
+            .cloned()
+            .unwrap_or_else(|| file_id.to_string());
+        if let Some((callee_name, qualifier)) = call_name(&node, source, language) {
+            // When the receiver is a local variable with a known type, use
+            // the *type* as the qualifier: `helper.area()` on a `Circle`
+            // resolves like `Circle.area()`, which is what makes
+            // cross-package calls resolvable.
+            let qualifier = qualifier.and_then(|q| local_types.get(&q).cloned().or(Some(q)));
+
+            let start = node.start_position();
+            // An instantiation is either an explicit construction node
+            // (`new Foo()`) or a call whose callee is a bare type name —
+            // which is how Kotlin and Swift spell `Circle(2.0)`.
+            // Ruby spells construction `Helper.new` — the *receiver* names
+            // the type, so the callee for resolution purposes is the
+            // receiver, not `new`.
+            let is_new_constructor =
+                language == Language::Ruby && callee_name == "new" && qualifier.is_some();
+            let (callee_name, qualifier) = if is_new_constructor {
+                (qualifier.clone().unwrap_or_default(), None)
+            } else {
+                (callee_name, qualifier)
+            };
+
+            let is_instantiation = grammar::is_instantiation_kind(language, node.kind())
+                || is_new_constructor
+                || (qualifier.is_none()
+                    && looks_like_type_name(&callee_name)
+                    && (symbol_index.imported_type_names.contains(&callee_name)
+                        || symbol_index
+                            .by_name
+                            .get(&callee_name)
+                            .is_some_and(|targets| {
+                                targets.iter().any(|id| symbol_index.type_ids.contains(id))
+                            })));
+            let edge_kind = if is_instantiation {
+                EdgeKind::Instantiates
+            } else {
+                EdgeKind::Calls
+            };
+            // A qualified call is scoped to its receiver's type: `helper.area()`
+            // on a `Circle` resolves to `Circle.area`, not to whichever `area`
+            // happens to be declared in the same file.
+            let scoped_target = qualifier.as_deref().and_then(|qualifier| {
+                symbol_index
+                    .type_members
+                    .get(qualifier)
+                    .and_then(|members| members.get(&callee_name))
+                    .cloned()
+            });
+
+            let candidates: Option<Vec<String>> = match (&scoped_target, qualifier.as_deref()) {
+                (Some(target), _) => Some(vec![target.clone()]),
+                (None, Some(qualifier)) => {
+                    let members = symbol_index.type_members.get(qualifier);
+                    let matching: Vec<String> = members
+                        .map(|members| members.get(&callee_name).cloned().into_iter().collect())
+                        .unwrap_or_default();
+                    if matching.is_empty() {
+                        None
+                    } else {
+                        Some(matching)
                     }
-                    Some(targets) => {
-                        unresolved_refs.push(UnresolvedReference {
-                            from_node_id: source_id.clone(),
-                            reference_name: callee_name.clone(),
-                            reference_kind: EdgeKind::Calls,
-                            line: start.row as i64 + 1,
-                            column: start.column as i64,
-                            candidates: Some(targets.clone()),
-                        });
-                    }
-                    None => {
-                        unresolved_refs.push(UnresolvedReference {
-                            from_node_id: source_id.clone(),
-                            reference_name: callee_name.clone(),
-                            reference_kind: EdgeKind::Calls,
-                            line: start.row as i64 + 1,
-                            column: start.column as i64,
-                            candidates: None,
-                        });
-                    }
+                }
+                (None, None) => symbol_index.by_name.get(&callee_name).cloned(),
+            };
+
+            match candidates {
+                Some(targets) if targets.len() == 1 => {
+                    edges.push(Edge {
+                        source: source_id.clone(),
+                        target: targets[0].clone(),
+                        kind: edge_kind,
+                        metadata: None,
+                        line: Some(start.row as i64 + 1),
+                        column: Some(start.column as i64),
+                        confidence: 1.0,
+                        process_id: None,
+                    });
+                }
+                Some(targets) => {
+                    unresolved_refs.push(UnresolvedReference {
+                        from_node_id: source_id.clone(),
+                        reference_name: callee_name.clone(),
+                        reference_kind: edge_kind,
+                        line: start.row as i64 + 1,
+                        column: start.column as i64,
+                        candidates: Some(targets.clone()),
+                        qualifier,
+                    });
+                }
+                None => {
+                    unresolved_refs.push(UnresolvedReference {
+                        from_node_id: source_id.clone(),
+                        reference_name: callee_name.clone(),
+                        reference_kind: edge_kind,
+                        line: start.row as i64 + 1,
+                        column: start.column as i64,
+                        candidates: None,
+                        qualifier,
+                    });
                 }
             }
         }
@@ -965,9 +1190,11 @@ fn walk_tree_calls(
             _file_path,
             language,
             symbol_index,
+            file_id,
             edges,
             unresolved_refs,
             scope_stack,
+            local_types,
         );
     }
 
@@ -981,16 +1208,95 @@ fn walk_tree_calls(
     }
 }
 
-fn node_name(node: &TsNode, source: &str) -> Option<String> {
+/// Recover the name of a declaration node.
+///
+/// Most grammars expose a `name` field, but several do not:
+///
+/// - Kotlin declares properties as `property_declaration` → `variable_declaration`
+///   → `identifier`.
+/// - C and C++ nest the function name inside the declarator chain:
+///   `function_definition` → `function_declarator` → `declarator` → `identifier`.
+/// - Swift's `property_declaration` uses a `pattern` field whose text is the
+///   bound identifier.
+fn node_name(node: &TsNode, source: &str, language: Language) -> Option<String> {
+    let text_of = |n: &TsNode| {
+        n.utf8_text(source.as_bytes())
+            .ok()
+            .map(|s| s.to_string())
+            .filter(|s| !s.is_empty())
+    };
+
+    match language {
+        Language::Kotlin => {
+            // `property_declaration` has no `name` field: the identifier lives
+            // under `variable_declaration`.
+            if node.kind() == "property_declaration" {
+                let mut cursor = node.walk();
+                if let Some(var_decl) = node
+                    .named_children(&mut cursor)
+                    .find(|c| c.kind() == "variable_declaration")
+                {
+                    let mut inner = var_decl.walk();
+                    if let Some(ident) = var_decl
+                        .named_children(&mut inner)
+                        .find(|c| c.kind() == "identifier")
+                    {
+                        return text_of(&ident);
+                    }
+                }
+            }
+            if node.kind() == "class_declaration" || node.kind() == "object_declaration" {
+                return text_of(&node.child_by_field_name("name")?);
+            }
+        }
+        Language::C | Language::Cpp => {
+            // `function_definition` has no `name` field: the name is inside
+            // the declarator chain, e.g.
+            //   function_definition → function_declarator → declarator → identifier
+            if node.kind() == "function_definition" {
+                let mut current = node.child_by_field_name("declarator");
+                let mut guard = 0;
+                while let Some(decl) = current {
+                    guard += 1;
+                    if guard > 16 {
+                        break;
+                    }
+                    let kind = decl.kind();
+                    if kind == "identifier" || kind == "field_identifier" {
+                        return text_of(&decl);
+                    }
+                    if kind == "qualified_identifier" {
+                        return text_of(&decl);
+                    }
+                    current = decl.child_by_field_name("declarator");
+                }
+            }
+        }
+        Language::Swift => {
+            // `property_declaration` names itself through a `pattern` field
+            // whose text is the bound identifier.
+            if node.kind() == "property_declaration" {
+                if let Some(pattern) = node.child_by_field_name("name") {
+                    if let Some(name) = text_of(&pattern) {
+                        return Some(name);
+                    }
+                }
+            }
+        }
+        Language::Php if node.kind() == "name" => {
+            // PHP wraps identifiers in a `name` node; its text is the name.
+            return text_of(node);
+        }
+        _ => {}
+    }
+
     let name_node = node
         .child_by_field_name("name")
         .or_else(|| node.child_by_field_name("identifier"))
         .or_else(|| node.child_by_field_name("property"))
         .or_else(|| node.child_by_field_name("tag_name"));
 
-    name_node
-        .and_then(|n| n.utf8_text(source.as_bytes()).ok())
-        .map(|s| s.to_string())
+    name_node.and_then(|n| text_of(&n))
 }
 
 #[derive(Debug, Clone)]
@@ -1014,6 +1320,7 @@ fn add_import_nodes(
     parent_id: String,
     nodes: &mut Vec<Node>,
     edges: &mut Vec<Edge>,
+    symbol_index: &mut SymbolIndex,
     now_ms: i64,
 ) {
     let imports = import_symbols(node, source, language);
@@ -1037,6 +1344,12 @@ fn add_import_nodes(
             start.column as i64,
         );
         let signature = build_import_signature(&import.module_path, import.export_name.as_deref());
+
+        if looks_like_type_name(&import.local_name) {
+            symbol_index
+                .imported_type_names
+                .insert(import.local_name.clone());
+        }
 
         nodes.push(Node {
             id: id.clone(),
@@ -1250,15 +1563,24 @@ fn import_symbols(node: &TsNode, source: &str, language: Language) -> Vec<Import
         }
 
         // === Swift ===
+        // `import Foundation` — the local name is the imported module's own
+        // name, which is the last path component of the dotted import path.
         Language::Swift => {
+            let last_part = module_path
+                .rsplit('.')
+                .next()
+                .unwrap_or(&module_path)
+                .to_string();
             vec![ImportSymbol {
-                local_name: module_path.clone(),
+                local_name: last_part.clone(),
                 module_path,
-                export_name: None,
+                export_name: Some(last_part),
             }]
         }
 
         // === Kotlin ===
+        // `import com.example.other.Helper` — the local name is the final
+        // segment of the qualified identifier.
         Language::Kotlin => {
             let last_part = module_path
                 .rsplit('.')
@@ -1458,46 +1780,124 @@ fn import_symbols(node: &TsNode, source: &str, language: Language) -> Vec<Import
     }
 }
 
+/// Recover the module path of an import statement.
+///
+/// The field used to reach the path differs per grammar, and several of the
+/// old field names did not exist at all (`CSharp` used `qualified_name`,
+/// `Kotlin` used `type`, `Swift` used `module_name`, `Java` used `name`).
+/// The names below are validated against each grammar by
+/// `tests/grammar_contract_test.rs`.
 fn import_module_path(node: &TsNode, source: &str, language: Language) -> Option<String> {
-    let field = match language {
-        Language::Rust => "path",
-        Language::JavaScript | Language::Jsx | Language::TypeScript | Language::Tsx => "source",
-        Language::Python => "module_name",
-        Language::Go => "import_spec",
-        Language::Java => "name",
-        Language::C | Language::Cpp => "path",
-        Language::CSharp => "qualified_name",
-        Language::Php => "name",
-        Language::Ruby => "argument",
-        Language::Swift => "module_name",
-        Language::Kotlin => "type",
-        Language::Bash => "argument",
-        Language::Lua => "argument",
-        Language::Elixir => "module",
-        Language::Erlang => "name",
-        Language::Haskell => "module",
-        Language::Scala => "path",
-        Language::Groovy => "name",
-        Language::Dart => "uri",
-        Language::Julia => "module",
-        Language::Nix => "source",
-        Language::R => "argument",
-        Language::Matlab => "argument",
-        Language::Fortran => "name",
-        Language::Elm => "module_name",
-        Language::Perl => "module",
-        Language::Powershell => "name",
-        Language::Zig => "path",
-        _ => "source",
+    let source_bytes = source.as_bytes();
+
+    // Languages whose import path lives in a named field.
+    let field: Option<&str> = match language {
+        Language::Rust => Some("argument"),
+        Language::JavaScript | Language::Jsx | Language::TypeScript | Language::Tsx => {
+            Some("source")
+        }
+        Language::Python => Some("module_name"),
+        Language::Java => None,
+        Language::C | Language::Cpp => Some("path"),
+        Language::CSharp => None,
+        Language::Php => Some("name"),
+        Language::Ruby => None,
+        Language::Bash => Some("argument"),
+        Language::Lua => Some("argument"),
+        Language::Elixir => Some("module"),
+        Language::Erlang => Some("name"),
+        Language::Haskell => Some("module"),
+        Language::Scala => Some("path"),
+        Language::Groovy => Some("name"),
+        Language::Dart => Some("uri"),
+        Language::Julia => Some("module"),
+        Language::Nix => Some("source"),
+        Language::R => Some("argument"),
+        Language::Matlab => Some("argument"),
+        Language::Fortran => Some("name"),
+        Language::Elm => Some("module_name"),
+        Language::Perl => Some("module"),
+        Language::Powershell => Some("name"),
+        Language::Zig => Some("path"),
+        // These resolve their path from a child node rather than a field.
+        Language::Go | Language::Swift | Language::Kotlin => None,
+        Language::Markdown
+        | Language::Toml
+        | Language::Yaml
+        | Language::Liquid
+        | Language::Blazor
+        | Language::Unknown => None,
     };
 
-    let child = node.child_by_field_name(field).or_else(|| {
-        // Fallback: get first string-like child
-        node.children(&mut node.walk())
-            .find(|c| matches!(c.kind(), "string" | "identifier" | "scoped_identifier"))
-    })?;
+    let child = if let Some(field) = field {
+        node.child_by_field_name(field).or_else(|| {
+            // Fallback: get first string-like child
+            node.children(&mut node.walk())
+                .find(|c| matches!(c.kind(), "string" | "identifier" | "scoped_identifier"))
+        })?
+    } else {
+        match language {
+            // Java: `import_declaration` has no fields; the path is in a
+            // `scoped_identifier` child (or a bare `identifier` for
+            // single-segment imports).
+            Language::Java => {
+                let mut cursor = node.walk();
+                node.named_children(&mut cursor)
+                    .find(|c| c.kind() == "scoped_identifier")
+                    .or_else(|| {
+                        let mut cursor = node.walk();
+                        node.named_children(&mut cursor)
+                            .find(|c| c.kind() == "identifier")
+                    })?
+            }
+            // Go: `import_declaration` → `import_spec` → `path`.
+            Language::Go => {
+                let mut cursor = node.walk();
+                let spec = node
+                    .named_children(&mut cursor)
+                    .find(|c| c.kind() == "import_spec")
+                    .or_else(|| {
+                        let mut cursor = node.walk();
+                        node.named_children(&mut cursor)
+                            .find(|c| c.kind() == "import_spec_list")
+                            .and_then(|l| {
+                                let mut inner = l.walk();
+                                l.named_children(&mut inner)
+                                    .find(|c| c.kind() == "import_spec")
+                            })
+                    })?;
+                spec.child_by_field_name("path")?
+            }
+            // Swift: `import_declaration` → `identifier` → `simple_identifier`.
+            Language::Swift => {
+                let mut cursor = node.walk();
+                node.named_children(&mut cursor)
+                    .find(|c| c.kind() == "identifier")?
+            }
+            // C#: `using_directive` → `qualified_name` child. A `using
+            // static` directive names a member instead: `using static
+            // System.Math;`.
+            Language::CSharp => {
+                let mut cursor = node.walk();
+                node.named_children(&mut cursor)
+                    .find(|c| c.kind() == "qualified_name")?
+            }
+            // Kotlin: `import` → `qualified_identifier` (or a bare `identifier`).
+            Language::Kotlin => {
+                let mut cursor = node.walk();
+                node.named_children(&mut cursor)
+                    .find(|c| c.kind() == "qualified_identifier")
+                    .or_else(|| {
+                        let mut cursor = node.walk();
+                        node.named_children(&mut cursor)
+                            .find(|c| c.kind() == "identifier")
+                    })?
+            }
+            _ => return None,
+        }
+    };
 
-    let raw = child.utf8_text(source.as_bytes()).ok()?.trim().to_string();
+    let raw = child.utf8_text(source_bytes).ok()?.trim().to_string();
     let trimmed = raw
         .trim_matches(['"', '\'', '`'].as_ref())
         .trim()
@@ -2053,457 +2453,657 @@ fn is_callable_kind(kind: NodeKind) -> bool {
     matches!(kind, NodeKind::Function | NodeKind::Method)
 }
 
+/// Return `true` when `kind` is a call site in `language`.
+///
+/// The set of call kinds is declared per language in
+/// [`crate::grammar`], so a grammar change shows up as a failing contract
+/// test rather than as silently missing call edges.
 fn is_call_expression(kind: &str, language: Language) -> bool {
-    match language {
-        // Rust
-        Language::Rust => matches!(kind, "call_expression" | "macro_invocation"),
-        // JavaScript/TypeScript family
-        Language::JavaScript | Language::Jsx | Language::TypeScript | Language::Tsx => {
-            matches!(kind, "call_expression")
+    grammar::is_call_kind(language, kind)
+}
+
+/// Recover the callee name of a call site, plus the qualifier (receiver) when
+/// the call is qualified.
+///
+/// For `Helper.doThing()` the returned name is `doThing` and the qualifier is
+/// `Some("Helper")`. The qualifier is what lets the resolver match a call
+/// against the local name of an import, which is how cross-package calls
+/// resolve without reintroducing the name-collision false positives from #43.
+fn call_name(node: &TsNode, source: &str, language: Language) -> Option<(String, Option<String>)> {
+    let source_bytes = source.as_bytes();
+    let callee_strategy = grammar::callee_source(language, node.kind())?;
+
+    let callee = match callee_strategy {
+        grammar::CalleeSource::Field { callee, .. } => node.child_by_field_name(callee),
+        grammar::CalleeSource::FirstChildLastIdentifier => {
+            let mut cursor = node.walk();
+            node.named_children(&mut cursor).next()
         }
-        // Python
-        Language::Python => matches!(kind, "call"),
-        // Go
-        Language::Go => matches!(kind, "call_expression"),
-        // Java
-        Language::Java => matches!(kind, "method_invocation"),
-        // C/C++
-        Language::C | Language::Cpp => matches!(kind, "call_expression"),
-        // C#
-        Language::CSharp => matches!(kind, "invocation_expression"),
-        // PHP
-        Language::Php => matches!(kind, "function_call_expression" | "member_call_expression"),
-        // Ruby
-        Language::Ruby => matches!(kind, "method_call"),
-        // Swift
-        Language::Swift => matches!(kind, "function_call_expression"),
-        // Kotlin
-        Language::Kotlin => matches!(kind, "call_expression"),
-        // Bash
-        Language::Bash => matches!(kind, "command"),
-        // Lua
-        Language::Lua => matches!(kind, "function_call"),
-        // Other languages with common patterns
-        Language::Elixir | Language::Erlang => matches!(kind, "call"),
-        Language::Haskell => matches!(kind, "apply"),
-        Language::Scala => matches!(kind, "call"),
-        Language::Groovy => matches!(kind, "method_call"),
-        Language::Dart => matches!(kind, "method_invocation"),
-        Language::Julia => matches!(kind, "call"),
-        Language::Nix => matches!(kind, "apply"),
-        Language::R => matches!(kind, "call"),
-        Language::Matlab => matches!(kind, "command"),
-        Language::Fortran => matches!(kind, "call_expression"),
-        Language::Elm => matches!(kind, "function_call_expression"),
-        Language::Perl => matches!(kind, "method_call"),
-        Language::Powershell => matches!(kind, "command"),
-        // Zig
-        Language::Zig => matches!(kind, "call_expression"),
-        // Markup/config files don't have calls
-        Language::Markdown | Language::Toml | Language::Yaml => false,
-        // Unsupported
-        Language::Liquid | Language::Blazor | Language::Unknown => false,
+    }?;
+
+    let (name, qualifier) = match callee_strategy {
+        grammar::CalleeSource::Field { receiver, .. } => {
+            let raw = callee.utf8_text(source_bytes).ok()?.trim().to_string();
+            if raw.is_empty() {
+                return None;
+            }
+
+            // Some grammars split the receiver into its own field on the call
+            // node (Java's `object`, PHP's `object`/`scope`).
+            let qualifier = receiver.and_then(|field| {
+                node.child_by_field_name(field)
+                    .and_then(|n| n.utf8_text(source_bytes).ok())
+                    .map(|t| t.trim().to_string())
+                    .filter(|t| !t.is_empty())
+                    .and_then(|t| {
+                        t.rsplit(['.', ':', '>'])
+                            .next()
+                            .unwrap_or(&t)
+                            .trim()
+                            .to_string()
+                            .into()
+                    })
+                    .filter(|t: &String| !t.is_empty())
+            });
+
+            let (text_qualifier, name) = split_qualified_name(&raw);
+            (name, qualifier.or(text_qualifier))
+        }
+        grammar::CalleeSource::FirstChildLastIdentifier => {
+            // Kotlin and Swift expose the callee as the first named child. For
+            // a qualified call that child is a `navigation_expression`; the
+            // method name is its *last* identifier and the receiver is the
+            // first one.
+            let (qualifier, name) = first_child_last_identifier(&callee, source_bytes);
+            (name, qualifier)
+        }
+    };
+
+    if name.is_empty() {
+        None
+    } else {
+        Some((name, qualifier))
     }
 }
 
-fn call_name(node: &TsNode, source: &str, language: Language) -> Option<String> {
-    let callee = match language {
-        Language::Rust => node.child_by_field_name("function"),
-        Language::JavaScript | Language::Jsx | Language::TypeScript | Language::Tsx => node
-            .child_by_field_name("function")
-            .or_else(|| node.child_by_field_name("callee")),
-        Language::Python => node.child_by_field_name("function"),
-        Language::Go => node.child_by_field_name("function"),
-        Language::Java => node.child_by_field_name("method"),
-        Language::C | Language::Cpp => node.child_by_field_name("function"),
-        Language::CSharp => node.child_by_field_name("function"),
-        Language::Php => node.child_by_field_name("function"),
-        Language::Ruby => node.child_by_field_name("method"),
-        Language::Swift => node.child_by_field_name("function"),
-        Language::Kotlin => node.child_by_field_name("callee"),
-        Language::Bash => node.child_by_field_name("name"),
-        Language::Lua => node.child_by_field_name("function"),
-        Language::Elixir => node.child_by_field_name("function"),
-        Language::Erlang => node.child_by_field_name("module"),
-        Language::Haskell => node.child_by_field_name("function"),
-        Language::Scala => node.child_by_field_name("function"),
-        Language::Groovy => node.child_by_field_name("method"),
-        Language::Dart => node.child_by_field_name("method"),
-        Language::Julia => node.child_by_field_name("function"),
-        Language::Nix => node.child_by_field_name("function"),
-        Language::R => node.child_by_field_name("function"),
-        Language::Matlab => node.child_by_field_name("function"),
-        Language::Fortran => node.child_by_field_name("function"),
-        Language::Elm => node.child_by_field_name("function"),
-        Language::Perl => node.child_by_field_name("method"),
-        Language::Powershell => node.child_by_field_name("name"),
-        _ => None,
-    }?;
+/// Recover the supertypes a declaration inherits from or implements.
+///
+/// Returns `(name, kind)` pairs. Names are the *simple* type names so they
+/// can be matched against graph nodes by name; a supertype that is not
+/// present in the project is left unresolved and simply produces no edge.
+fn heritage_names(
+    node: &TsNode,
+    source: &str,
+    language: Language,
+) -> Vec<(String, grammar::HeritageKind)> {
+    let Some(contract) = grammar::contract_for(language) else {
+        return Vec::new();
+    };
+    let Some(rules) = contract.heritage else {
+        return Vec::new();
+    };
 
-    let raw = callee.utf8_text(source.as_bytes()).ok()?.to_string();
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
+    // Only declarations with a heritage clause participate.
+    let is_declaration = contract.kinds.iter().any(|(kind, node_kind, _)| {
+        *kind == node.kind()
+            && matches!(
+                node_kind,
+                NodeKind::Class
+                    | NodeKind::Struct
+                    | NodeKind::Interface
+                    | NodeKind::Trait
+                    | NodeKind::Protocol
+                    | NodeKind::Enum
+            )
+    });
+    if !is_declaration {
+        return Vec::new();
+    }
+
+    let mut found: Vec<(String, grammar::HeritageKind)> = Vec::new();
+    let mut push = |name: String, kind: grammar::HeritageKind| {
+        if !name.is_empty() && !found.iter().any(|(n, _)| *n == name) {
+            found.push((name, kind));
+        }
+    };
+
+    for rule in rules {
+        match rule.source {
+            grammar::HeritageSource::Field(field) => {
+                // Rust's `impl Trait for Type` — the `type` field is the
+                // subject and the `trait` field is what it implements.
+                if language == Language::Rust {
+                    if let Some(trait_node) = node.child_by_field_name("trait") {
+                        if let Some(name) = simple_type_name(&trait_node, source) {
+                            push(name, grammar::HeritageKind::Implements);
+                        }
+                    }
+                }
+
+                if let Some(value) = node.child_by_field_name(field) {
+                    collect_type_names(&value, source, rule.kind, &mut push);
+                }
+            }
+            grammar::HeritageSource::ChildField(child_kind, field) => {
+                let mut cursor = node.walk();
+                for child in node.named_children(&mut cursor) {
+                    if child.kind() != child_kind {
+                        continue;
+                    }
+                    let Some(value) = child.child_by_field_name(field) else {
+                        continue;
+                    };
+                    collect_type_names(&value, source, rule.kind, &mut push);
+                }
+            }
+            grammar::HeritageSource::ChildIsType(child_kind) => {
+                let mut cursor = node.walk();
+                for child in node.named_children(&mut cursor) {
+                    if child.kind() != child_kind {
+                        continue;
+                    }
+                    // C#'s `base_list` and PHP's `base_clause` list the types
+                    // directly as children; TypeScript's `implements_clause`
+                    // lists them under a `type` child.
+                    let mut inner = child.walk();
+                    for entry in child.named_children(&mut inner) {
+                        if matches!(entry.kind(), "type" | "identifier" | "name") {
+                            if let Some(name) = simple_type_name(&entry, source) {
+                                push(name, rule.kind);
+                            }
+                        }
+                    }
+                }
+            }
+            grammar::HeritageSource::ChildInContainer(container, child_kind, nested_kind) => {
+                let mut cursor = node.walk();
+                for group in node.named_children(&mut cursor) {
+                    if group.kind() != container {
+                        continue;
+                    }
+                    let mut group_cursor = group.walk();
+                    for child in group.named_children(&mut group_cursor) {
+                        if child.kind() != child_kind {
+                            continue;
+                        }
+                        if let Some(name) = find_nested_type_name(&child, nested_kind, source) {
+                            push(name, rule.kind);
+                        }
+                    }
+                }
+            }
+            grammar::HeritageSource::ChildNested(child_kind, nested_kind) => {
+                let mut cursor = node.walk();
+                for child in node.named_children(&mut cursor) {
+                    if child.kind() != child_kind {
+                        continue;
+                    }
+                    // The type may sit directly under the child (Swift's
+                    // `inheritance_specifier` → `user_type`) or one level
+                    // deeper (Kotlin's `delegation_specifier` →
+                    // `constructor_invocation` → `user_type`).
+                    if let Some(name) = find_nested_type_name(&child, nested_kind, source) {
+                        push(name, rule.kind);
+                    }
+                }
+            }
+        }
+    }
+
+    found
+}
+
+/// Find the type named by a descendant of the given kind, searching at
+/// most two levels deep.
+fn find_nested_type_name(node: &TsNode, nested_kind: &str, source: &str) -> Option<String> {
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        if child.kind() == nested_kind {
+            return simple_type_name(&child, source);
+        }
+        let mut inner = child.walk();
+        for grandchild in child.named_children(&mut inner) {
+            if grandchild.kind() == nested_kind {
+                return simple_type_name(&grandchild, source);
+            }
+        }
+    }
+    None
+}
+
+/// Collect every type name mentioned under `node`, tagging each with
+/// `kind`.
+fn collect_type_names(
+    node: &TsNode,
+    source: &str,
+    kind: grammar::HeritageKind,
+    push: &mut impl FnMut(String, grammar::HeritageKind),
+) {
+    let node_kind = node.kind();
+    if matches!(
+        node_kind,
+        "type_identifier" | "identifier" | "simple_identifier" | "name" | "user_type"
+    ) {
+        if let Some(name) = simple_type_name(node, source) {
+            push(name, kind);
+        }
+        return;
+    }
+
+    // A `type_list` (`implements Iface, Other`) holds several types.
+    if node_kind == "type_list" {
+        let mut cursor = node.walk();
+        for child in node.named_children(&mut cursor) {
+            collect_type_names(&child, source, kind, push);
+        }
+        return;
+    }
+
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        collect_type_names(&child, source, kind, push);
+    }
+}
+
+/// Extract the simple (unqualified) name of a type reference.
+///
+/// `com.example.Base` → `Base`; `Base<T>` → `Base`.
+fn simple_type_name(node: &TsNode, source: &str) -> Option<String> {
+    let text = node.utf8_text(source.as_bytes()).ok()?.trim().to_string();
+    if text.is_empty() {
         return None;
     }
 
-    let name = trimmed
-        .rsplit("::")
-        .next()
-        .unwrap_or(trimmed)
-        .rsplit('.')
-        .next()
-        .unwrap_or(trimmed)
-        .rsplit("->")
-        .next()
-        .unwrap_or(trimmed)
-        .to_string();
+    // Drop generic arguments.
+    let without_generics = text.split('<').next().unwrap_or(&text).trim();
 
-    if name.is_empty() { None } else { Some(name) }
+    // Take the last path segment.
+    let last = without_generics
+        .rsplit(['.', ':'])
+        .next()
+        .unwrap_or(without_generics)
+        .trim()
+        .trim_end_matches("()")
+        .trim();
+
+    if last.is_empty() {
+        None
+    } else {
+        Some(last.to_string())
+    }
 }
 
-fn map_node_kind(kind: &str, language: Language) -> (Option<NodeKind>, bool) {
+/// Recover the declared type of a local variable, if the node is a variable
+/// declaration with a type we can read.
+///
+/// Returns `(variable_name, type_name)`.
+///
+/// The type is taken from an explicit annotation when present, otherwise from
+/// the constructor the variable is initialised with:
+///
+/// - Kotlin: `val helper = Circle(2.0)` → `("helper", "Circle")`
+/// - Java: `Circle c = new Circle(2.0)` → `("c", "Circle")`
+/// - TypeScript: `const helper = new Circle(2.0)` → `("helper", "Circle")`
+/// - Python: `helper = Circle(2.0)` → `("helper", "Circle")`
+/// - Go: `helper := Circle(2.0)` → `("helper", "Circle")`
+/// - Swift: `let helper = Circle(radius: 2.0)` → `("helper", "Circle")`
+fn local_variable_type(
+    node: &TsNode,
+    source: &str,
+    language: Language,
+) -> Option<(String, String)> {
+    let source_bytes = source.as_bytes();
+    let text_of = |n: &TsNode| n.utf8_text(source_bytes).ok().map(|s| s.trim().to_string());
+
     match language {
-        // === Rust ===
-        Language::Rust => match kind {
-            "function_item" => (Some(NodeKind::Function), false),
-            "struct_item" => (Some(NodeKind::Struct), true),
-            "enum_item" => (Some(NodeKind::Enum), true),
-            "trait_item" => (Some(NodeKind::Trait), true),
-            "use_declaration" => (Some(NodeKind::Import), false),
-            "mod_item" => (Some(NodeKind::Module), true),
-            "use_item" => (Some(NodeKind::Export), false),
-            _ => (None, false),
-        },
+        // Kotlin: `property_declaration` → `variable_declaration` → `identifier`,
+        // with the type either annotated (`val p: Point`) or inferred from
+        // the initialiser call (`val helper = Circle(2.0)`).
+        Language::Kotlin => {
+            if node.kind() != "property_declaration" {
+                return None;
+            }
+            let mut cursor = node.walk();
+            let var_decl = node
+                .named_children(&mut cursor)
+                .find(|c| c.kind() == "variable_declaration")?;
 
-        // === JavaScript/TypeScript family ===
-        Language::JavaScript | Language::Jsx | Language::TypeScript | Language::Tsx => match kind {
-            "function_declaration" | "arrow_function" => (Some(NodeKind::Function), false),
-            "class_declaration" => (Some(NodeKind::Class), true),
-            "method_definition" => (Some(NodeKind::Method), false),
-            "interface_declaration" => (Some(NodeKind::Interface), true),
-            "type_alias_declaration" => (Some(NodeKind::TypeAlias), false),
-            "import_statement" => (Some(NodeKind::Import), false),
-            "export_statement" | "export_declaration" => (Some(NodeKind::Export), false),
-            "enum_declaration" => (Some(NodeKind::Enum), true),
-            "variable_declarator" => (Some(NodeKind::Variable), false),
-            _ => (None, false),
-        },
+            let mut inner = var_decl.walk();
+            let name_node = var_decl
+                .named_children(&mut inner)
+                .find(|c| c.kind() == "identifier")?;
+            let name = text_of(&name_node)?;
 
-        // === Python ===
-        Language::Python => match kind {
-            "function_definition" => (Some(NodeKind::Function), false),
-            "class_definition" => (Some(NodeKind::Class), true),
-            "decorated_definition" => (Some(NodeKind::Function), false),
-            "import_statement" => (Some(NodeKind::Import), false),
-            "import_from_statement" => (Some(NodeKind::Import), false),
-            "assignment" => (Some(NodeKind::Variable), false),
-            "augmented_assignment" => (Some(NodeKind::Variable), false),
-            "for_statement" => (Some(NodeKind::Variable), false),
-            "with_statement" => (Some(NodeKind::Variable), false),
-            _ => (None, false),
-        },
+            // Explicit annotation: `val p: Point`.
+            let mut ann_cursor = var_decl.walk();
+            if let Some(user_type) = var_decl
+                .named_children(&mut ann_cursor)
+                .find(|c| c.kind() == "user_type")
+            {
+                if let Some(type_name) = simple_type_name(&user_type, source) {
+                    return Some((name, type_name));
+                }
+            }
 
-        // === Go ===
-        Language::Go => match kind {
-            "function_declaration" => (Some(NodeKind::Function), false),
-            "method_declaration" => (Some(NodeKind::Method), false),
-            "type_declaration" => (Some(NodeKind::Struct), true),
-            "const_declaration" => (Some(NodeKind::Constant), false),
-            "var_declaration" => (Some(NodeKind::Variable), false),
-            "import_declaration" => (Some(NodeKind::Import), false),
-            "type_spec" => (Some(NodeKind::TypeAlias), false),
-            "interface_type" => (Some(NodeKind::Interface), true),
-            "struct_type" => (Some(NodeKind::Struct), true),
-            _ => (None, false),
-        },
+            // Inferred: `val helper = Circle(2.0)`.
+            let mut value_cursor = node.walk();
+            if let Some(init) = node
+                .named_children(&mut value_cursor)
+                .find(|c| c.kind() == "call_expression")
+            {
+                let mut init_cursor = init.walk();
+                if let Some(callee) = init.named_children(&mut init_cursor).next() {
+                    if let Some(type_name) = simple_type_name(&callee, source) {
+                        return Some((name, type_name));
+                    }
+                }
+            }
+            None
+        }
 
-        // === Java ===
-        Language::Java => match kind {
-            "method_declaration" => (Some(NodeKind::Method), false),
-            "class_declaration" => (Some(NodeKind::Class), true),
-            "interface_declaration" => (Some(NodeKind::Interface), true),
-            "enum_declaration" => (Some(NodeKind::Enum), true),
-            "field_declaration" => (Some(NodeKind::Field), false),
-            "import_declaration" => (Some(NodeKind::Import), false),
-            "package_declaration" => (Some(NodeKind::Module), true),
-            "annotation_type_declaration" => (Some(NodeKind::Interface), true),
-            _ => (None, false),
-        },
+        // Java: `local_variable_declaration` → field `type` and a
+        // `variable_declarator` with field `name`.
+        Language::Java => {
+            if node.kind() != "local_variable_declaration" {
+                return None;
+            }
+            let type_node = node.child_by_field_name("type")?;
+            let type_name = simple_type_name(&type_node, source)?;
+            let mut cursor = node.walk();
+            let declarator = node
+                .named_children(&mut cursor)
+                .find(|c| c.kind() == "variable_declarator")?;
+            let name = text_of(&declarator.child_by_field_name("name")?)?;
+            Some((name, type_name))
+        }
 
-        // === C ===
-        Language::C => match kind {
-            "function_definition" => (Some(NodeKind::Function), false),
-            "declaration" => (Some(NodeKind::Variable), false),
-            "struct_specifier" => (Some(NodeKind::Struct), true),
-            "union_specifier" => (Some(NodeKind::Struct), true),
-            "enum_specifier" => (Some(NodeKind::Enum), true),
-            "type_definition" => (Some(NodeKind::TypeAlias), false),
-            "preproc_include" => (Some(NodeKind::Import), false),
-            "preproc_define" => (Some(NodeKind::Constant), false),
-            _ => (None, false),
-        },
+        // TypeScript / JavaScript: `variable_declarator` → field `name`,
+        // value is a `new_expression` whose `constructor` is the type.
+        Language::TypeScript | Language::Tsx | Language::JavaScript | Language::Jsx => {
+            if node.kind() != "variable_declarator" {
+                return None;
+            }
+            let name = text_of(&node.child_by_field_name("name")?)?;
+            let value = node.child_by_field_name("value")?;
+            if value.kind() != "new_expression" {
+                return None;
+            }
+            let constructor = value.child_by_field_name("constructor")?;
+            let type_name = simple_type_name(&constructor, source)?;
+            Some((name, type_name))
+        }
 
-        // === C++ ===
-        Language::Cpp => match kind {
-            "function_definition" => (Some(NodeKind::Function), false),
-            "method_definition" => (Some(NodeKind::Method), false),
-            "class_specifier" => (Some(NodeKind::Class), true),
-            "struct_specifier" => (Some(NodeKind::Struct), true),
-            "union_specifier" => (Some(NodeKind::Struct), true),
-            "enum_specifier" => (Some(NodeKind::Enum), true),
-            "namespace" => (Some(NodeKind::Namespace), true),
-            "declaration" => (Some(NodeKind::Variable), false),
-            "preproc_include" => (Some(NodeKind::Import), false),
-            "preproc_define" => (Some(NodeKind::Constant), false),
-            _ => (None, false),
-        },
+        // Python: `assignment` → field `left` and field `right`; the right
+        // side is a `call` whose `function` is the type.
+        Language::Python => {
+            if node.kind() != "assignment" {
+                return None;
+            }
+            let left = node.child_by_field_name("left")?;
+            if left.kind() != "identifier" {
+                return None;
+            }
+            let name = text_of(&left)?;
+            let right = node.child_by_field_name("right")?;
+            if right.kind() != "call" {
+                return None;
+            }
+            let function = right.child_by_field_name("function")?;
+            let type_name = simple_type_name(&function, source)?;
+            Some((name, type_name))
+        }
 
-        // === C# ===
-        Language::CSharp => match kind {
-            "method_declaration" => (Some(NodeKind::Method), false),
-            "class_declaration" => (Some(NodeKind::Class), true),
-            "interface_declaration" => (Some(NodeKind::Interface), true),
-            "struct_declaration" => (Some(NodeKind::Struct), true),
-            "enum_declaration" => (Some(NodeKind::Enum), true),
-            "field_declaration" => (Some(NodeKind::Field), false),
-            "property_declaration" => (Some(NodeKind::Property), false),
-            "namespace_declaration" => (Some(NodeKind::Namespace), true),
-            "using_directive" => (Some(NodeKind::Import), false),
-            _ => (None, false),
-        },
+        // Go: `short_var_declaration` → field `left` and field `right`.
+        Language::Go => {
+            if node.kind() != "short_var_declaration" {
+                return None;
+            }
+            let left = node.child_by_field_name("left")?;
+            let mut cursor = left.walk();
+            let name_node = left.named_children(&mut cursor).next()?;
+            let name = text_of(&name_node)?;
+            let right = node.child_by_field_name("right")?;
+            let mut right_cursor = right.walk();
+            let callee = right.named_children(&mut right_cursor).next()?;
+            let type_name = simple_type_name(&callee, source)?;
+            Some((name, type_name))
+        }
 
-        // === PHP ===
-        Language::Php => match kind {
-            "function_definition" => (Some(NodeKind::Function), false),
-            "method_declaration" => (Some(NodeKind::Method), false),
-            "class_declaration" => (Some(NodeKind::Class), true),
-            "interface_declaration" => (Some(NodeKind::Interface), true),
-            "trait_declaration" => (Some(NodeKind::Trait), true),
-            "namespace_definition" => (Some(NodeKind::Namespace), true),
-            "property_declaration" => (Some(NodeKind::Property), false),
-            "const_declaration" => (Some(NodeKind::Constant), false),
-            "use_declaration" => (Some(NodeKind::Import), false),
-            _ => (None, false),
-        },
+        // Swift: `property_declaration` → field `name` (the pattern) and
+        // field `value` (the initialiser call).
+        Language::Swift => {
+            if node.kind() != "property_declaration" {
+                return None;
+            }
+            let name = text_of(&node.child_by_field_name("name")?)?;
+            let value = node.child_by_field_name("value")?;
+            if value.kind() != "call_expression" {
+                return None;
+            }
+            let mut cursor = value.walk();
+            let callee = value.named_children(&mut cursor).next()?;
+            let type_name = simple_type_name(&callee, source)?;
+            Some((name, type_name))
+        }
 
-        // === Ruby ===
-        Language::Ruby => match kind {
-            "method" => (Some(NodeKind::Method), false),
-            "def" => (Some(NodeKind::Function), false),
-            "class" => (Some(NodeKind::Class), true),
-            "module" => (Some(NodeKind::Namespace), true),
-            "assignment" => (Some(NodeKind::Variable), false),
-            "begin" => (Some(NodeKind::Variable), false),
-            _ => (None, false),
-        },
+        // Ruby: `helper = Helper.new` → `("helper", "Helper")`.
+        Language::Ruby => {
+            if node.kind() != "assignment" {
+                return None;
+            }
+            let left = node.child_by_field_name("left")?;
+            if left.kind() != "identifier" {
+                return None;
+            }
+            let name = text_of(&left)?;
+            let right = node.child_by_field_name("right")?;
+            if right.kind() != "call" {
+                return None;
+            }
+            // `Helper.new` — the receiver names the type.
+            let method = right.child_by_field_name("method")?;
+            if text_of(&method).as_deref() != Some("new") {
+                return None;
+            }
+            let receiver = right.child_by_field_name("receiver")?;
+            let type_name = simple_type_name(&receiver, source)?;
+            Some((name, type_name))
+        }
 
-        // === Swift ===
-        Language::Swift => match kind {
-            "function_declaration" => (Some(NodeKind::Function), false),
-            "init_declaration" => (Some(NodeKind::Method), false),
-            "deinit_declaration" => (Some(NodeKind::Method), false),
-            "class_declaration" => (Some(NodeKind::Class), true),
-            "struct_declaration" => (Some(NodeKind::Struct), true),
-            "enum_declaration" => (Some(NodeKind::Enum), true),
-            "protocol_declaration" => (Some(NodeKind::Protocol), true),
-            "property_declaration" => (Some(NodeKind::Property), false),
-            "import_declaration" => (Some(NodeKind::Import), false),
-            "extension_declaration" => (Some(NodeKind::Class), true),
-            _ => (None, false),
-        },
+        // Rust: `let_declaration` → field `pattern` (the name), field
+        // `type` (the annotation) and field `value` (the initialiser).
+        // The type is either annotated (`let hooks: SyncManager = ...`) or
+        // inferred from the constructor (`let hooks = SyncManager::new(...)`).
+        Language::Rust => {
+            if node.kind() != "let_declaration" {
+                return None;
+            }
+            let pattern = node.child_by_field_name("pattern")?;
+            if pattern.kind() != "identifier" {
+                return None;
+            }
+            let name = text_of(&pattern)?;
 
-        // === Kotlin ===
-        Language::Kotlin => match kind {
-            "function_declaration" => (Some(NodeKind::Function), false),
-            "property_declaration" => (Some(NodeKind::Property), false),
-            "class_declaration" => (Some(NodeKind::Class), true),
-            "interface_declaration" => (Some(NodeKind::Interface), true),
-            "object_declaration" => (Some(NodeKind::Class), true),
-            "enum_class_body" => (Some(NodeKind::Enum), true),
-            "import_alias" => (Some(NodeKind::Import), false),
-            _ => (None, false),
-        },
+            if let Some(type_node) = node.child_by_field_name("type")
+                && let Some(type_name) = simple_type_name(&type_node, source)
+            {
+                return Some((name, type_name));
+            }
 
-        // === Bash ===
-        Language::Bash => match kind {
-            "function_definition" => (Some(NodeKind::Function), false),
-            "variable_assignment" => (Some(NodeKind::Variable), false),
-            "declaration_command" => (Some(NodeKind::Variable), false),
-            _ => (None, false),
-        },
+            let value = node.child_by_field_name("value")?;
+            if value.kind() != "call_expression" {
+                return None;
+            }
+            let mut cursor = value.walk();
+            let callee = value.named_children(&mut cursor).next()?;
+            // `SyncManager::new(...)` — the path names the type, the last
+            // segment names the constructor.
+            let type_name = if callee.kind() == "scoped_identifier" {
+                let path = callee
+                    .child_by_field_name("path")
+                    .or_else(|| callee.child_by_field_name("type"))?;
+                simple_type_name(&path, source)?
+            } else {
+                simple_type_name(&callee, source)?
+            };
+            Some((name, type_name))
+        }
 
-        // === Lua ===
-        Language::Lua => match kind {
-            "function_declaration" => (Some(NodeKind::Function), false),
-            "method_index_expression" => (Some(NodeKind::Method), false),
-            "assignment_statement" => (Some(NodeKind::Variable), false),
-            "local_declaration" => (Some(NodeKind::Variable), false),
-            _ => (None, false),
-        },
-
-        // === Elixir ===
-        Language::Elixir => match kind {
-            "definition" => (Some(NodeKind::Function), false),
-            "private_definition" => (Some(NodeKind::Function), false),
-            "module" => (Some(NodeKind::Module), true),
-            "struct" => (Some(NodeKind::Struct), true),
-            "protocol" => (Some(NodeKind::Protocol), true),
-            "import" => (Some(NodeKind::Import), false),
-            "alias" => (Some(NodeKind::Import), false),
-            "require" => (Some(NodeKind::Import), false),
-            _ => (None, false),
-        },
-
-        // === Erlang ===
-        Language::Erlang => match kind {
-            "function" => (Some(NodeKind::Function), false),
-            "attribute" => (Some(NodeKind::Variable), false),
-            "module_directive" => (Some(NodeKind::Module), true),
-            "export_attribute" => (Some(NodeKind::Export), false),
-            _ => (None, false),
-        },
-
-        // === Haskell ===
-        Language::Haskell => match kind {
-            "function" => (Some(NodeKind::Function), false),
-            "function_declaration" => (Some(NodeKind::Function), false),
-            "type_class_declaration" => (Some(NodeKind::Protocol), true),
-            "type_declaration" => (Some(NodeKind::TypeAlias), false),
-            "data_type_declaration" => (Some(NodeKind::Struct), true),
-            "module" => (Some(NodeKind::Module), true),
-            "import" => (Some(NodeKind::Import), false),
-            _ => (None, false),
-        },
-
-        // === Scala ===
-        Language::Scala => match kind {
-            "function_definition" => (Some(NodeKind::Function), false),
-            "class_definition" => (Some(NodeKind::Class), true),
-            "object_definition" => (Some(NodeKind::Class), true),
-            "trait_definition" => (Some(NodeKind::Trait), true),
-            "type_alias_definition" => (Some(NodeKind::TypeAlias), false),
-            "import_statement" => (Some(NodeKind::Import), false),
-            "val_definition" => (Some(NodeKind::Variable), false),
-            "var_definition" => (Some(NodeKind::Variable), false),
-            _ => (None, false),
-        },
-
-        // === Groovy ===
-        Language::Groovy => match kind {
-            "method" => (Some(NodeKind::Method), false),
-            "class_declaration" => (Some(NodeKind::Class), true),
-            "interface_declaration" => (Some(NodeKind::Interface), true),
-            "import_statement" => (Some(NodeKind::Import), false),
-            "variable_declarator" => (Some(NodeKind::Variable), false),
-            _ => (None, false),
-        },
-
-        // === Dart ===
-        Language::Dart => match kind {
-            "function_declaration" => (Some(NodeKind::Function), false),
-            "method_definition" => (Some(NodeKind::Method), false),
-            "class_definition" => (Some(NodeKind::Class), true),
-            "mixin_declaration" => (Some(NodeKind::Trait), true),
-            "enum_declaration" => (Some(NodeKind::Enum), true),
-            "variable_declaration" => (Some(NodeKind::Variable), false),
-            "import_or_export_statement" => (Some(NodeKind::Import), false),
-            _ => (None, false),
-        },
-
-        // === Julia ===
-        Language::Julia => match kind {
-            "function_definition" => (Some(NodeKind::Function), false),
-            "method_definition" => (Some(NodeKind::Method), false),
-            "abstract_definition" => (Some(NodeKind::Interface), true),
-            "primitive_definition" => (Some(NodeKind::Struct), true),
-            "const_statement" => (Some(NodeKind::Constant), false),
-            "import_statement" => (Some(NodeKind::Import), false),
-            "using_import_statement" => (Some(NodeKind::Import), false),
-            _ => (None, false),
-        },
-
-        // === Nix ===
-        Language::Nix => match kind {
-            "function_expression" => (Some(NodeKind::Function), false),
-            "binding" => (Some(NodeKind::Variable), false),
-            _ => (None, false),
-        },
-
-        // === R ===
-        Language::R => match kind {
-            "function_definition" => (Some(NodeKind::Function), false),
-            "assignment" => (Some(NodeKind::Variable), false),
-            "super_assignment" => (Some(NodeKind::Variable), false),
-            _ => (None, false),
-        },
-
-        // === MATLAB ===
-        Language::Matlab => match kind {
-            "function_definition" => (Some(NodeKind::Function), false),
-            "field_assignment" => (Some(NodeKind::Variable), false),
-            _ => (None, false),
-        },
-
-        // === Fortran ===
-        Language::Fortran => match kind {
-            "function_definition" => (Some(NodeKind::Function), false),
-            "subroutine_definition" => (Some(NodeKind::Function), false),
-            "interface_definition" => (Some(NodeKind::Interface), true),
-            "type_definition" => (Some(NodeKind::Struct), true),
-            "module_definition" => (Some(NodeKind::Module), true),
-            "variable_declaration" => (Some(NodeKind::Variable), false),
-            _ => (None, false),
-        },
-
-        // === Elm ===
-        Language::Elm => match kind {
-            "function_declaration" => (Some(NodeKind::Function), false),
-            "type_alias_declaration" => (Some(NodeKind::TypeAlias), false),
-            "type_declaration" => (Some(NodeKind::Struct), true),
-            "import_clause" => (Some(NodeKind::Import), false),
-            _ => (None, false),
-        },
-
-        // === Perl ===
-        Language::Perl => match kind {
-            "subroutine_declaration" => (Some(NodeKind::Function), false),
-            "variable_declaration" => (Some(NodeKind::Variable), false),
-            _ => (None, false),
-        },
-
-        // === PowerShell ===
-        Language::Powershell => match kind {
-            "function_statement" => (Some(NodeKind::Function), false),
-            "variable_assignment" => (Some(NodeKind::Variable), false),
-            _ => (None, false),
-        },
-
-        // === Blazor ===
-        Language::Blazor => match kind {
-            "element" => (Some(NodeKind::Component), true),
-            "component_definition" => (Some(NodeKind::Component), true),
-            "method_definition" => (Some(NodeKind::Method), false),
-            _ => (None, false),
-        },
-
-        // === Zig ===
-        Language::Zig => match kind {
-            "fn_decl" => (Some(NodeKind::Function), false),
-            "struct_type_start" => (Some(NodeKind::Struct), true),
-            "enum_decl" => (Some(NodeKind::Enum), true),
-            "const_decl" => (Some(NodeKind::Constant), false),
-            "var_decl" => (Some(NodeKind::Variable), false),
-            "builtin_call_expression" => (Some(NodeKind::Function), false),
-            _ => (None, false),
-        },
-
-        // === Markup/Config (minimal/no extraction) ===
-        Language::Markdown
-        | Language::Toml
-        | Language::Yaml
-        | Language::Liquid
-        | Language::Unknown => (None, false),
+        _ => None,
     }
+}
+
+/// Does `name` look like the name of a type?
+///
+/// Type names conventionally start with an upper-case letter. This is a
+/// heuristic used only to distinguish `Circle(2.0)` from `circle.area()`;
+/// the actual type is confirmed against the symbol index.
+fn looks_like_type_name(name: &str) -> bool {
+    name.chars().next().is_some_and(|c| c.is_uppercase())
+}
+
+/// Split a dotted/qualified callee text into `(qualifier, name)`.
+///
+/// `Helper.doThing` → `("Helper", "doThing")`; `doThing` → `(None, "doThing")`.
+fn split_qualified_name(raw: &str) -> (Option<String>, String) {
+    let mut parts = raw.rsplit(['.', ':', '>']);
+    let last = parts.next().unwrap_or(raw).trim();
+    if last.is_empty() {
+        return (None, raw.to_string());
+    }
+
+    // `a::b` splits on ':' producing an empty trailing segment for `::`.
+    let receiver = raw
+        .strip_suffix(last)
+        .map(|prefix| prefix.trim_end_matches([':', '.', '>', ' ']).trim())
+        .filter(|prefix| !prefix.is_empty())
+        .map(|prefix| {
+            prefix
+                .rsplit(['.', ':', '>'])
+                .next()
+                .unwrap_or(prefix)
+                .trim()
+                .to_string()
+        })
+        .filter(|prefix| !prefix.is_empty() && prefix != "::");
+
+    (receiver, last.to_string())
+}
+
+/// Extract `(qualifier, method)` from a callee node whose method name is its
+/// last identifier.
+///
+/// Handles Kotlin's `navigation_expression` (children: receiver
+/// `identifier`, `.`, member `identifier`) and Swift's (children: `target`
+/// field, `navigation_suffix`).
+///
+/// The receiver is the *first* identifier in the subtree and the method is
+/// the *last*, which works for both grammars.
+fn first_child_last_identifier(callee: &TsNode, source_bytes: &[u8]) -> (Option<String>, String) {
+    let kind = callee.kind();
+    if matches!(
+        kind,
+        "identifier" | "simple_identifier" | "field_identifier" | "type_identifier"
+    ) {
+        let text = callee
+            .utf8_text(source_bytes)
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        return (None, text);
+    }
+
+    // Collect every identifier in document order.
+    let mut identifiers = Vec::new();
+    collect_identifiers(callee, &mut identifiers);
+
+    let text_of = |node: &TsNode| {
+        node.utf8_text(source_bytes)
+            .ok()
+            .map(|s| s.trim().to_string())
+    };
+
+    // The method name is the last identifier.
+    let name = identifiers.last().and_then(text_of).unwrap_or_default();
+
+    // The receiver is the first identifier, unless the method name *is* the
+    // first identifier (an unqualified call).
+    let qualifier = if identifiers.len() >= 2 {
+        identifiers
+            .first()
+            .and_then(text_of)
+            .filter(|t| !t.is_empty())
+    } else {
+        None
+    };
+
+    (qualifier, name)
+}
+
+/// Collect every identifier-ish node in the subtree, in document order.
+fn collect_identifiers<'a>(node: &TsNode<'a>, found: &mut Vec<TsNode<'a>>) {
+    let kind = node.kind();
+    if matches!(
+        kind,
+        "identifier" | "simple_identifier" | "field_identifier" | "type_identifier"
+    ) {
+        found.push(*node);
+        return;
+    }
+
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_identifiers(&child, found);
+    }
+}
+/// Map a grammar node to a graph node kind for `language`.
+///
+/// The mapping table lives in [`crate::grammar`] so it can be checked against
+/// the real grammar by `tests/grammar_contract_test.rs`. Two languages need
+/// extra discrimination that a plain kind→kind table cannot express:
+///
+/// - **Swift** uses `class_declaration` for `struct`, `class`, `enum` and
+///   `extension`, distinguished by the `declaration_kind` field.
+/// - **Kotlin** uses `class_declaration` for `class`, `interface` and `enum`.
+///   `interface` is an anonymous keyword token (there is no
+///   `interface_declaration` node kind), and `enum` shows up as an
+///   `enum_class_body` child.
+fn map_node_kind(node: &TsNode, language: Language) -> (Option<NodeKind>, bool) {
+    let kind = node.kind();
+    let (mapped, container) = grammar::map_kind(language, kind);
+
+    if language == Language::Swift && kind == "class_declaration" {
+        // Swift reuses `class_declaration` for every nominal type. The
+        // `declaration_kind` field points at the introducing keyword token,
+        // whose kind is `struct` / `class` / `enum` / `extension` / `actor`.
+        let declaration_kind = node
+            .child_by_field_name("declaration_kind")
+            .map_or("", |n| n.kind());
+        return match declaration_kind {
+            "struct" => (Some(NodeKind::Struct), container),
+            "enum" => (Some(NodeKind::Enum), container),
+            _ => (Some(NodeKind::Class), container),
+        };
+    }
+
+    if language == Language::Kotlin && kind == "class_declaration" {
+        // Kotlin also reuses `class_declaration` for classes, interfaces and
+        // enum classes.
+        let mut cursor = node.walk();
+        let children: Vec<TsNode> = node.children(&mut cursor).collect();
+        let is_interface = children
+            .iter()
+            .any(|c| !c.is_named() && c.kind() == "interface");
+        let is_enum = children.iter().any(|c| c.kind() == "enum_class_body");
+        if is_interface {
+            return (Some(NodeKind::Interface), container);
+        }
+        if is_enum {
+            return (Some(NodeKind::Enum), container);
+        }
+    }
+
+    (mapped, container)
 }
 
 fn scan_directory(
@@ -2527,7 +3127,7 @@ fn scan_directory(
                 Ok(rel) => rel,
                 Err(_) => continue,
             };
-            let rel_str = rel_path.to_string_lossy().to_string();
+            let rel_str = crate::paths::canonical(rel_path);
 
             if entry.file_type().is_ok_and(|t| t.is_dir()) {
                 let dir_pattern = format!("{}/", rel_str);
@@ -2599,7 +3199,7 @@ fn detect_language(path: &str) -> Language {
         "php" => Language::Php,
         "rb" => Language::Ruby,
         "swift" => Language::Swift,
-        "kt" => Language::Kotlin,
+        "kt" | "kts" => Language::Kotlin,
         "liquid" => Language::Liquid,
         "razor" | "cshtml" => Language::Blazor,
         // New languages
@@ -2631,4 +3231,83 @@ fn now_millis() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as i64)
+}
+
+#[cfg(test)]
+mod tests {
+    #![expect(
+        clippy::expect_used,
+        reason = "test assertions: panicking on setup failure is the correct behavior"
+    )]
+    use super::detect_language;
+    use crate::config::is_language_supported;
+    use crate::types::Language;
+
+    /// Collect every node of `kind` in the tree.
+    fn collect_nodes<'a>(
+        node: tree_sitter::Node<'a>,
+        kind: &str,
+        found: &mut Vec<tree_sitter::Node<'a>>,
+    ) {
+        if node.kind() == kind {
+            found.push(node);
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            collect_nodes(child, kind, found);
+        }
+    }
+
+    #[test]
+    fn kotlin_script_files_map_to_kotlin() {
+        assert_eq!(detect_language("build.gradle.kts"), Language::Kotlin);
+        assert_eq!(detect_language("src/Main.kt"), Language::Kotlin);
+    }
+
+    /// A Rust local takes its type from the annotation, or from the
+    /// constructor it is built with.
+    ///
+    /// The receiver of `hooks.install_hook()` is a variable, not a type,
+    /// so without this the resolver looks for a type called `hooks` and
+    /// finds nothing.
+    #[test]
+    fn a_rust_local_takes_its_type_from_the_constructor() {
+        let source =
+            "fn main() {\n    let hooks = SyncManager::new();\n    let count: usize = 0;\n}\n";
+
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&tree_sitter::Language::new(tree_sitter_rust::LANGUAGE))
+            .expect("set the Rust grammar");
+        let tree = parser.parse(source, None).expect("parse the Rust source");
+
+        let mut declarations = Vec::new();
+        collect_nodes(tree.root_node(), "let_declaration", &mut declarations);
+        assert_eq!(declarations.len(), 2);
+        assert_eq!(
+            super::local_variable_type(&declarations[0], source, Language::Rust),
+            Some(("hooks".to_string(), "SyncManager".to_string()))
+        );
+        assert_eq!(
+            super::local_variable_type(&declarations[1], source, Language::Rust),
+            Some(("count".to_string(), "usize".to_string()))
+        );
+    }
+
+    #[test]
+    fn swift_files_map_to_swift() {
+        assert_eq!(detect_language("Sources/App/Runner.swift"), Language::Swift);
+    }
+
+    #[test]
+    fn unknown_extensions_are_not_supported() {
+        assert_eq!(detect_language("notes.txt"), Language::Unknown);
+        assert!(!is_language_supported(&Language::Unknown));
+    }
+
+    #[test]
+    fn kotlin_and_swift_are_supported() {
+        assert!(is_language_supported(&Language::Kotlin));
+        assert!(is_language_supported(&Language::Swift));
+    }
 }

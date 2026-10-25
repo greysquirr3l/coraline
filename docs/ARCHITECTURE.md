@@ -21,6 +21,7 @@ crates/coraline/src/
 ├── types.rs            # NodeKind, EdgeKind, all shared types
 ├── db.rs               # SQLite layer + schema + FTS
 ├── extraction.rs       # Tree-sitter parsing + indexing pipeline
+├── grammar.rs          # Per-language tree-sitter contract (node kinds, fields, inheritance)
 ├── graph.rs            # Graph traversal and subgraph queries
 ├── clustering.rs       # Louvain community detection + process tracing (Phase 5.1)
 ├── resolution/         # Cross-file reference resolution
@@ -128,6 +129,20 @@ Every `Edge` carries a `confidence: f32` in `[0.0, 1.0]`:
 7. **Trace processes** _(Phase 5.1)_ — For each exported `Function`/`Method` with no incoming `calls` edge (an "entry point"), DFS forward through the call graph with cycle protection and a depth cap, writing `edges.process_id`. Every edge that participates in some process trace gets a `process_id`.
 
 Steps 6 and 7 run as part of every `coraline index` and `coraline sync` after extraction succeeds. The columns are nullable — `cluster_id IS NULL` and `process_id IS NULL` are normal for nodes/edges that don't participate in any cluster or process trace.
+
+### Language Contract
+
+`grammar.rs` holds one `Contract` per language: the tree-sitter node kinds
+that map to each `NodeKind`, the field names that carry a callee name and
+its receiver, the node kinds that are imports, the node kinds that are
+instantiations, and the rules that describe inheritance
+(`extends` / `implements`).
+
+The extractor reads that table instead of matching on grammar-specific
+strings inline. `crates/coraline/tests/grammar_contract_test.rs` asserts
+that every kind and field named in a contract exists in the grammar it
+claims to describe, so a grammar rename fails a test instead of silently
+disabling the language.
 
 ### Incremental Sync
 

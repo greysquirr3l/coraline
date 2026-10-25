@@ -7,6 +7,134 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Per-language grammar contract** (`crates/coraline/src/grammar.rs`).
+  Every tree-sitter node kind, field name, import kind, instantiation kind,
+  and inheritance rule the extractor relies on is now declared in one
+  table per language instead of being hard-coded in `extraction.rs`.
+  The table is public (`coraline::grammar`) so downstream tooling can
+  inspect it, and it is covered by a guard test that asserts every
+  declared string actually exists in the grammar it claims to describe
+  (`crates/coraline/tests/grammar_contract_test.rs`). A grammar rename
+  or a typo now fails a test instead of silently disabling an entire
+  language.
+- **Kotlin and Swift are indexed by default.** `**/*.kt`, `**/*.kts` and
+  `**/*.swift` were added to the default include patterns, `.kts` maps
+  to Kotlin, and `Language::Unknown` is no longer treated as a supported
+  language.
+- **Cross-package call, import, instantiation and inheritance edges.**
+  Calls across package boundaries now resolve when backed by an import
+  or by same-package membership; constructor calls (`Circle(2.0)`)
+  produce `Instantiates` edges; `extends` / `implements` relationships
+  produce `Extends` / `Implements` edges. The #43 guard (unscoped calls
+  must not link to global name matches) is preserved.
+- **Per-language multi-package fixture tests**
+  (`crates/coraline/tests/language_fixture_test.rs`). Seven fixtures —
+  Kotlin, Java, Swift, Go, Python, Ruby and C# — each assert
+  declarations, cross-package call edges, import edges and inheritance
+  edges.
+- **Resolver keyset pagination.** Unresolved references are walked
+  forward through the backlog with a keyset cursor (`ORDER BY id`)
+  instead of an unordered `LIMIT`, so a reference beyond the first page
+  is no longer starved and resolution completes on large repositories.
+  The page size is now a page size, not a cap on the whole pass.
+
+### Fixed
+
+- **Call edges for languages whose tree-sitter node kinds were
+  wrong.** Several languages lost *all* call or import edges because the
+  node kinds and field names used by the extractor did not exist in the
+  grammar: Swift's `struct_declaration` / `enum_declaration` /
+  `extension_declaration` (all `class_declaration`), Ruby's
+  `method_call` (`call`, field `method`), C/C++'s `function_definition`
+  field `name` (nested in `declarator`), PHP's `member_call_expression`
+  field `function` (field `name`), Go's `import_declaration` field
+  `import_spec` (a child kind), Rust's `use_declaration` field `path`
+  (field `argument`), C#'s `using_directive` field `qualified_name`
+  (the path is a child, and there is no `name` field at all), and
+  Python's repeated `name` fields (the path is a `dotted_name`).
+- **Cross-package calls dropped by the resolver.** `rank_candidates`
+  only accepted a candidate that was import-matched, in the same file,
+  or in the same directory — JVM, Go and C# packages live in separate
+  directories, so those calls never resolved. Import paths are now
+  normalised (dotted paths become slash paths, source extensions are
+  stripped), matched at both file and package granularity, and the
+  receiver / qualifier of a qualified call is matched against the
+  local name of an import.
+- **Calls outside a function scope dropped.** Property initialisers,
+  `init {}` blocks, top-level statements and unnamed arrow functions
+  produced no edges; they are now anchored to the file node.
+- **Local-variable type inference.** A qualified call on a local
+  (`helper.area()` where `helper` is a `Circle`) resolves against the
+  receiver's type, so it matches the type's member rather than an
+  unrelated global of the same name.
+- **Type-scoped member resolution.** A qualified call is scoped to the
+  receiver's type across files, so `Circle.area` in another package is
+  found by the type's `contains` edge rather than by name alone.
+- **Resolution no longer stalls on never-resolvable references.**
+  References that cannot be resolved (stdlib calls, for instance) are
+  flagged as *attempted* so they are not retried on every run — and are
+  put back in the queue as soon as the project changes, so a reference
+  that failed once does not silently lose its edge forever.
+- **Cross-file edges survive a re-index.** `edges.source` and
+  `edges.target` both cascade on node deletion, so deleting a file also
+  dropped the edges that *other* files had created against it. Those
+  references are now re-queued as unresolved references instead of
+  disappearing.
+- **Project paths are canonical, so Windows resolves like Unix.**
+  A project's relative paths were stored with the platform's separator,
+  so on Windows they read `src\com\example\util\Formatter.kt`. That path
+  matched no import hint, no package comparison and no `**/*.kt` glob,
+  which is why every cross-package call in a Windows checkout resolved to
+  nothing while the same project on macOS resolved fine. Paths are now
+  stored with `/` separators on every platform (`coraline::paths`), and
+  the resolver compares them separator-agnostically. A Windows checkout
+  re-indexes once on the next sync to pick up the new spelling.
+- **The receiver of a qualified call survives a re-index.** When the
+  file that holds a call target is re-indexed, the edge into it is
+  re-queued as an unresolved reference — but the receiver was dropped
+  on the way, so `util.Area()` came back as a bare `Area` and could be
+  re-pointed at an unrelated symbol with the same name. The receiver is
+  now carried on the edge's metadata and restored when the reference is
+  re-queued.
+- **The same-package fallback no longer links unrelated packages.** The
+  fallback treated "shares a directory prefix" as "is the same
+  package", so in a Rust project `src/runtime.rs` and
+  `src/legacy/api.rs` counted as one package and every same-named
+  function in the tree became a candidate — the name-collision false
+  positives of #43, one directory level up. The fallback now applies
+  only to the languages whose package system *is* the directory layout
+  (the JVM languages, Python, Go, Swift, PHP), and a file that sits in
+  the shared directory is no longer treated as part of the package
+  below it. A qualified call also prefers a candidate whose path names
+  the receiver, which is a stronger signal than tree proximity.
+- **Duplicate edges.** The `edges` table has no unique constraint, so
+  two references that resolved to the same target inserted the same edge
+  twice. Resolved edges are now deduplicated before they are written.
+- **A resolver failure is reported by `sync`.** `sync` swallowed the
+  resolver's error with `let _ = …`, so a failed resolution pass left
+  the index half-built with no message. The error is now collected,
+  logged and returned to the caller (`coraline sync` prints it, and the
+  MCP `sync` tool reports it).
+- **A re-exported symbol's call edge points at the declaration.** A
+  TypeScript `export { helper } from './util'` produced an `Export`
+  node, and the call edge terminated on it instead of on the function
+  it re-exports. The export node is now resolved through to the
+  declaration it stands for.
+- **Rust module imports match `mod.rs`.** `use crate::helper::target;`
+  names the module `helper`, which lives in `src/helper/mod.rs`, but
+  the comparison tested the normalised path against `"/mod.rs"` and
+  compared the hint's last segment with itself — so it never matched
+  and every Rust cross-module call fell back to a name search. The
+  module directory is now compared with the segment before the
+  imported symbol.
+- **TSX, JSX and Blazor are parsed with their own grammars.** TSX and
+  JSX were parsed with the plain TypeScript and JavaScript grammars, so
+  every JSX element was a syntax error and the file produced no nodes;
+  Blazor was parsed with the C# grammar, which has no notion of a
+  component. Each now uses its own grammar and its own contract.
+
 ## [0.13.1] - 2026-09-08
 
 Patch release. Re-issue of `0.13.0` plus six bug-fix commits

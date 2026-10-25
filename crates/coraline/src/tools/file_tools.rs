@@ -387,8 +387,8 @@ fn find_files_recursive(
 
             if matched {
                 let rel = entry.path().strip_prefix(root).map_or_else(
-                    |_| entry.path().to_string_lossy().to_string(),
-                    |p| p.to_string_lossy().to_string(),
+                    |_| crate::paths::canonical(&entry.path()),
+                    crate::paths::canonical,
                 );
                 results.push(rel);
             }
@@ -780,6 +780,7 @@ impl Tool for SyncTool {
             "files_removed":  result.files_removed,
             "nodes_updated":  result.nodes_updated,
             "duration_ms":    result.duration_ms,
+            "errors":         result.errors,
         }))
     }
 

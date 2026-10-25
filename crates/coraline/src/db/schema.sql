@@ -16,6 +16,12 @@ VALUES (2, strftime('%s', 'now') * 1000, 'Add edges.confidence for resolution-st
 INSERT INTO schema_versions (version, applied_at, description)
 VALUES (3, strftime('%s', 'now') * 1000, 'Add nodes.cluster_id + edges.process_id for Louvain clustering and process tracing (Phase 5.1)');
 
+INSERT OR IGNORE INTO schema_versions (version, applied_at, description)
+VALUES (4, strftime('%s', 'now') * 1000, 'Add unresolved_refs.attempted so failed references are not retried until the project changes');
+
+INSERT OR IGNORE INTO schema_versions (version, applied_at, description)
+VALUES (5, strftime('%s', 'now') * 1000, 'Add unresolved_refs.qualifier for the receiver of a qualified reference');
+
 CREATE TABLE IF NOT EXISTS nodes (
     id TEXT PRIMARY KEY,
     kind TEXT NOT NULL,
@@ -73,6 +79,8 @@ CREATE TABLE IF NOT EXISTS unresolved_refs (
     line INTEGER NOT NULL,
     col INTEGER NOT NULL,
     candidates TEXT,
+    attempted INTEGER NOT NULL DEFAULT 0,
+    qualifier TEXT,
     FOREIGN KEY (from_node_id) REFERENCES nodes(id) ON DELETE CASCADE
 );
 
@@ -120,6 +128,7 @@ CREATE INDEX IF NOT EXISTS idx_files_modified_at ON files(modified_at);
 
 CREATE INDEX IF NOT EXISTS idx_unresolved_from_node ON unresolved_refs(from_node_id);
 CREATE INDEX IF NOT EXISTS idx_unresolved_name ON unresolved_refs(reference_name);
+CREATE INDEX IF NOT EXISTS idx_unresolved_pending ON unresolved_refs(attempted, id);
 
 CREATE TABLE IF NOT EXISTS vectors (
     node_id TEXT PRIMARY KEY,
