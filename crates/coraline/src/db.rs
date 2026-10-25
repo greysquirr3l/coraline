@@ -101,6 +101,41 @@ pub fn apply_incremental_migrations(conn: &Connection) -> std::io::Result<()> {
             .map_err(io_other)?;
     }
 
+    // v4 → v5: add `unresolved_refs.attempted` so a reference that was
+    // tried and failed to resolve is not retried on every run.
+    if !column_exists(conn, "unresolved_refs", "attempted")? {
+        debug!("applying migration: unresolved_refs.attempted");
+        conn.execute_batch(
+            "ALTER TABLE unresolved_refs ADD COLUMN attempted INTEGER NOT NULL DEFAULT 0;
+             INSERT OR IGNORE INTO schema_versions (version, applied_at, description)
+             VALUES (4, strftime('%s', 'now') * 1000,
+                     'Add unresolved_refs.attempted so failed references are not retried until the project changes');",
+        )
+        .map_err(io_other)?;
+    }
+
+    // Supporting index for the keyset listing. `CREATE ... IF NOT EXISTS`
+    // keeps this block idempotent, so it is safe to run on every connection
+    // open.
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_unresolved_pending ON unresolved_refs(attempted, id);",
+    )
+    .map_err(io_other)?;
+
+    // v5 → v6: add `unresolved_refs.qualifier` — the receiver of a
+    // qualified reference (`Helper.doThing()` → `Helper`). Nullable so
+    // existing rows migrate cleanly.
+    if !column_exists(conn, "unresolved_refs", "qualifier")? {
+        debug!("applying migration: unresolved_refs.qualifier");
+        conn.execute_batch(
+            "ALTER TABLE unresolved_refs ADD COLUMN qualifier TEXT;
+             INSERT OR IGNORE INTO schema_versions (version, applied_at, description)
+             VALUES (5, strftime('%s', 'now') * 1000,
+                     'Add unresolved_refs.qualifier for the receiver of a qualified reference');",
+        )
+        .map_err(io_other)?;
+    }
+
     Ok(())
 }
 
@@ -165,7 +200,9 @@ pub fn clear_database(conn: &Connection) -> std::io::Result<()> {
                DELETE FROM nodes;
                DELETE FROM files;";
 
-    conn.execute_batch(sql).map_err(io_other)
+    conn.execute_batch(sql).map_err(io_other)?;
+
+    Ok(())
 }
 
 pub fn get_file_record(conn: &Connection, path: &str) -> std::io::Result<Option<FileRecord>> {
@@ -348,8 +385,8 @@ pub fn insert_unresolved_refs(
         let mut stmt = tx
             .prepare(
                 "INSERT INTO unresolved_refs (
-                    from_node_id, reference_name, reference_kind, line, col, candidates
-                 ) VALUES (?, ?, ?, ?, ?, ?)",
+                    from_node_id, reference_name, reference_kind, line, col, candidates, qualifier
+                 ) VALUES (?, ?, ?, ?, ?, ?, ?)",
             )
             .map_err(io_other)?;
 
@@ -365,6 +402,7 @@ pub fn insert_unresolved_refs(
                 unresolved.line,
                 unresolved.column,
                 candidates,
+                unresolved.qualifier,
             ])
             .map_err(io_other)?;
         }
@@ -489,8 +527,8 @@ fn insert_unresolved_ref_batch(
     let mut stmt = tx
         .prepare(
             "INSERT INTO unresolved_refs (
-                from_node_id, reference_name, reference_kind, line, col, candidates
-             ) VALUES (?, ?, ?, ?, ?, ?)",
+                from_node_id, reference_name, reference_kind, line, col, candidates, qualifier
+             ) VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
         .map_err(io_other)?;
     for r in unresolved_refs {
@@ -505,6 +543,7 @@ fn insert_unresolved_ref_batch(
             r.line,
             r.column,
             candidates,
+            r.qualifier,
         ])
         .map_err(io_other)?;
     }
@@ -779,34 +818,54 @@ pub fn get_edges_by_target_with_confidence(
     Ok(results)
 }
 
-pub fn list_unresolved_refs(
+/// Columns of `unresolved_refs` selected by the listing helpers, in the
+/// order expected by [`row_to_unresolved_ref`].
+const UNRESOLVED_REF_COLUMNS: &str =
+    "id, from_node_id, reference_name, reference_kind, line, col, candidates, qualifier";
+
+/// Map a row of the `unresolved_refs` listing onto [`UnresolvedRefRow`].
+fn row_to_unresolved_ref(row: &rusqlite::Row<'_>) -> rusqlite::Result<UnresolvedRefRow> {
+    let id: i64 = row.get(0)?;
+    let reference_kind_raw: String = row.get(3)?;
+    let candidates_raw: Option<String> = row.get(6)?;
+    let qualifier: Option<String> = row.get(7)?;
+    Ok(UnresolvedRefRow {
+        id,
+        reference: UnresolvedReference {
+            from_node_id: row.get(1)?,
+            reference_name: row.get(2)?,
+            reference_kind: parse_edge_kind(&reference_kind_raw),
+            line: row.get(4)?,
+            column: row.get(5)?,
+            candidates: candidates_raw.and_then(|raw| serde_json::from_str(&raw).ok()),
+            qualifier,
+        },
+    })
+}
+
+/// Return the next page of unresolved references with an id greater than
+/// `after_id`.
+///
+/// This is the keyset-pagination primitive: `unresolved_refs.id` is an
+/// `INTEGER PRIMARY KEY AUTOINCREMENT`, so it increases monotonically and
+/// `id > after_id` is a stable, gap-free cursor. Only references that have
+/// not been attempted yet are returned.
+pub fn list_unresolved_refs_after(
     conn: &Connection,
+    after_id: i64,
     limit: usize,
 ) -> std::io::Result<Vec<UnresolvedRefRow>> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT id, from_node_id, reference_name, reference_kind, line, col, candidates
-             FROM unresolved_refs LIMIT ?",
-        )
-        .map_err(io_other)?;
     let limit_i64 = i64::try_from(limit).unwrap_or(i64::MAX);
+    let mut stmt = conn
+        .prepare(&format!(
+            "SELECT {UNRESOLVED_REF_COLUMNS} FROM unresolved_refs
+             WHERE id > ?1 AND attempted = 0
+             ORDER BY id ASC
+             LIMIT ?2"
+        ))
+        .map_err(io_other)?;
     let rows = stmt
-        .query_map(params![limit_i64], |row| {
-            let id: i64 = row.get(0)?;
-            let reference_kind_raw: String = row.get(3)?;
-            let candidates_raw: Option<String> = row.get(6)?;
-            Ok(UnresolvedRefRow {
-                id,
-                reference: UnresolvedReference {
-                    from_node_id: row.get(1)?,
-                    reference_name: row.get(2)?,
-                    reference_kind: parse_edge_kind(&reference_kind_raw),
-                    line: row.get(4)?,
-                    column: row.get(5)?,
-                    candidates: candidates_raw.and_then(|raw| serde_json::from_str(&raw).ok()),
-                },
-            })
-        })
+        .query_map(params![after_id, limit_i64], row_to_unresolved_ref)
         .map_err(io_other)?;
 
     let mut results = Vec::new();
@@ -814,6 +873,126 @@ pub fn list_unresolved_refs(
         results.push(row.map_err(io_other)?);
     }
     Ok(results)
+}
+
+/// Return every not-yet-attempted unresolved reference by walking the
+/// keyset pages until the table is exhausted.
+///
+/// Unlike a single `LIMIT ?` query this is not capped: the whole backlog is
+/// returned, so callers cannot get stuck re-reading the same first rows.
+pub fn list_all_unresolved_refs_paged(
+    conn: &Connection,
+    page_size: usize,
+) -> std::io::Result<Vec<UnresolvedRefRow>> {
+    if page_size == 0 {
+        return Ok(Vec::new());
+    }
+
+    let mut all = Vec::new();
+    let mut cursor = 0i64;
+    loop {
+        let page = list_unresolved_refs_after(conn, cursor, page_size)?;
+        if page.is_empty() {
+            break;
+        }
+        if let Some(last) = page.last() {
+            cursor = last.id;
+        }
+        let page_len = page.len();
+        all.extend(page);
+        if page_len < page_size {
+            break;
+        }
+    }
+    Ok(all)
+}
+
+/// Flag the given unresolved references as attempted.
+///
+/// Use this for references that were tried and could not be resolved: they
+/// are excluded from the default listing, so they are not retried forever.
+pub fn mark_unresolved_refs_attempted(
+    conn: &mut Connection,
+    ids: &[i64],
+) -> std::io::Result<usize> {
+    if ids.is_empty() {
+        return Ok(0);
+    }
+
+    let tx = conn.transaction().map_err(io_other)?;
+    let mut marked = 0usize;
+    {
+        let mut stmt = tx
+            .prepare("UPDATE unresolved_refs SET attempted = 1 WHERE id = ?1 AND attempted = 0")
+            .map_err(io_other)?;
+        for id in ids {
+            marked += stmt.execute(params![id]).map_err(io_other)?;
+        }
+    }
+    tx.commit().map_err(io_other)?;
+    Ok(marked)
+}
+
+/// Flag every pending unresolved reference as attempted.
+///
+/// A reference is removed from `unresolved_refs` once it resolves, so a row
+/// that is still there after a resolution pass was *tried and failed*. This
+/// keeps the next pass cheap (calls into the standard library can never be
+/// resolved and would otherwise be retried on every run) without losing the
+/// reference — [`reset_unresolved_refs_attempted`] puts it back in the
+/// queue as soon as the project changes.
+pub fn mark_pending_unresolved_refs_attempted(conn: &Connection) -> std::io::Result<usize> {
+    conn.execute(
+        "UPDATE unresolved_refs SET attempted = 1 WHERE attempted = 0",
+        [],
+    )
+    .map_err(io_other)
+}
+
+/// Put every unresolved reference back in the queue.
+///
+/// Call this when the project has changed — a new or edited file may
+/// declare the symbol a previously-failed reference was looking for. Without
+/// it a reference that failed once would never be retried, and the edge it
+/// should have produced would silently never appear.
+pub fn reset_unresolved_refs_attempted(conn: &Connection) -> std::io::Result<usize> {
+    conn.execute(
+        "UPDATE unresolved_refs SET attempted = 0 WHERE attempted = 1",
+        [],
+    )
+    .map_err(io_other)
+}
+
+/// Return the largest `unresolved_refs.id` currently stored, or `0` when the
+/// table is empty.
+pub fn max_unresolved_ref_id(conn: &Connection) -> std::io::Result<i64> {
+    conn.query_row(
+        "SELECT COALESCE(MAX(id), 0) FROM unresolved_refs",
+        [],
+        |row| row.get::<_, i64>(0),
+    )
+    .map_err(io_other)
+}
+
+/// Return the total number of unresolved references, attempted or not.
+pub fn count_unresolved_refs(conn: &Connection) -> std::io::Result<usize> {
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM unresolved_refs", [], |row| row.get(0))
+        .map_err(io_other)?;
+    Ok(usize::try_from(count).unwrap_or(0))
+}
+
+/// Return the number of unresolved references that have not been attempted
+/// yet — the size of the remaining resolution backlog.
+pub fn count_pending_unresolved_refs(conn: &Connection) -> std::io::Result<usize> {
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM unresolved_refs WHERE attempted = 0",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(io_other)?;
+    Ok(usize::try_from(count).unwrap_or(0))
 }
 
 pub fn delete_unresolved_refs(conn: &mut Connection, ids: &[i64]) -> std::io::Result<()> {
@@ -832,8 +1011,114 @@ pub fn delete_unresolved_refs(conn: &mut Connection, ids: &[i64]) -> std::io::Re
     tx.commit().map_err(io_other)
 }
 
+/// An edge that pointed into a file from a *different* file.
+struct CrossFileIncomingEdge {
+    source: String,
+    kind: String,
+    line: i64,
+    col: i64,
+    target_name: String,
+}
+
+/// Re-queue cross-file edges that point into `path` as unresolved
+/// references.
+///
+/// `edges.source` and `edges.target` both cascade on node deletion, so
+/// deleting the nodes of a file also drops the edges that *other* files
+/// created against it. Those references are re-inserted into
+/// `unresolved_refs` (keyed on the surviving source node) so the resolver
+/// can rebuild the edges once the file has been re-indexed.
+///
+/// Edges whose source also lives in the deleted file are skipped — they are
+/// genuinely gone.
+///
+/// The insert is guarded against an identical *pending* reference, so
+/// re-indexing the same file twice does not pile up duplicate rows. A
+/// reference that was already attempted and failed does not block the
+/// insert: after a re-index the target may well resolve now, so the
+/// reference gets a fresh attempt.
+fn requeue_cross_file_incoming_edges(tx: &Transaction, path: &str) -> std::io::Result<usize> {
+    let incoming = {
+        let mut stmt = tx
+            .prepare(
+                "SELECT e.source, e.kind, COALESCE(e.line, 0), COALESCE(e.col, 0), t.name
+                 FROM edges e
+                 JOIN nodes t ON t.id = e.target
+                 JOIN nodes s ON s.id = e.source
+                 WHERE t.file_path = ?1 AND s.file_path <> ?1",
+            )
+            .map_err(io_other)?;
+        let rows = stmt
+            .query_map(params![path], |row| {
+                Ok(CrossFileIncomingEdge {
+                    source: row.get(0)?,
+                    kind: row.get(1)?,
+                    line: row.get(2)?,
+                    col: row.get(3)?,
+                    target_name: row.get(4)?,
+                })
+            })
+            .map_err(io_other)?;
+
+        let mut collected = Vec::new();
+        for row in rows {
+            collected.push(row.map_err(io_other)?);
+        }
+        collected
+    };
+
+    if incoming.is_empty() {
+        return Ok(0);
+    }
+
+    let mut requeued = 0usize;
+    {
+        let mut stmt = tx
+            .prepare(
+                "INSERT INTO unresolved_refs
+                     (from_node_id, reference_name, reference_kind, line, col, candidates, qualifier)
+                 SELECT ?1, ?2, ?3, ?4, ?5, NULL, NULL
+                 WHERE NOT EXISTS (
+                     SELECT 1 FROM unresolved_refs u
+                     WHERE u.from_node_id = ?1
+                       AND u.reference_name = ?2
+                       AND u.reference_kind = ?3
+                       AND u.line = ?4
+                       AND u.col = ?5
+                       AND u.attempted = 0
+                 )",
+            )
+            .map_err(io_other)?;
+
+        for edge in &incoming {
+            requeued += stmt
+                .execute(params![
+                    edge.source,
+                    edge.target_name,
+                    edge.kind,
+                    edge.line,
+                    edge.col
+                ])
+                .map_err(io_other)?;
+        }
+    }
+    Ok(requeued)
+}
+
+/// Delete a file's record, its nodes and everything that cascades from them.
+///
+/// Cross-file edges that pointed into the deleted file are re-queued as
+/// unresolved references first, so they are rebuilt once the file is
+/// indexed again.
 pub fn delete_file(conn: &mut Connection, path: &str) -> std::io::Result<()> {
     let tx = conn.transaction().map_err(io_other)?;
+    let requeued = requeue_cross_file_incoming_edges(&tx, path)?;
+    if requeued > 0 {
+        debug!(
+            path,
+            requeued, "re-queued cross-file references into the deleted file"
+        );
+    }
     tx.execute("DELETE FROM nodes WHERE file_path = ?", params![path])
         .map_err(io_other)?;
     tx.execute("DELETE FROM files WHERE path = ?", params![path])
