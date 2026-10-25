@@ -82,6 +82,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dropped the edges that *other* files had created against it. Those
   references are now re-queued as unresolved references instead of
   disappearing.
+- **Project paths are canonical, so Windows resolves like Unix.**
+  A project's relative paths were stored with the platform's separator,
+  so on Windows they read `src\com\example\util\Formatter.kt`. That path
+  matched no import hint, no package comparison and no `**/*.kt` glob,
+  which is why every cross-package call in a Windows checkout resolved to
+  nothing while the same project on macOS resolved fine. Paths are now
+  stored with `/` separators on every platform (`coraline::paths`), and
+  the resolver compares them separator-agnostically. A Windows checkout
+  re-indexes once on the next sync to pick up the new spelling.
 
 ## [0.13.1] - 2026-09-08
 

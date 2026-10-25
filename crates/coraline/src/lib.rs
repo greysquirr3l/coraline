@@ -16,6 +16,7 @@ pub mod graph;
 pub mod logging;
 pub mod mcp;
 pub mod memory;
+pub mod paths;
 pub mod resolution;
 pub mod security;
 pub mod sync;

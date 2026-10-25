@@ -3070,7 +3070,7 @@ fn scan_directory(
                 Ok(rel) => rel,
                 Err(_) => continue,
             };
-            let rel_str = rel_path.to_string_lossy().to_string();
+            let rel_str = crate::paths::canonical(rel_path);
 
             if entry.file_type().is_ok_and(|t| t.is_dir()) {
                 let dir_pattern = format!("{}/", rel_str);

@@ -287,10 +287,7 @@ fn framework_fallback(
 }
 
 fn relative_to_root(path: &Path, root: &Path) -> String {
-    path.strip_prefix(root)
-        .unwrap_or(path)
-        .to_string_lossy()
-        .into_owned()
+    crate::paths::canonical(path.strip_prefix(root).unwrap_or(path))
 }
 
 /// Keep only the nodes that could plausibly be the target of a call.
@@ -332,7 +329,7 @@ fn rank_candidates(
         }
     }
 
-    let from_dir = Path::new(&from_node.file_path).parent();
+    let from_dir = directory_of(&from_node.file_path);
     let mut import_matches = Vec::new();
     let mut package_matches = Vec::new();
     let mut same_file = Vec::new();
@@ -353,7 +350,7 @@ fn rank_candidates(
         }
         if node.file_path == from_node.file_path {
             same_file.push(node);
-        } else if from_dir.is_some() && Path::new(&node.file_path).parent() == from_dir {
+        } else if !from_dir.is_empty() && directory_of(&node.file_path) == from_dir {
             same_dir.push(node);
         } else if in_same_package(&from_node.file_path, &node.file_path) {
             same_package.push(node);
@@ -618,6 +615,10 @@ fn ends_on_segment_boundary(path: &str, suffix: &str) -> bool {
 fn normalise_module_path(path: &str) -> String {
     let path = path.trim();
     let path = path.replace("::", "/");
+    // A path that reaches the resolver as a string may still carry Windows
+    // separators, either because it came from an older database or because
+    // it was read out of source. The canonical form uses `/` throughout.
+    let path = crate::paths::normalise_separators(&path);
 
     let has_slash = path.contains('/');
     let has_known_extension = [
@@ -654,15 +655,23 @@ fn normalise_module_path(path: &str) -> String {
 /// directory layout. A call from `com/example/app/Main.kt` to a symbol in
 /// `com/example/util/Helper.kt` is same-package when both live under the same
 /// package root.
+/// The directory a canonical path lives in, or an empty string when the
+/// path has no directory part.
+///
+/// The comparison is done on the string rather than with [`Path::parent`]
+/// so that it does not depend on the platform's path separator — a
+/// Windows path rendered with `\` has to bucket the same way as the same
+/// path rendered with `/`.
+fn directory_of(file_path: &str) -> String {
+    let normalised = crate::paths::normalise_separators(file_path);
+    crate::paths::parent(&normalised).to_string()
+}
+
 fn in_same_package(from_file: &str, to_file: &str) -> bool {
-    let from_dir = std::path::Path::new(from_file)
-        .parent()
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_default();
-    let to_dir = std::path::Path::new(to_file)
-        .parent()
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_default();
+    let from_path = crate::paths::normalise_separators(from_file);
+    let to_path = crate::paths::normalise_separators(to_file);
+    let from_dir = crate::paths::parent(&from_path);
+    let to_dir = crate::paths::parent(&to_path);
 
     if from_dir.is_empty() || to_dir.is_empty() {
         return false;
@@ -736,8 +745,16 @@ fn parse_import_signature(signature: &str) -> Option<ImportHint> {
 
 #[cfg(test)]
 mod tests {
+    #![expect(
+        clippy::expect_used,
+        reason = "test assertions: panicking on setup failure is the correct behavior"
+    )]
     use super::confidence_for_reference;
-    use super::{matches_import_hint, matches_import_hint_exact, matches_import_package};
+    use super::{
+        ImportHint, in_same_package, matches_import_hint, matches_import_hint_exact,
+        matches_import_package, rank_candidates,
+    };
+    use crate::types::{EdgeKind, Language, Node, NodeKind};
 
     #[test]
     fn confidence_is_high_for_strongly_typed_rust_paths() {
@@ -795,6 +812,103 @@ mod tests {
             "src/com/example/core/Shape.kt",
             "com.example.util.Helper"
         ));
+    }
+
+    /// A path that reaches the resolver with Windows separators has to
+    /// match exactly like the same path with forward slashes.
+    ///
+    /// The database used to store `src\com\example\util\Formatter.kt` on
+    /// Windows, which matched neither the import hint nor the package
+    /// comparison, so every cross-package call in a Windows checkout
+    /// resolved to nothing.
+    #[test]
+    fn windows_separators_match_the_same_way_as_forward_slashes() {
+        assert!(matches_import_hint(
+            "src\\com\\example\\util\\Formatter.kt",
+            "com.example.util.Formatter"
+        ));
+        assert!(matches_import_package(
+            "src\\com\\example\\util\\Shapes.kt",
+            "com.example.util.Helper"
+        ));
+        // Two packages under the same root, as in a JVM layout.
+        assert!(in_same_package(
+            "src/com/example/util/Formatter.kt",
+            "src/com/example/core/Shape.kt"
+        ));
+        assert!(in_same_package(
+            "src\\com\\example\\util\\Formatter.kt",
+            "src\\com\\example\\core\\Shape.kt"
+        ));
+    }
+
+    fn node(id: &str, name: &str, file_path: &str) -> Node {
+        Node {
+            id: id.to_string(),
+            kind: NodeKind::Function,
+            name: name.to_string(),
+            qualified_name: name.to_string(),
+            file_path: file_path.to_string(),
+            language: Language::Kotlin,
+            start_line: 1,
+            end_line: 1,
+            start_column: 0,
+            end_column: 0,
+            docstring: None,
+            signature: None,
+            visibility: None,
+            is_exported: false,
+            is_async: false,
+            is_static: false,
+            is_abstract: false,
+            decorators: None,
+            type_parameters: None,
+            cluster_id: None,
+            updated_at: 0,
+        }
+    }
+
+    /// The candidate ranking has to pick the same target whether the paths
+    /// use `/` or `\`.
+    ///
+    /// Windows used to store `src\com\example\util\Formatter.kt`, which
+    /// matched neither the import hint nor the package comparison, so the
+    /// candidate fell into the "unrelated" bucket — and a call reference
+    /// with an unrelated candidate produces no edge at all. Every
+    /// cross-package call in a Windows checkout therefore resolved to
+    /// nothing.
+    #[test]
+    fn candidate_ranking_is_the_same_for_windows_and_unix_paths() {
+        let conn = rusqlite::Connection::open_in_memory().expect("open database");
+        conn.execute_batch(crate::db::SCHEMA_SQL)
+            .expect("apply schema");
+        let caller = node("caller", "run", "src\\com\\example\\app\\Main.kt");
+        let target = node("target", "format", "src\\com\\example\\util\\Formatter.kt");
+        let hint = ImportHint {
+            module_path: "com.example.util.Formatter".to_string(),
+            export_name: None,
+        };
+
+        // A candidate in an unrelated package must not be picked up: that
+        // is the #43 guard, and it has to hold for Windows paths too.
+        let unrelated = node("unrelated", "format", "src\\com\\other\\Format.kt");
+
+        let ranked = rank_candidates(
+            &conn,
+            vec![target, unrelated],
+            Some(&caller),
+            Some(&hint),
+            "format",
+            EdgeKind::Calls,
+        )
+        .expect("rank candidates");
+
+        assert_eq!(
+            ranked.len(),
+            1,
+            "only the imported candidate may be selected, got {ranked:?}"
+        );
+        assert_eq!(ranked.first().map(|n| n.id.as_str()), Some("target"));
     }
 
     #[test]
