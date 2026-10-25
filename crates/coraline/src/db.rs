@@ -6,8 +6,8 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use tracing::{debug, warn};
 
 use crate::types::{
-    Edge, EdgeKind, FileRecord, Language, Node, NodeKind, SearchResult, UnresolvedReference,
-    Visibility,
+    EDGE_QUALIFIER_METADATA, Edge, EdgeKind, FileRecord, Language, Node, NodeKind, SearchResult,
+    UnresolvedReference, Visibility,
 };
 use crate::utils::f64_to_f32_lossy;
 
@@ -1018,6 +1018,9 @@ struct CrossFileIncomingEdge {
     line: i64,
     col: i64,
     target_name: String,
+    /// The receiver of the reference the edge was resolved from, when the
+    /// call site was qualified (`util.Area()` has the qualifier `util`).
+    qualifier: Option<String>,
 }
 
 /// Re-queue cross-file edges that point into `path` as unresolved
@@ -1032,16 +1035,20 @@ struct CrossFileIncomingEdge {
 /// Edges whose source also lives in the deleted file are skipped — they are
 /// genuinely gone.
 ///
-/// The insert is guarded against an identical *pending* reference, so
-/// re-indexing the same file twice does not pile up duplicate rows. A
-/// reference that was already attempted and failed does not block the
-/// insert: after a re-index the target may well resolve now, so the
-/// reference gets a fresh attempt.
+/// The qualifier of the original reference is carried over from the edge's
+/// metadata. Without it a qualified call (`util.Area()`) would come back as
+/// an unqualified `Area`, and the resolver could re-point it at an
+/// unrelated symbol that happens to share the name.
+///
+/// A reference that already exists is re-armed rather than duplicated: the
+/// row is put back in the queue and a missing qualifier is filled in. That
+/// keeps the table from growing a row per re-index, and keeps a duplicate
+/// from turning into a duplicate edge.
 fn requeue_cross_file_incoming_edges(tx: &Transaction, path: &str) -> std::io::Result<usize> {
     let incoming = {
         let mut stmt = tx
             .prepare(
-                "SELECT e.source, e.kind, COALESCE(e.line, 0), COALESCE(e.col, 0), t.name
+                "SELECT e.source, e.kind, COALESCE(e.line, 0), COALESCE(e.col, 0), t.name, e.metadata
                  FROM edges e
                  JOIN nodes t ON t.id = e.target
                  JOIN nodes s ON s.id = e.source
@@ -1056,6 +1063,7 @@ fn requeue_cross_file_incoming_edges(tx: &Transaction, path: &str) -> std::io::R
                     line: row.get(2)?,
                     col: row.get(3)?,
                     target_name: row.get(4)?,
+                    qualifier: qualifier_from_metadata(row.get(5)?),
                 })
             })
             .map_err(io_other)?;
@@ -1073,11 +1081,22 @@ fn requeue_cross_file_incoming_edges(tx: &Transaction, path: &str) -> std::io::R
 
     let mut requeued = 0usize;
     {
-        let mut stmt = tx
+        let mut rearm = tx
+            .prepare(
+                "UPDATE unresolved_refs
+                    SET attempted = 0, qualifier = COALESCE(qualifier, ?6)
+                  WHERE from_node_id = ?1
+                    AND reference_name = ?2
+                    AND reference_kind = ?3
+                    AND line = ?4
+                    AND col = ?5",
+            )
+            .map_err(io_other)?;
+        let mut insert = tx
             .prepare(
                 "INSERT INTO unresolved_refs
                      (from_node_id, reference_name, reference_kind, line, col, candidates, qualifier)
-                 SELECT ?1, ?2, ?3, ?4, ?5, NULL, NULL
+                 SELECT ?1, ?2, ?3, ?4, ?5, NULL, ?6
                  WHERE NOT EXISTS (
                      SELECT 1 FROM unresolved_refs u
                      WHERE u.from_node_id = ?1
@@ -1085,24 +1104,43 @@ fn requeue_cross_file_incoming_edges(tx: &Transaction, path: &str) -> std::io::R
                        AND u.reference_kind = ?3
                        AND u.line = ?4
                        AND u.col = ?5
-                       AND u.attempted = 0
                  )",
             )
             .map_err(io_other)?;
 
         for edge in &incoming {
-            requeued += stmt
-                .execute(params![
-                    edge.source,
-                    edge.target_name,
-                    edge.kind,
-                    edge.line,
-                    edge.col
-                ])
-                .map_err(io_other)?;
+            let params = params![
+                edge.source,
+                edge.target_name,
+                edge.kind,
+                edge.line,
+                edge.col,
+                edge.qualifier
+            ];
+            let rearmed = rearm.execute(params).map_err(io_other)?;
+            if rearmed == 0 {
+                insert.execute(params).map_err(io_other)?;
+            }
+            requeued += 1;
         }
     }
     Ok(requeued)
+}
+
+/// Read the reference qualifier out of an edge's metadata.
+///
+/// The metadata is stored as a JSON object; the qualifier is the value
+/// under [`EDGE_QUALIFIER_METADATA`]. Anything else in the metadata, or
+/// metadata that is not an object at all, is ignored.
+fn qualifier_from_metadata(metadata: Option<String>) -> Option<String> {
+    let metadata = metadata?;
+    let parsed: serde_json::Value = serde_json::from_str(&metadata).ok()?;
+    let qualifier = parsed.get(EDGE_QUALIFIER_METADATA)?.as_str()?;
+    if qualifier.is_empty() {
+        None
+    } else {
+        Some(qualifier.to_string())
+    }
 }
 
 /// Delete a file's record, its nodes and everything that cascades from them.

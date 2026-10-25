@@ -66,6 +66,12 @@ struct Graph {
     /// check the kind of the *same* node.
     nodes: Vec<(String, NodeKind)>,
     call_edges: Vec<(String, String)>,
+    /// Call edges with the kind of the node they point at.
+    ///
+    /// Two nodes can share a name — a declaration and the export node
+    /// that re-exports it — so the name alone does not say which one an
+    /// edge reaches.
+    call_edges_with_target_kind: Vec<(String, String, NodeKind)>,
     import_edges: Vec<(String, String)>,
     extends_edges: Vec<(String, String)>,
     implements_edges: Vec<(String, String)>,
@@ -77,6 +83,7 @@ fn load_graph(project_root: &Path) -> Graph {
 
     let mut nodes = Vec::new();
     let mut call_edges = Vec::new();
+    let mut call_edges_with_target_kind = Vec::new();
     let mut import_edges = Vec::new();
     let mut extends_edges = Vec::new();
     let mut implements_edges = Vec::new();
@@ -96,10 +103,13 @@ fn load_graph(project_root: &Path) -> Graph {
         .expect("query nodes");
 
     let mut names: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut kinds_by_id: std::collections::HashMap<String, NodeKind> =
+        std::collections::HashMap::new();
     for row in rows {
         let (id, name, kind) = row.expect("read node row");
-        names.insert(id, name.clone());
+        names.insert(id.clone(), name.clone());
         if let Ok(kind) = serde_json::from_value::<NodeKind>(serde_json::Value::String(kind)) {
+            kinds_by_id.insert(id, kind);
             nodes.push((name, kind));
         }
     }
@@ -122,7 +132,12 @@ fn load_graph(project_root: &Path) -> Graph {
         let source_name = names.get(&source).cloned().unwrap_or_default();
         let target_name = names.get(&target).cloned().unwrap_or_default();
         match kind.as_str() {
-            "calls" => call_edges.push((source_name, target_name)),
+            "calls" => {
+                call_edges.push((source_name.clone(), target_name.clone()));
+                if let Some(target_kind) = kinds_by_id.get(&target) {
+                    call_edges_with_target_kind.push((source_name, target_name, *target_kind));
+                }
+            }
             "imports" => import_edges.push((source_name, target_name)),
             "extends" => extends_edges.push((source_name, target_name)),
             "implements" => implements_edges.push((source_name, target_name)),
@@ -134,6 +149,7 @@ fn load_graph(project_root: &Path) -> Graph {
     Graph {
         nodes,
         call_edges,
+        call_edges_with_target_kind,
         import_edges,
         extends_edges,
         implements_edges,
@@ -153,6 +169,18 @@ impl Graph {
 
     fn has_call(&self, from: &str, to: &str) -> bool {
         Self::has_edge(&self.call_edges, from, to)
+    }
+
+    /// The kind of the node a call edge points at.
+    ///
+    /// Two nodes can share a name — a declaration and the export node
+    /// that re-exports it — so the name alone does not say which one an
+    /// edge reaches.
+    fn call_target_kind(&self, from: &str, to: &str) -> Option<NodeKind> {
+        self.call_edges_with_target_kind
+            .iter()
+            .find(|(s, t, _)| s == from && t == to)
+            .map(|(_, _, kind)| *kind)
     }
 
     /// The names of every node in the graph, for failure messages.
@@ -473,5 +501,64 @@ fn csharp_extracts_declarations_calls_and_imports() {
     assert!(
         !graph.import_edges.is_empty(),
         "csharp: expected import edges, got none"
+    );
+}
+
+// ── TypeScript (barrel re-export) ──────────────────────────────────────────
+
+/// A call to a symbol that a barrel re-exports has to point at the
+/// declaration, not at the barrel's export node.
+///
+/// The export node is a proxy: it lives in the file that re-exports the
+/// symbol and names a declaration in another file. An edge that points
+/// at the proxy leaves the declaration itself without callers, so
+/// `coraline callers multiply` comes up empty for the function that is
+/// actually called.
+#[test]
+fn a_call_to_a_re_exported_symbol_points_at_the_declaration() {
+    let (_temp, project_root) = index_fixture("typescript-barrel");
+    let graph = load_graph(&project_root);
+
+    assert!(
+        graph.has_call("run", "multiply"),
+        "typescript-barrel: expected the call to be resolved; got {:?}",
+        graph.call_edges
+    );
+    assert_eq!(
+        graph.call_target_kind("run", "multiply"),
+        Some(NodeKind::Function),
+        "typescript-barrel: the call must point at the declaration, not at the barrel's export node"
+    );
+}
+
+// ── C ───────────────────────────────────────────────────────────────────────
+
+/// A C call across translation units has to reach the definition.
+///
+/// The declaration lives in the header and the definition in another
+/// file, so the call can only be resolved by following the include. C
+/// has no modules and no namespaces: the header is the only thing that
+/// ties the two files together.
+#[test]
+fn c_extracts_declarations_and_cross_file_calls() {
+    let (_temp, project_root) = index_fixture("c-multipackage");
+    let graph = load_graph(&project_root);
+
+    for name in ["run", "util_area", "util_scale"] {
+        assert!(
+            graph.has_node(name),
+            "c: expected node {name:?} to be extracted; got {:?}",
+            graph.node_names()
+        );
+    }
+
+    assert!(
+        graph.has_call("run", "util_area"),
+        "c: expected the cross-file call run -> util_area; got {:?}",
+        graph.call_edges
+    );
+    assert!(
+        !graph.import_edges.is_empty(),
+        "c: expected import edges for the includes, got none"
     );
 }

@@ -91,6 +91,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stored with `/` separators on every platform (`coraline::paths`), and
   the resolver compares them separator-agnostically. A Windows checkout
   re-indexes once on the next sync to pick up the new spelling.
+- **The receiver of a qualified call survives a re-index.** When the
+  file that holds a call target is re-indexed, the edge into it is
+  re-queued as an unresolved reference — but the receiver was dropped
+  on the way, so `util.Area()` came back as a bare `Area` and could be
+  re-pointed at an unrelated symbol with the same name. The receiver is
+  now carried on the edge's metadata and restored when the reference is
+  re-queued.
+- **The same-package fallback no longer links unrelated packages.** The
+  fallback treated "shares a directory prefix" as "is the same
+  package", so in a Rust project `src/runtime.rs` and
+  `src/legacy/api.rs` counted as one package and every same-named
+  function in the tree became a candidate — the name-collision false
+  positives of #43, one directory level up. The fallback now applies
+  only to the languages whose package system *is* the directory layout
+  (the JVM languages, Python, Go, Swift, PHP), and a file that sits in
+  the shared directory is no longer treated as part of the package
+  below it. A qualified call also prefers a candidate whose path names
+  the receiver, which is a stronger signal than tree proximity.
+- **Duplicate edges.** The `edges` table has no unique constraint, so
+  two references that resolved to the same target inserted the same edge
+  twice. Resolved edges are now deduplicated before they are written.
+- **A resolver failure is reported by `sync`.** `sync` swallowed the
+  resolver's error with `let _ = …`, so a failed resolution pass left
+  the index half-built with no message. The error is now collected,
+  logged and returned to the caller (`coraline sync` prints it, and the
+  MCP `sync` tool reports it).
+- **A re-exported symbol's call edge points at the declaration.** A
+  TypeScript `export { helper } from './util'` produced an `Export`
+  node, and the call edge terminated on it instead of on the function
+  it re-exports. The export node is now resolved through to the
+  declaration it stands for.
+- **Rust module imports match `mod.rs`.** `use crate::helper::target;`
+  names the module `helper`, which lives in `src/helper/mod.rs`, but
+  the comparison tested the normalised path against `"/mod.rs"` and
+  compared the hint's last segment with itself — so it never matched
+  and every Rust cross-module call fell back to a name search. The
+  module directory is now compared with the segment before the
+  imported symbol.
+- **TSX, JSX and Blazor are parsed with their own grammars.** TSX and
+  JSX were parsed with the plain TypeScript and JavaScript grammars, so
+  every JSX element was a syntax error and the file produced no nodes;
+  Blazor was parsed with the C# grammar, which has no notion of a
+  component. Each now uses its own grammar and its own contract.
 
 ## [0.13.1] - 2026-09-08
 

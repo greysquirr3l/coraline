@@ -780,6 +780,7 @@ impl Tool for SyncTool {
             "files_removed":  result.files_removed,
             "nodes_updated":  result.nodes_updated,
             "duration_ms":    result.duration_ms,
+            "errors":         result.errors,
         }))
     }
 

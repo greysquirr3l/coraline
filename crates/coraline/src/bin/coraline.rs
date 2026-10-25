@@ -1208,6 +1208,9 @@ fn run_sync(args: SyncArgs) {
             }
             println!("Updated {} nodes", result.nodes_updated);
         }
+        for error in &result.errors {
+            eprintln!("Warning: {}", error.message);
+        }
     }
 
     // Phase 5.1 post-extraction passes: Louvain clustering + process tracing.

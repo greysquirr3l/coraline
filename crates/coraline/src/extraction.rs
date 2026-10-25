@@ -72,6 +72,12 @@ pub struct SyncResult {
     pub files_removed: usize,
     pub nodes_updated: usize,
     pub duration_ms: u128,
+    /// Problems encountered while syncing.
+    ///
+    /// A sync that fails to resolve its references still produced a
+    /// usable index, so the failure is reported rather than raised: the
+    /// caller decides whether it matters.
+    pub errors: Vec<ExtractionError>,
 }
 
 struct ParsedFile {
@@ -415,7 +421,20 @@ pub fn sync(
         }
     }
 
-    let _ = ReferenceResolver::resolve_unresolved(&mut conn, project_root, 10_000);
+    // A failed resolution is reported rather than swallowed: the index is
+    // still usable, but the caller has to know that some references were
+    // not resolved.
+    let mut errors = Vec::new();
+    if let Err(err) = ReferenceResolver::resolve_unresolved(&mut conn, project_root, 10_000) {
+        warn!(error = %err, "reference resolver failed");
+        errors.push(ExtractionError {
+            message: format!("Resolver failed: {err}"),
+            line: None,
+            column: None,
+            severity: ExtractionErrorSeverity::Warning,
+            code: Some("resolver_failed".to_string()),
+        });
+    }
 
     info!(
         files_added,
@@ -433,6 +452,7 @@ pub fn sync(
         files_removed,
         nodes_updated,
         duration_ms: start.elapsed().as_millis(),
+        errors,
     })
 }
 
@@ -612,10 +632,8 @@ fn language_to_parser(language: Language) -> Option<tree_sitter::Language> {
         Language::Java => Some(tree_sitter::Language::new(tree_sitter_java::LANGUAGE)),
         Language::C => Some(tree_sitter::Language::new(tree_sitter_c::LANGUAGE)),
         Language::Cpp => Some(tree_sitter::Language::new(tree_sitter_cpp::LANGUAGE)),
-        Language::CSharp | Language::Blazor => {
-            // Use C# parser for both C# and Blazor files
-            Some(tree_sitter::Language::new(tree_sitter_c_sharp::LANGUAGE))
-        }
+        Language::CSharp => Some(tree_sitter::Language::new(tree_sitter_c_sharp::LANGUAGE)),
+        Language::Blazor => Some(tree_sitter::Language::new(tree_sitter_blazor::LANGUAGE)),
         Language::Ruby => Some(tree_sitter::Language::new(tree_sitter_ruby::LANGUAGE)),
         // New language parsers
         Language::Bash => Some(tree_sitter::Language::new(tree_sitter_bash::LANGUAGE)),
@@ -2892,6 +2910,45 @@ fn local_variable_type(
             Some((name, type_name))
         }
 
+        // Rust: `let_declaration` → field `pattern` (the name), field
+        // `type` (the annotation) and field `value` (the initialiser).
+        // The type is either annotated (`let hooks: SyncManager = ...`) or
+        // inferred from the constructor (`let hooks = SyncManager::new(...)`).
+        Language::Rust => {
+            if node.kind() != "let_declaration" {
+                return None;
+            }
+            let pattern = node.child_by_field_name("pattern")?;
+            if pattern.kind() != "identifier" {
+                return None;
+            }
+            let name = text_of(&pattern)?;
+
+            if let Some(type_node) = node.child_by_field_name("type")
+                && let Some(type_name) = simple_type_name(&type_node, source)
+            {
+                return Some((name, type_name));
+            }
+
+            let value = node.child_by_field_name("value")?;
+            if value.kind() != "call_expression" {
+                return None;
+            }
+            let mut cursor = value.walk();
+            let callee = value.named_children(&mut cursor).next()?;
+            // `SyncManager::new(...)` — the path names the type, the last
+            // segment names the constructor.
+            let type_name = if callee.kind() == "scoped_identifier" {
+                let path = callee
+                    .child_by_field_name("path")
+                    .or_else(|| callee.child_by_field_name("type"))?;
+                simple_type_name(&path, source)?
+            } else {
+                simple_type_name(&callee, source)?
+            };
+            Some((name, type_name))
+        }
+
         _ => None,
     }
 }
@@ -3178,14 +3235,63 @@ fn now_millis() -> i64 {
 
 #[cfg(test)]
 mod tests {
+    #![expect(
+        clippy::expect_used,
+        reason = "test assertions: panicking on setup failure is the correct behavior"
+    )]
     use super::detect_language;
     use crate::config::is_language_supported;
     use crate::types::Language;
+
+    /// Collect every node of `kind` in the tree.
+    fn collect_nodes<'a>(
+        node: tree_sitter::Node<'a>,
+        kind: &str,
+        found: &mut Vec<tree_sitter::Node<'a>>,
+    ) {
+        if node.kind() == kind {
+            found.push(node);
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            collect_nodes(child, kind, found);
+        }
+    }
 
     #[test]
     fn kotlin_script_files_map_to_kotlin() {
         assert_eq!(detect_language("build.gradle.kts"), Language::Kotlin);
         assert_eq!(detect_language("src/Main.kt"), Language::Kotlin);
+    }
+
+    /// A Rust local takes its type from the annotation, or from the
+    /// constructor it is built with.
+    ///
+    /// The receiver of `hooks.install_hook()` is a variable, not a type,
+    /// so without this the resolver looks for a type called `hooks` and
+    /// finds nothing.
+    #[test]
+    fn a_rust_local_takes_its_type_from_the_constructor() {
+        let source =
+            "fn main() {\n    let hooks = SyncManager::new();\n    let count: usize = 0;\n}\n";
+
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&tree_sitter::Language::new(tree_sitter_rust::LANGUAGE))
+            .expect("set the Rust grammar");
+        let tree = parser.parse(source, None).expect("parse the Rust source");
+
+        let mut declarations = Vec::new();
+        collect_nodes(tree.root_node(), "let_declaration", &mut declarations);
+        assert_eq!(declarations.len(), 2);
+        assert_eq!(
+            super::local_variable_type(&declarations[0], source, Language::Rust),
+            Some(("hooks".to_string(), "SyncManager".to_string()))
+        );
+        assert_eq!(
+            super::local_variable_type(&declarations[1], source, Language::Rust),
+            Some(("count".to_string(), "usize".to_string()))
+        );
     }
 
     #[test]

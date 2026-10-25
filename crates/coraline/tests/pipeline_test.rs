@@ -152,6 +152,144 @@ fn cross_file_call_edge_survives_a_reindex() {
     assert_eq!(calls, 1, "the edge is rebuilt after the re-index");
 }
 
+/// A qualified cross-package call must keep its receiver when the target
+/// file is re-indexed.
+///
+/// Deleting a file re-queues the edges that pointed into it, and the
+/// re-queue rebuilds the reference from the edge. The receiver of the
+/// call — the qualifier — is the only thing that distinguishes
+/// `Helper.Format()` from an unrelated `Format()` elsewhere, so it has to
+/// survive the round trip.
+///
+/// Without it the resolver loses the scoped lookup that resolves the
+/// member of the qualifier's type, and falls back to matching the bare
+/// name — which here is ambiguous, so the edge is lost.
+#[test]
+fn a_qualified_cross_package_call_keeps_its_qualifier_when_requeued() {
+    let temp = tempfile::TempDir::new().expect("create temp dir");
+    let root = temp.path();
+
+    write_file(
+        root,
+        "src/App/Runner.cs",
+        "using Example.Core;\nusing Example.Util;\n\nnamespace Example.App;\n\npublic class Runner\n{\n    public string Run()\n    {\n        return Helper.Format(2.0);\n    }\n}\n",
+    );
+    write_file(
+        root,
+        "src/Util/Helper.cs",
+        "namespace Example.Util;\n\npublic static class Helper\n{\n    public static string Format(double value)\n    {\n        return value.ToString();\n    }\n}\n",
+    );
+    // A same-named member in an unrelated namespace: without the
+    // qualifier the bare name `Format` is ambiguous, and the edge cannot
+    // be rebuilt.
+    write_file(
+        root,
+        "src/Legacy/Old.cs",
+        "namespace Example.Legacy;\n\npublic static class Legacy\n{\n    public static string Format(double value)\n    {\n        return \"old\";\n    }\n}\n",
+    );
+
+    let cfg = coraline::config::create_default_config(root);
+    let mut conn = index_project(root);
+
+    let calls = count_rows(
+        &conn,
+        "SELECT COUNT(*) FROM edges
+         WHERE kind = 'calls'
+           AND source IN (SELECT id FROM nodes WHERE file_path = 'src/App/Runner.cs')
+           AND target IN (SELECT id FROM nodes WHERE file_path = 'src/Util/Helper.cs')",
+    );
+    assert_eq!(
+        calls, 1,
+        "the qualified cross-package call must resolve into an edge"
+    );
+
+    // Re-index the file that owns the callee.
+    db::delete_file(&mut conn, "src/Util/Helper.cs").expect("delete file");
+
+    let qualifier = conn
+        .query_row(
+            "SELECT qualifier FROM unresolved_refs WHERE reference_name = 'Format'",
+            [],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .expect("the cross-file edge must be re-queued");
+    assert_eq!(
+        qualifier.as_deref(),
+        Some("Helper"),
+        "the re-queued reference keeps the receiver of the qualified call"
+    );
+
+    // Re-index the deleted file and let the resolver rebuild the edge.
+    coraline::extraction::index_all(root, &cfg, false, None).expect("re-index project");
+
+    let calls = count_rows(
+        &conn,
+        "SELECT COUNT(*) FROM edges
+         WHERE kind = 'calls'
+           AND source IN (SELECT id FROM nodes WHERE file_path = 'src/App/Runner.cs')
+           AND target IN (SELECT id FROM nodes WHERE file_path = 'src/Util/Helper.cs')",
+    );
+    assert_eq!(calls, 1, "the qualified edge is rebuilt after the re-index");
+
+    let misdirected = count_rows(
+        &conn,
+        "SELECT COUNT(*) FROM edges
+         WHERE kind = 'calls'
+           AND source IN (SELECT id FROM nodes WHERE file_path = 'src/App/Runner.cs')
+           AND target IN (SELECT id FROM nodes WHERE file_path = 'src/Legacy/Old.cs')",
+    );
+    assert_eq!(
+        misdirected, 0,
+        "the call must not be pointed at the unrelated member"
+    );
+}
+
+/// Re-queueing the same reference twice must not leave a duplicate row
+/// behind.
+///
+/// The reference is keyed on the source node, the name, the kind and the
+/// call site, so a row that already covers it is re-armed instead of
+/// duplicated. A duplicate would resolve into a second, identical edge.
+#[test]
+fn requeueing_a_reference_twice_does_not_duplicate_the_row() {
+    let temp = tempfile::TempDir::new().expect("create temp dir");
+    let root = temp.path();
+
+    write_file(
+        root,
+        "src/lib.rs",
+        "pub mod helper;\npub fn caller() -> i32 { helper::target() }\n",
+    );
+    write_file(root, "src/helper.rs", "pub fn target() -> i32 { 42 }\n");
+
+    let cfg = coraline::config::create_default_config(root);
+    let mut conn = index_project(root);
+
+    for round in 1..=3 {
+        db::delete_file(&mut conn, "src/helper.rs").expect("delete file");
+
+        let refs = count_rows(
+            &conn,
+            "SELECT COUNT(*) FROM unresolved_refs WHERE reference_name = 'target'",
+        );
+        assert_eq!(
+            refs, 1,
+            "round {round}: the re-queued reference must be re-armed, not duplicated"
+        );
+
+        coraline::extraction::index_all(root, &cfg, false, None).expect("re-index project");
+    }
+
+    let calls = count_rows(
+        &conn,
+        "SELECT COUNT(*) FROM edges
+         WHERE kind = 'calls'
+           AND source IN (SELECT id FROM nodes WHERE file_path = 'src/lib.rs')
+           AND target IN (SELECT id FROM nodes WHERE file_path = 'src/helper.rs')",
+    );
+    assert_eq!(calls, 1, "the edge must not be duplicated either");
+}
+
 #[test]
 fn keyset_pagination_returns_every_unresolved_ref_across_pages() {
     let conn = test_connection();
@@ -503,7 +641,7 @@ fn qualifier_migration_adds_a_nullable_column() {
 }
 
 #[test]
-fn requeued_references_have_no_qualifier() {
+fn a_requeued_reference_has_no_qualifier_when_the_edge_had_none() {
     let mut conn = test_connection();
 
     insert_node(&conn, "a_caller", "caller", "src/a.rs");
@@ -526,6 +664,35 @@ fn requeued_references_have_no_qualifier() {
                 OR reference_kind IS NULL OR line IS NULL OR col IS NULL"
         ),
         0
+    );
+}
+
+/// The re-queued reference keeps the receiver of the call it came from.
+///
+/// The qualifier lives on the edge as metadata, because the edge is what
+/// outlives the resolution: the reference is rebuilt from it when the
+/// target file is re-indexed.
+#[test]
+fn a_requeued_reference_keeps_the_qualifier_of_the_edge() {
+    let mut conn = test_connection();
+
+    insert_node(&conn, "a_caller", "caller", "src/a.rs");
+    insert_node(&conn, "b_callee", "callee", "src/b.rs");
+    conn.execute(
+        "INSERT INTO edges (source, target, kind, metadata, line, col, confidence)
+         VALUES ('a_caller', 'b_callee', 'calls', ?1, 10, 4, 1.0)",
+        params![r#"{"qualifier":"Helper"}"#],
+    )
+    .expect("insert edge");
+
+    db::delete_file(&mut conn, "src/b.rs").expect("delete file");
+
+    let refs = db::list_all_unresolved_refs_paged(&conn, 100).expect("list refs");
+    let requeued = refs.first().expect("one re-queued reference");
+    assert_eq!(
+        requeued.reference.qualifier.as_deref(),
+        Some("Helper"),
+        "the re-queued reference keeps the receiver of the qualified call"
     );
 }
 

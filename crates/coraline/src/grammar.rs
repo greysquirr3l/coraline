@@ -105,6 +105,14 @@ pub struct LanguageContract {
     /// `None` means the language has no heritage clause (or it is not
     /// modelled yet).
     pub heritage: Option<&'static [HeritageRule]>,
+    /// Whether the language's package system *is* the directory layout.
+    ///
+    /// `true` for the JVM languages, Python, Go, Swift and PHP, where a
+    /// shared directory prefix means the files belong to the same package
+    /// family. `false` for languages where a directory is only
+    /// organisation — in Rust, `src/runtime.rs` and `src/legacy/api.rs`
+    /// share the `src` prefix and nothing else.
+    pub directory_packages: bool,
 }
 
 /// One rule for recovering supertypes from a declaration.
@@ -127,8 +135,19 @@ pub enum HeritageKind {
 }
 
 /// Look up the contract for `language`, if one is declared.
+///
+/// TSX and JSX are the TypeScript and JavaScript grammars with JSX
+/// syntax added, so they share their base language's contract. They are
+/// declared as variants rather than as contracts of their own: a grammar
+/// rename in TypeScript has to break JSX too, and a second copy of the
+/// table would let the two drift apart.
 pub fn contract_for(language: Language) -> Option<&'static LanguageContract> {
-    CONTRACTS.iter().find(|c| c.language == language)
+    let base = match language {
+        Language::Tsx => Language::TypeScript,
+        Language::Jsx => Language::JavaScript,
+        other => other,
+    };
+    CONTRACTS.iter().find(|c| c.language == base)
 }
 
 /// Map a grammar node kind to a graph node kind for `language`.
@@ -214,6 +233,7 @@ pub static CONTRACTS: &[LanguageContract] = &[
             source: HeritageSource::Field("type"),
             kind: HeritageKind::Implements,
         }]),
+        directory_packages: false,
     },
     LanguageContract {
         language: Language::TypeScript,
@@ -262,6 +282,7 @@ pub static CONTRACTS: &[LanguageContract] = &[
                 kind: HeritageKind::Implements,
             },
         ]),
+        directory_packages: false,
     },
     LanguageContract {
         language: Language::JavaScript,
@@ -299,6 +320,7 @@ pub static CONTRACTS: &[LanguageContract] = &[
             source: HeritageSource::ChildField("extends_clause", "value"),
             kind: HeritageKind::Extends,
         }]),
+        directory_packages: false,
     },
     LanguageContract {
         language: Language::Python,
@@ -324,6 +346,7 @@ pub static CONTRACTS: &[LanguageContract] = &[
             source: HeritageSource::Field("superclasses"),
             kind: HeritageKind::Implements,
         }]),
+        directory_packages: true,
     },
     LanguageContract {
         language: Language::Go,
@@ -346,6 +369,7 @@ pub static CONTRACTS: &[LanguageContract] = &[
         import_kinds: &["import_declaration"],
         instantiation_kinds: &[],
         heritage: None,
+        directory_packages: true,
     },
     LanguageContract {
         language: Language::Java,
@@ -387,6 +411,7 @@ pub static CONTRACTS: &[LanguageContract] = &[
                 kind: HeritageKind::Implements,
             },
         ]),
+        directory_packages: true,
     },
     LanguageContract {
         language: Language::C,
@@ -410,6 +435,7 @@ pub static CONTRACTS: &[LanguageContract] = &[
         import_kinds: &["preproc_include"],
         instantiation_kinds: &[],
         heritage: None,
+        directory_packages: false,
     },
     LanguageContract {
         language: Language::Cpp,
@@ -439,6 +465,7 @@ pub static CONTRACTS: &[LanguageContract] = &[
             source: HeritageSource::ChildField("base_class_clause", "type"),
             kind: HeritageKind::Extends,
         }]),
+        directory_packages: false,
     },
     LanguageContract {
         language: Language::CSharp,
@@ -482,6 +509,7 @@ pub static CONTRACTS: &[LanguageContract] = &[
             source: HeritageSource::ChildIsType("base_list"),
             kind: HeritageKind::Implements,
         }]),
+        directory_packages: true,
     },
     LanguageContract {
         language: Language::Php,
@@ -535,6 +563,7 @@ pub static CONTRACTS: &[LanguageContract] = &[
             source: HeritageSource::ChildIsType("base_clause"),
             kind: HeritageKind::Implements,
         }]),
+        directory_packages: true,
     },
     LanguageContract {
         language: Language::Ruby,
@@ -558,6 +587,7 @@ pub static CONTRACTS: &[LanguageContract] = &[
             source: HeritageSource::Field("superclass"),
             kind: HeritageKind::Extends,
         }]),
+        directory_packages: false,
     },
     LanguageContract {
         language: Language::Swift,
@@ -579,6 +609,7 @@ pub static CONTRACTS: &[LanguageContract] = &[
             source: HeritageSource::ChildNested("inheritance_specifier", "user_type"),
             kind: HeritageKind::Implements,
         }]),
+        directory_packages: true,
     },
     LanguageContract {
         language: Language::Kotlin,
@@ -605,5 +636,18 @@ pub static CONTRACTS: &[LanguageContract] = &[
             ),
             kind: HeritageKind::Implements,
         }]),
+        directory_packages: true,
+    },
+    LanguageContract {
+        language: Language::Blazor,
+        kinds: &[
+            ("element", NodeKind::Component, true),
+            ("self_closing_element", NodeKind::Component, true),
+        ],
+        call_kinds: &[],
+        import_kinds: &[],
+        instantiation_kinds: &[],
+        heritage: None,
+        directory_packages: false,
     },
 ];

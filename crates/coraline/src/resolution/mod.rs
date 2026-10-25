@@ -2,7 +2,7 @@
 
 pub mod frameworks;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use rusqlite::params;
@@ -10,8 +10,11 @@ use tracing::debug;
 
 use crate::db;
 use crate::db::{io_other, row_to_node};
+use crate::grammar;
 use crate::types::Node;
-use crate::types::{Edge, EdgeKind, NodeKind, UnresolvedReference};
+use crate::types::{
+    EDGE_QUALIFIER_METADATA, Edge, EdgeKind, Language, NodeKind, UnresolvedReference,
+};
 
 #[derive(Debug, Default)]
 pub struct ReferenceResolver;
@@ -56,81 +59,14 @@ impl ReferenceResolver {
             let mut resolved_ids = Vec::new();
 
             for row in &page {
-                let reference = &row.reference;
-                let from_node = db::get_node_by_id(conn, &reference.from_node_id)?;
-                let candidates = candidates_for_reference(conn, reference)?;
-
-                let import_hint = from_node
-                    .as_ref()
-                    .and_then(|node| {
-                        import_match_hint(
-                            conn,
-                            node,
-                            &reference.reference_name,
-                            reference.qualifier.as_deref(),
-                        )
-                        .ok()
-                    })
-                    .flatten();
-
-                // A qualified call is scoped to the type of its receiver:
-                // `helper.area()` on a `Circle` resolves to `Circle.area`, even
-                // when the method is declared in another file. This is what makes
-                // cross-package calls resolvable without an explicit import.
-                if let Some(qualifier) = reference.qualifier.as_deref() {
-                    let scoped =
-                        type_member_candidates(conn, qualifier, &reference.reference_name)?;
-                    if let [target] = scoped.as_slice() {
-                        resolved_edges.push(Edge {
-                            source: reference.from_node_id.clone(),
-                            target: target.id.clone(),
-                            kind: reference.reference_kind,
-                            metadata: None,
-                            line: Some(reference.line),
-                            column: Some(reference.column),
-                            confidence: confidence_for_reference(&reference.reference_name),
-                            process_id: None,
-                        });
-                        resolved_ids.push(row.id);
-                        continue;
-                    }
-                }
-                let candidates = rank_candidates(
-                    conn,
-                    candidates,
-                    from_node.as_ref(),
-                    import_hint.as_ref(),
-                    &reference.reference_name,
-                    reference.reference_kind,
-                )?;
-
-                // If generic resolution found nothing, try framework-specific hints.
-                let candidates = if candidates.is_empty() {
-                    from_node.as_ref().map_or_else(Vec::new, |from| {
-                        framework_fallback(conn, project_root, from, &reference.reference_name)
-                    })
-                } else {
-                    candidates
-                };
-
-                if let [target] = candidates.as_slice() {
-                    let confidence = confidence_for_reference(&reference.reference_name);
-                    resolved_edges.push(Edge {
-                        source: reference.from_node_id.clone(),
-                        target: target.id.clone(),
-                        kind: reference.reference_kind,
-                        metadata: None,
-                        line: Some(reference.line),
-                        column: Some(reference.column),
-                        confidence,
-                        process_id: None,
-                    });
+                if let Some(edge) = resolve_reference(conn, project_root, &row.reference)? {
+                    resolved_edges.push(edge);
                     resolved_ids.push(row.id);
                 }
             }
 
             if !resolved_edges.is_empty() {
-                db::insert_edges(conn, &resolved_edges)?;
+                db::insert_edges(conn, &dedupe_edges(&resolved_edges))?;
             }
             if !resolved_ids.is_empty() {
                 db::delete_unresolved_refs(conn, &resolved_ids)?;
@@ -163,6 +99,121 @@ impl ReferenceResolver {
             remaining: scanned.saturating_sub(resolved_total),
         })
     }
+}
+
+/// Resolve one pending reference to the edge it stands for.
+///
+/// Returns `None` when the reference does not resolve to exactly one
+/// target: an ambiguous reference is left unresolved rather than pointed
+/// at an arbitrary candidate.
+fn resolve_reference(
+    conn: &rusqlite::Connection,
+    project_root: &Path,
+    reference: &UnresolvedReference,
+) -> std::io::Result<Option<Edge>> {
+    let from_node = db::get_node_by_id(conn, &reference.from_node_id)?;
+    let candidates = candidates_for_reference(conn, reference)?;
+
+    let import_hint = from_node
+        .as_ref()
+        .and_then(|node| {
+            import_match_hint(
+                conn,
+                node,
+                &reference.reference_name,
+                reference.qualifier.as_deref(),
+            )
+            .ok()
+        })
+        .flatten();
+
+    // A qualified call is scoped to the type of its receiver:
+    // `helper.area()` on a `Circle` resolves to `Circle.area`, even
+    // when the method is declared in another file. This is what makes
+    // cross-package calls resolvable without an explicit import.
+    if let Some(qualifier) = reference.qualifier.as_deref() {
+        let scoped = type_member_candidates(conn, qualifier, &reference.reference_name)?;
+        if let [target] = scoped.as_slice() {
+            return Ok(Some(edge_to(reference, target)));
+        }
+    }
+
+    let candidates = rank_candidates(
+        conn,
+        candidates,
+        from_node.as_ref(),
+        import_hint.as_ref(),
+        reference.qualifier.as_deref(),
+        &reference.reference_name,
+        reference.reference_kind,
+    )?;
+
+    // If generic resolution found nothing, try framework-specific hints.
+    let candidates = if candidates.is_empty() {
+        from_node.as_ref().map_or_else(Vec::new, |from| {
+            framework_fallback(conn, project_root, from, &reference.reference_name)
+        })
+    } else {
+        candidates
+    };
+
+    // More than one candidate is ambiguous: the reference is left
+    // unresolved rather than pointed at an arbitrary target.
+    match candidates.as_slice() {
+        [target] => Ok(Some(edge_to(reference, target))),
+        _ => Ok(None),
+    }
+}
+
+/// The edge a resolved reference stands for.
+fn edge_to(reference: &UnresolvedReference, target: &Node) -> Edge {
+    Edge {
+        source: reference.from_node_id.clone(),
+        target: target.id.clone(),
+        kind: reference.reference_kind,
+        metadata: reference_metadata(reference),
+        line: Some(reference.line),
+        column: Some(reference.column),
+        confidence: confidence_for_reference(&reference.reference_name),
+        process_id: None,
+    }
+}
+
+/// The metadata carried on an edge that was resolved from `reference`.
+///
+/// The qualifier is the receiver of a qualified call — `util.Area()` has
+/// the qualifier `util`. It is recorded on the edge because the edge is
+/// the only thing that outlives the resolution: when the target file is
+/// re-indexed, the edge is rebuilt into an unresolved reference, and a
+/// reference that has lost its qualifier can be re-pointed at a different
+/// symbol that happens to have the same name.
+fn reference_metadata(
+    reference: &UnresolvedReference,
+) -> Option<HashMap<String, serde_json::Value>> {
+    reference.qualifier.as_ref().map(|qualifier| {
+        let mut metadata = HashMap::new();
+        metadata.insert(
+            EDGE_QUALIFIER_METADATA.to_string(),
+            serde_json::Value::String(qualifier.clone()),
+        );
+        metadata
+    })
+}
+
+/// Drop edges that repeat a `(source, target, kind)` triple.
+///
+/// The `edges` table has no unique constraint, so two unresolved
+/// references that resolve to the same target would otherwise insert the
+/// same edge twice. Duplicate references are possible: a reference that
+/// was re-queued when its target file changed is inserted again, and an
+/// older database may already hold more than one copy.
+fn dedupe_edges(edges: &[Edge]) -> Vec<Edge> {
+    let mut seen = HashSet::new();
+    edges
+        .iter()
+        .filter(|edge| seen.insert((edge.source.clone(), edge.target.clone(), edge.kind)))
+        .cloned()
+        .collect()
 }
 
 /// Collect the nodes that could plausibly be the target of `reference`.
@@ -326,6 +377,7 @@ fn rank_candidates(
     nodes: Vec<Node>,
     from_node: Option<&Node>,
     import_hint: Option<&ImportHint>,
+    qualifier_hint: Option<&str>,
     symbol_name: &str,
     reference_kind: EdgeKind,
 ) -> std::io::Result<Vec<Node>> {
@@ -345,8 +397,13 @@ fn rank_candidates(
     let mut package_matches = Vec::new();
     let mut same_file = Vec::new();
     let mut same_dir = Vec::new();
+    let mut qualifier_matches = Vec::new();
     let mut same_package = Vec::new();
     let mut others = Vec::new();
+
+    // The receiver of a qualified call names the module or type the
+    // symbol is declared in.
+    let qualifier = qualifier_hint.filter(|q| !q.is_empty());
 
     for node in nodes {
         if let Some(hint) = import_hint {
@@ -363,7 +420,9 @@ fn rank_candidates(
             same_file.push(node);
         } else if !from_dir.is_empty() && directory_of(&node.file_path) == from_dir {
             same_dir.push(node);
-        } else if in_same_package(&from_node.file_path, &node.file_path) {
+        } else if qualifier.is_some_and(|q| path_mentions_qualifier(&node.file_path, q)) {
+            qualifier_matches.push(node);
+        } else if in_same_package(from_node.language, &from_node.file_path, &node.file_path) {
             same_package.push(node);
         } else {
             others.push(node);
@@ -378,6 +437,10 @@ fn rank_candidates(
         Ok(same_file)
     } else if !same_dir.is_empty() {
         Ok(same_dir)
+    } else if !qualifier_matches.is_empty() {
+        // The receiver names the module: a much stronger signal than
+        // "somewhere in the same directory tree".
+        Ok(qualifier_matches)
     } else if !same_package.is_empty() {
         // Same package (JVM/C#/Swift style directory layout) — a legitimate
         // cross-package call that is not backed by an import.
@@ -561,13 +624,20 @@ fn matches_import_hint_exact(file_path: &str, hint: &str) -> bool {
     }
 
     // Rust modules: `mod.rs` stands in for the directory name.
-    if file_path.ends_with("/mod.rs") || file_path == "mod.rs" {
-        let parent = hint_path
+    //
+    // `use crate::helper::target;` names the module `helper` and the
+    // symbol `target`; the module lives in `src/helper/mod.rs`. The path
+    // was normalised above, so the file is `src/helper/mod` by now.
+    if file_path.ends_with("/mod") {
+        let module = file_path
             .rsplit('/')
-            .next()
-            .unwrap_or(&hint_path)
+            .nth(1)
+            .unwrap_or_default()
             .trim_end_matches(".rs");
-        return !parent.is_empty() && parent == hint_stem;
+        // The hint path ends with the imported symbol, so the module is
+        // the segment before it.
+        let hinted_module = hint_path.rsplit('/').nth(1).unwrap_or_default();
+        return !module.is_empty() && module == hinted_module;
     }
 
     false
@@ -678,7 +748,58 @@ fn directory_of(file_path: &str) -> String {
     crate::paths::parent(&normalised).to_string()
 }
 
-fn in_same_package(from_file: &str, to_file: &str) -> bool {
+/// Whether a file path mentions the receiver of a qualified call.
+///
+/// `helper::target()` names the module `helper`, and the file that holds
+/// it says so in its path: `src/helper/mod.rs` mentions it as a
+/// directory, `src/Helper.cs` as the file name. That is a far stronger
+/// signal than "somewhere in the same directory tree" — it says *which*
+/// module the call is talking about.
+///
+/// The comparison is case-sensitive: the languages that spell their
+/// modules in lower case write the receiver the same way, and the ones
+/// that do not (`Helper`) are matched through their import instead.
+fn path_mentions_qualifier(file_path: &str, qualifier: &str) -> bool {
+    let qualifier = qualifier.trim();
+    if qualifier.is_empty() {
+        return false;
+    }
+
+    let normalised = crate::paths::normalise_separators(file_path);
+    let mut segments = normalised.split('/');
+    let Some(file_name) = segments.next_back() else {
+        return false;
+    };
+
+    let stem = file_name
+        .rsplit_once('.')
+        .map_or(file_name, |(stem, _)| stem);
+    if stem == qualifier {
+        return true;
+    }
+
+    segments.any(|segment| segment == qualifier)
+}
+
+/// Whether two files live in the same package, as far as the directory
+/// layout can tell.
+///
+/// This is a heuristic for languages whose package system *is* the
+/// directory layout — the JVM languages, Python, Go, Swift, PHP. There, a
+/// shared directory prefix means the two files belong to the same package
+/// family, and a call across two sibling packages is a real cross-package
+/// call even when the import path cannot be matched (Go's module prefix,
+/// C#'s namespace, Swift's module name).
+///
+/// It says nothing for languages where a directory is just organisation:
+/// in Rust, TypeScript or Ruby, `src/runtime.rs` and `src/legacy/api.rs`
+/// share the `src` prefix and nothing else. Treating them as the same
+/// package links every same-named function in the tree.
+fn in_same_package(language: Language, from_file: &str, to_file: &str) -> bool {
+    if !grammar::contract_for(language).is_some_and(|c| c.directory_packages) {
+        return false;
+    }
+
     let from_path = crate::paths::normalise_separators(from_file);
     let to_path = crate::paths::normalise_separators(to_file);
     let from_dir = crate::paths::parent(&from_path);
@@ -701,9 +822,11 @@ fn in_same_package(from_file: &str, to_file: &str) -> bool {
         common += 1;
     }
 
-    // Require at least one shared directory component beyond the file name
-    // so that sibling directories in unrelated packages do not match.
-    common >= 1 && (from_parts.len() > common || to_parts.len() > common)
+    // Both files have to sit *inside* the shared prefix, not in it. A file
+    // that sits directly in the shared directory is at the package root,
+    // and the package root is not in the same package as every subtree
+    // below it.
+    common >= 1 && from_parts.len() > common && to_parts.len() > common
 }
 
 fn export_candidates(
@@ -718,8 +841,16 @@ fn export_candidates(
 
     let mut exact = Vec::new();
     for export in exports {
-        if export.name == export_name {
-            exact.push(export);
+        if export.name != export_name {
+            continue;
+        }
+        // Point at the declaration the export stands for, not at the
+        // export node. The export node lives in the file that re-exports
+        // the symbol; the declaration lives in the module it came from,
+        // and that is the thing callers reach.
+        match declaration_for_export(conn, &export)? {
+            Some(declaration) => exact.push(declaration),
+            None => exact.push(export),
         }
     }
 
@@ -727,6 +858,86 @@ fn export_candidates(
         Ok(None)
     } else {
         Ok(Some(exact))
+    }
+}
+
+/// Resolve an export node to the declaration it re-exports.
+///
+/// `export { helper } from './math'` produces an export node in the
+/// barrel file, naming a declaration that lives in another file. An edge
+/// that points at the export node points at a proxy: the declaration
+/// itself has no callers, and `coraline callers helper` finds nothing.
+///
+/// The declaration is looked up by name, in the module the export names.
+/// A relative module path is resolved against the directory of the file
+/// that holds the re-export — that is what the path is relative to.
+fn declaration_for_export(
+    conn: &rusqlite::Connection,
+    export: &Node,
+) -> std::io::Result<Option<Node>> {
+    let Some(module_path) = export.signature.as_deref() else {
+        return Ok(None);
+    };
+
+    let module_file = module_file_for(&export.file_path, module_path);
+    let candidates = db::find_nodes_by_name(conn, &export.name)?;
+
+    for candidate in &candidates {
+        if candidate.kind == NodeKind::Export {
+            continue;
+        }
+        if let Some(module_file) = &module_file
+            && normalise_module_path(&candidate.file_path) == *module_file
+        {
+            return Ok(Some(candidate.clone()));
+        }
+    }
+
+    // A module path that does not name a location — a package name, or a
+    // path that could not be resolved — is matched by the same rules the
+    // import hint uses.
+    for candidate in &candidates {
+        if candidate.kind == NodeKind::Export {
+            continue;
+        }
+        if matches_import_hint_exact(&candidate.file_path, module_path) {
+            return Ok(Some(candidate.clone()));
+        }
+    }
+
+    Ok(None)
+}
+
+/// The path of the file a module specifier refers to, without extension.
+///
+/// A relative specifier (`./math`) is resolved against the directory of
+/// the file that holds it. A specifier that names a package rather than
+/// a location (`math`, `pkg/math`) has no single answer, and `None` is
+/// returned so the caller can fall back to matching by name.
+fn module_file_for(importing_file: &str, module_path: &str) -> Option<String> {
+    let module_path = module_path.trim();
+    if !module_path.starts_with("./") && !module_path.starts_with("../") {
+        return None;
+    }
+
+    let normalised = crate::paths::normalise_separators(importing_file);
+    let dir = crate::paths::parent(&normalised);
+    let mut parts: Vec<&str> = dir.split('/').filter(|s| !s.is_empty()).collect();
+
+    for segment in module_path.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                parts.pop();
+            }
+            other => parts.push(other),
+        }
+    }
+
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join("/"))
     }
 }
 
@@ -763,7 +974,7 @@ mod tests {
     use super::confidence_for_reference;
     use super::{
         ImportHint, in_same_package, matches_import_hint, matches_import_hint_exact,
-        matches_import_package, rank_candidates,
+        matches_import_package, path_mentions_qualifier, rank_candidates,
     };
     use crate::types::{EdgeKind, Language, Node, NodeKind};
 
@@ -811,6 +1022,28 @@ mod tests {
         ));
     }
 
+    /// A Rust module lives in `mod.rs`, but the import names the module
+    /// directory.
+    ///
+    /// `use crate::helper::target;` pulls `target` out of the module
+    /// `helper`, which lives in `src/helper/mod.rs`.
+    #[test]
+    fn import_hint_matches_a_rust_module_file() {
+        assert!(matches_import_hint_exact(
+            "src/helper/mod.rs",
+            "crate::helper::target"
+        ));
+        assert!(matches_import_hint_exact(
+            "src/helper/mod.rs",
+            "crate/helper/target"
+        ));
+        // A different module in a different `mod.rs` does not match.
+        assert!(!matches_import_hint_exact(
+            "src/other/mod.rs",
+            "crate::helper::target"
+        ));
+    }
+
     #[test]
     fn package_hint_matches_any_file_in_the_package() {
         // `import com.example.util.Helper` pulls a symbol out of the package
@@ -844,13 +1077,93 @@ mod tests {
         ));
         // Two packages under the same root, as in a JVM layout.
         assert!(in_same_package(
+            Language::Kotlin,
             "src/com/example/util/Formatter.kt",
             "src/com/example/core/Shape.kt"
         ));
         assert!(in_same_package(
+            Language::Kotlin,
             "src\\com\\example\\util\\Formatter.kt",
             "src\\com\\example\\core\\Shape.kt"
         ));
+    }
+
+    /// A shared directory prefix only means "same package" in the
+    /// languages whose package system *is* the directory layout.
+    ///
+    /// In Rust, TypeScript or Ruby a directory is organisation, not a
+    /// package: `src/runtime.rs` and `src/legacy/api.rs` share the `src`
+    /// prefix and nothing else, and a call from one to the other is not a
+    /// package-level relationship. Linking them would connect every
+    /// same-named function in the tree.
+    #[test]
+    fn a_shared_directory_prefix_only_counts_in_package_languages() {
+        // A JVM layout: two packages under a common root.
+        assert!(in_same_package(
+            Language::Kotlin,
+            "src/com/example/util/Formatter.kt",
+            "src/com/example/core/Shape.kt"
+        ));
+        // The same shape in Rust, where it means nothing.
+        assert!(!in_same_package(
+            Language::Rust,
+            "src/runtime.rs",
+            "src/legacy/api.rs"
+        ));
+        assert!(!in_same_package(
+            Language::TypeScript,
+            "src/runtime.ts",
+            "src/legacy/api.ts"
+        ));
+    }
+
+    /// A file that sits in the shared directory is at the package root,
+    /// not inside the package.
+    ///
+    /// `src/runtime.rs` is in `src`; `src/legacy/api.rs` is in
+    /// `src/legacy`. The shared prefix is `src`, and the first file is
+    /// not inside it — it *is* it. Even in a package language, that is
+    /// not a package relationship.
+    #[test]
+    fn a_file_in_the_shared_directory_is_not_in_the_package_below_it() {
+        assert!(!in_same_package(
+            Language::Kotlin,
+            "src/runtime.kt",
+            "src/legacy/api.kt"
+        ));
+        // Two files in the same directory: that is the same-directory
+        // bucket, not the package one.
+        assert!(!in_same_package(
+            Language::Kotlin,
+            "src/legacy/api.kt",
+            "src/legacy/other.kt"
+        ));
+        // Two sibling packages under a shared root: that is the package
+        // bucket.
+        assert!(in_same_package(
+            Language::Kotlin,
+            "src/com/example/util/Formatter.kt",
+            "src/com/example/core/Shape.kt"
+        ));
+    }
+
+    /// The receiver of a qualified call names the module the symbol is
+    /// declared in, and the file that holds it says so in its path.
+    #[test]
+    fn a_file_path_can_name_the_receiver_of_a_qualified_call() {
+        // The module is the file: `src/Helper.cs` holds `Helper`.
+        assert!(path_mentions_qualifier("src/Helper.cs", "Helper"));
+        // The module is the directory: `src/helper/mod.rs` holds the
+        // `helper` module.
+        assert!(path_mentions_qualifier("src/helper/mod.rs", "helper"));
+        assert!(path_mentions_qualifier(
+            "src/com/example/util/Formatter.kt",
+            "util"
+        ));
+        // An unrelated file does not name it.
+        assert!(!path_mentions_qualifier("src/other/thing.rs", "helper"));
+        // A receiver that names nothing.
+        assert!(!path_mentions_qualifier("src/helper/mod.rs", ""));
     }
 
     fn node(id: &str, name: &str, file_path: &str) -> Node {
@@ -909,6 +1222,7 @@ mod tests {
             vec![target, unrelated],
             Some(&caller),
             Some(&hint),
+            None,
             "format",
             EdgeKind::Calls,
         )

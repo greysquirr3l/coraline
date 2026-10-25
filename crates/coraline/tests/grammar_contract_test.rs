@@ -40,6 +40,7 @@ fn grammar_for(language: Language) -> Option<TsLanguage> {
         Language::Ruby => TsLanguage::new(tree_sitter_ruby::LANGUAGE),
         Language::Swift => TsLanguage::new(tree_sitter_swift::LANGUAGE),
         Language::Kotlin => TsLanguage::new(tree_sitter_kotlin_ng::LANGUAGE),
+        Language::Blazor => TsLanguage::new(tree_sitter_blazor::LANGUAGE),
         _ => return None,
     })
 }
@@ -91,41 +92,178 @@ fn every_declared_node_kind_exists_in_its_grammar() {
 }
 
 #[test]
-fn every_declared_call_kind_and_field_exists_in_its_grammar() {
+fn every_declared_call_kind_exists_in_its_grammar() {
     for contract in grammar::CONTRACTS {
         let ts = grammar_for(contract.language)
             .expect("every contracted language has a grammar wired up in this test's match arm");
 
-        for (kind, source) in contract.call_kinds {
+        for (kind, _) in contract.call_kinds {
             assert!(
                 has_node_kind(&ts, kind),
                 "{:?}: call node kind {:?} does not exist in the grammar",
                 contract.language,
                 kind
             );
+        }
+    }
+}
 
-            if let CalleeSource::Field { callee, receiver } = source {
+/// Source snippets that contain one call site of a given node kind.
+///
+/// The callee field has to exist *on the call node*, not merely somewhere
+/// in the grammar. A field can exist in a grammar without existing on a
+/// particular node kind — C#'s `using_directive` is the classic example,
+/// where the grammar has a `name` field (used by `method_declaration`)
+/// but the import node stores its path in a `qualified_name` child. A
+/// grammar-wide check cannot tell the two apart.
+///
+/// The snippets are qualified where the contract declares a receiver, so
+/// that the receiver field is present as well.
+const CALL_SITES: &[(Language, &str, &str)] = &[
+    (Language::Rust, "call_expression", "fn main() { helper(); }"),
+    (
+        Language::Rust,
+        "macro_invocation",
+        "fn main() { println!(\"x\"); }",
+    ),
+    (Language::TypeScript, "call_expression", "helper();"),
+    (Language::TypeScript, "new_expression", "new Helper();"),
+    (Language::JavaScript, "call_expression", "helper();"),
+    (Language::JavaScript, "new_expression", "new Helper();"),
+    (Language::Python, "call", "helper()"),
+    (Language::Go, "call_expression", "helper()"),
+    (Language::Java, "method_invocation", "receiver.helper();"),
+    (
+        Language::Java,
+        "object_creation_expression",
+        "new Helper();",
+    ),
+    (Language::C, "call_expression", "helper();"),
+    (Language::Cpp, "call_expression", "helper();"),
+    (Language::CSharp, "invocation_expression", "helper();"),
+    (
+        Language::CSharp,
+        "object_creation_expression",
+        "new Helper();",
+    ),
+    (Language::Php, "function_call_expression", "<?php helper();"),
+    (
+        Language::Php,
+        "member_call_expression",
+        "<?php $receiver->helper();",
+    ),
+    (
+        Language::Php,
+        "scoped_call_expression",
+        "<?php Helper::helper();",
+    ),
+    (
+        Language::Php,
+        "nullsafe_member_call_expression",
+        "<?php $receiver?->helper();",
+    ),
+    (Language::Ruby, "call", "receiver.helper()"),
+];
+
+#[test]
+fn call_nodes_expose_the_declared_callee_field() {
+    for contract in grammar::CONTRACTS {
+        for (kind, source) in contract.call_kinds {
+            let CalleeSource::Field { callee, receiver } = source else {
+                continue;
+            };
+
+            let snippet = CALL_SITES
+                .iter()
+                .find(|(language, node_kind, _)| {
+                    *language == contract.language && *node_kind == *kind
+                })
+                .map_or_else(
+                    || {
+                        unreachable!(
+                            "{:?}: no source snippet declared for call node kind {:?}",
+                            contract.language, kind
+                        )
+                    },
+                    |(_, _, snippet)| *snippet,
+                );
+
+            with_parsed_tree(contract.language, snippet, |tree| {
+                let node = find_node(&tree.root_node(), kind).unwrap_or_else(|| {
+                    unreachable!(
+                        "{:?}: {snippet:?} does not contain a {kind:?} node",
+                        contract.language
+                    )
+                });
+
                 assert!(
-                    has_field(&ts, callee),
-                    "{:?}: call node kind {:?} uses field {:?}, which does not exist in the grammar",
-                    contract.language,
-                    kind,
-                    callee
+                    node.child_by_field_name(callee).is_some(),
+                    "{:?}: the {kind:?} node does not expose the callee field {callee:?}",
+                    contract.language
                 );
 
                 if let Some(receiver) = receiver {
                     assert!(
-                        has_field(&ts, receiver),
-                        "{:?}: call node kind {:?} uses receiver field {:?}, which does not exist in the grammar",
-                        contract.language,
-                        kind,
-                        receiver
+                        node.child_by_field_name(receiver).is_some(),
+                        "{:?}: the {kind:?} node does not expose the receiver field {receiver:?}",
+                        contract.language
                     );
                 }
-            }
+            });
         }
     }
 }
+
+/// Every language Coraline claims to support needs a contract.
+///
+/// A language without a contract is not "not supported yet" — it is a
+/// language that is indexed and produces an empty file: no nodes, no
+/// edges, and no symptom beyond `coraline callers` returning nothing.
+/// TSX, JSX and Blazor all fell into that hole when the extractor moved
+/// to the contract table.
+#[test]
+fn every_supported_language_has_a_contract() {
+    /// Languages Coraline indexes without extracting declarations.
+    ///
+    /// Markdown and Liquid are markup: they have no declarations to
+    /// extract, so they have nothing to declare.
+    const WITHOUT_DECLARATIONS: &[Language] = &[Language::Markdown, Language::Liquid];
+
+    for language in ALL_LANGUAGES {
+        if !coraline::config::is_language_supported(language) {
+            continue;
+        }
+        if WITHOUT_DECLARATIONS.contains(language) {
+            continue;
+        }
+        assert!(
+            grammar::contract_for(*language).is_some(),
+            "{language:?} is a supported language but has no grammar contract, so it is indexed as an empty file"
+        );
+    }
+}
+
+/// Every language Coraline knows about.
+const ALL_LANGUAGES: &[Language] = &[
+    Language::TypeScript,
+    Language::JavaScript,
+    Language::Tsx,
+    Language::Jsx,
+    Language::Python,
+    Language::Go,
+    Language::Rust,
+    Language::Java,
+    Language::C,
+    Language::Cpp,
+    Language::CSharp,
+    Language::Php,
+    Language::Ruby,
+    Language::Swift,
+    Language::Kotlin,
+    Language::Liquid,
+    Language::Markdown,
+    Language::Blazor,
+];
 
 /// Parse `source` with `language`'s grammar and hand the tree to `f`.
 ///
