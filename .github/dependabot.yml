@@ -16,11 +16,23 @@ updates:
       # Remove this ignore once a stable release or clean rc is available.
       - dependency-name: "ort"
         versions: ["2.0.0-rc.12"]
+      # tree-sitter 0.27 declares `links = "tree-sitter"`, so cargo refuses to
+      # put it in the graph next to any grammar crate that still requires
+      # tree-sitter 0.26 (tree-sitter-perl 1.1.2 — the latest release —
+      # requires ^0.26.3). The bump breaks every build.
+      # Remove this ignore once every grammar crate in crates/coraline/Cargo.toml
+      # accepts tree-sitter 0.27.
+      - dependency-name: "tree-sitter"
+        versions: ["0.27.x"]
 
   # GitHub Actions
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      codeql:
+        patterns:
+          - "github/codeql-action/*"
     commit-message:
       prefix: "ci"
