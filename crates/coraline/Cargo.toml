@@ -57,10 +57,10 @@ tree-sitter-bash = "0.25.1"
 tree-sitter-dart = "0.2.0"
 tree-sitter-elixir = "0.3.5"
 tree-sitter-elm = "5.9.0"
-tree-sitter-erlang = "0.20.0"
+tree-sitter-erlang = "0.21.0"
 tree-sitter-fortran = "0.6.0"
 tree-sitter-groovy = "0.1.2"
-tree-sitter-haskell = "0.23.1"
+tree-sitter-haskell = "0.24.1"
 tree-sitter-julia = "0.23.1"
 tree-sitter-lua = "0.5.0"
 tree-sitter-markdown-updated = "0.1.0"  # Replaces tree-sitter-markdown-fork — ikatyang/tree-sitter-markdown#61 is still open (dyld SYM_EXT_AUT_LNK_BGN assertion on macOS 26.x); this fork ships a working grammar
@@ -75,7 +75,7 @@ tree-sitter-yaml = "0.7.2"
 tree-sitter-zig = "1.1.2"
 
 # Additional recently compatible parsers
-tree-sitter-php = "0.24.2"
+tree-sitter-php = "0.25.1"
 tree-sitter-swift = "0.7.1"
 tree-sitter-kotlin-ng = "1.1.0"  # Using -ng fork which is compatible with tree-sitter 0.26
 sqlite-vec = { version = "=0.1.9", default-features = false, optional = true }
