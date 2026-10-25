@@ -11,6 +11,7 @@ pub mod context;
 pub mod db;
 pub mod doctor;
 pub mod extraction;
+pub mod grammar;
 pub mod graph;
 pub mod logging;
 pub mod mcp;
