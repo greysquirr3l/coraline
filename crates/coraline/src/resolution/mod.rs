@@ -41,43 +41,80 @@ impl ReferenceResolver {
         limit: usize,
     ) -> std::io::Result<ResolveResult> {
         let page_size = limit.max(1);
-        let unresolved = db::list_all_unresolved_refs_paged(conn, page_size)?;
-        if unresolved.is_empty() {
-            return Ok(ResolveResult {
-                scanned: 0,
-                resolved: 0,
-                remaining: 0,
-            });
-        }
+        let mut scanned = 0usize;
+        let mut resolved_total = 0usize;
+        let mut cursor = 0i64;
 
-        let mut resolved_edges = Vec::new();
-        let mut resolved_ids = Vec::new();
+        loop {
+            let page = db::list_unresolved_refs_after(conn, cursor, page_size)?;
+            if page.is_empty() {
+                break;
+            }
+            cursor = page.iter().map(|row| row.id).max().unwrap_or(cursor);
 
-        for row in &unresolved {
-            let reference = &row.reference;
-            let from_node = db::get_node_by_id(conn, &reference.from_node_id)?;
-            let candidates = candidates_for_reference(conn, reference)?;
+            let mut resolved_edges = Vec::new();
+            let mut resolved_ids = Vec::new();
 
-            let import_hint = from_node
-                .as_ref()
-                .and_then(|node| {
-                    import_match_hint(
-                        conn,
-                        node,
-                        &reference.reference_name,
-                        reference.qualifier.as_deref(),
-                    )
-                    .ok()
-                })
-                .flatten();
+            for row in &page {
+                let reference = &row.reference;
+                let from_node = db::get_node_by_id(conn, &reference.from_node_id)?;
+                let candidates = candidates_for_reference(conn, reference)?;
 
-            // A qualified call is scoped to the type of its receiver:
-            // `helper.area()` on a `Circle` resolves to `Circle.area`, even
-            // when the method is declared in another file. This is what makes
-            // cross-package calls resolvable without an explicit import.
-            if let Some(qualifier) = reference.qualifier.as_deref() {
-                let scoped = type_member_candidates(conn, qualifier, &reference.reference_name)?;
-                if let [target] = scoped.as_slice() {
+                let import_hint = from_node
+                    .as_ref()
+                    .and_then(|node| {
+                        import_match_hint(
+                            conn,
+                            node,
+                            &reference.reference_name,
+                            reference.qualifier.as_deref(),
+                        )
+                        .ok()
+                    })
+                    .flatten();
+
+                // A qualified call is scoped to the type of its receiver:
+                // `helper.area()` on a `Circle` resolves to `Circle.area`, even
+                // when the method is declared in another file. This is what makes
+                // cross-package calls resolvable without an explicit import.
+                if let Some(qualifier) = reference.qualifier.as_deref() {
+                    let scoped =
+                        type_member_candidates(conn, qualifier, &reference.reference_name)?;
+                    if let [target] = scoped.as_slice() {
+                        resolved_edges.push(Edge {
+                            source: reference.from_node_id.clone(),
+                            target: target.id.clone(),
+                            kind: reference.reference_kind,
+                            metadata: None,
+                            line: Some(reference.line),
+                            column: Some(reference.column),
+                            confidence: confidence_for_reference(&reference.reference_name),
+                            process_id: None,
+                        });
+                        resolved_ids.push(row.id);
+                        continue;
+                    }
+                }
+                let candidates = rank_candidates(
+                    conn,
+                    candidates,
+                    from_node.as_ref(),
+                    import_hint.as_ref(),
+                    &reference.reference_name,
+                    reference.reference_kind,
+                )?;
+
+                // If generic resolution found nothing, try framework-specific hints.
+                let candidates = if candidates.is_empty() {
+                    from_node.as_ref().map_or_else(Vec::new, |from| {
+                        framework_fallback(conn, project_root, from, &reference.reference_name)
+                    })
+                } else {
+                    candidates
+                };
+
+                if let [target] = candidates.as_slice() {
+                    let confidence = confidence_for_reference(&reference.reference_name);
                     resolved_edges.push(Edge {
                         source: reference.from_node_id.clone(),
                         target: target.id.clone(),
@@ -85,52 +122,27 @@ impl ReferenceResolver {
                         metadata: None,
                         line: Some(reference.line),
                         column: Some(reference.column),
-                        confidence: confidence_for_reference(&reference.reference_name),
+                        confidence,
                         process_id: None,
                     });
                     resolved_ids.push(row.id);
-                    continue;
                 }
             }
-            let candidates = rank_candidates(
-                conn,
-                candidates,
-                from_node.as_ref(),
-                import_hint.as_ref(),
-                &reference.reference_name,
-                reference.reference_kind,
-            )?;
 
-            // If generic resolution found nothing, try framework-specific hints.
-            let candidates = if candidates.is_empty() {
-                from_node.as_ref().map_or_else(Vec::new, |from| {
-                    framework_fallback(conn, project_root, from, &reference.reference_name)
-                })
-            } else {
-                candidates
-            };
-
-            if let [target] = candidates.as_slice() {
-                let confidence = confidence_for_reference(&reference.reference_name);
-                resolved_edges.push(Edge {
-                    source: reference.from_node_id.clone(),
-                    target: target.id.clone(),
-                    kind: reference.reference_kind,
-                    metadata: None,
-                    line: Some(reference.line),
-                    column: Some(reference.column),
-                    confidence,
-                    process_id: None,
-                });
-                resolved_ids.push(row.id);
+            if !resolved_edges.is_empty() {
+                db::insert_edges(conn, &resolved_edges)?;
             }
-        }
+            if !resolved_ids.is_empty() {
+                db::delete_unresolved_refs(conn, &resolved_ids)?;
+            }
 
-        if !resolved_edges.is_empty() {
-            db::insert_edges(conn, &resolved_edges)?;
-        }
-        if !resolved_ids.is_empty() {
-            db::delete_unresolved_refs(conn, &resolved_ids)?;
+            scanned += page.len();
+            resolved_total += resolved_ids.len();
+
+            // A short page means the backlog is exhausted.
+            if page.len() < page_size {
+                break;
+            }
         }
 
         // Everything still in the table after this pass was tried and
@@ -145,11 +157,10 @@ impl ReferenceResolver {
             );
         }
 
-        let remaining = unresolved.len().saturating_sub(resolved_ids.len());
         Ok(ResolveResult {
-            scanned: unresolved.len(),
-            resolved: resolved_ids.len(),
-            remaining,
+            scanned,
+            resolved: resolved_total,
+            remaining: scanned.saturating_sub(resolved_total),
         })
     }
 }
