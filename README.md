@@ -128,7 +128,7 @@ Coraline exposes 33 tools for code intelligence:
 
 ## Supported Languages
 
-33 languages including TypeScript, Rust, Python, Go, C#, Java, C/C++, Ruby, Bash, PHP, Swift, Kotlin, Haskell, Scala, Lua, Markdown, and more.
+36 languages including TypeScript, Rust, Python, Go, C#, Java, C/C++, Ruby, Bash, PHP, Swift, Kotlin, Haskell, Scala, Lua, Markdown, and more.
 
 [See full language support →](https://greysquirr3l.github.io/coraline/languages.html)
 
