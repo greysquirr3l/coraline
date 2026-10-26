@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-10-26
+
 ### Changed
 
 - **`tree-sitter` is now 0.27.1.** The bump was blocked by
@@ -56,12 +58,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that gap is tracked in [#128](https://github.com/greysquirr3l/coraline/issues/128),
   and the docs now mark which languages are indexed.
 
-[ts-perl]: https://github.com/tree-sitter-perl/tree-sitter-perl
-[ort-546]: https://github.com/pykeio/ort/pull/546
-[ort-547]: https://github.com/pykeio/ort/issues/547
-
-### Fixed
-
 - **`coraline audit-docs` reported zero findings on every project.**
   The Markdown doc-structure extractor (`extract_markdown_nodes`) was
   dropped by the config.toml consolidation (`b079ac5`), so a Markdown
@@ -78,6 +74,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `config.toml` template, so even with the extractor restored a
   project would not have had a Markdown file to audit. It is now
   included by default.
+
+[ts-perl]: https://github.com/tree-sitter-perl/tree-sitter-perl
+[ort-546]: https://github.com/pykeio/ort/pull/546
+[ort-547]: https://github.com/pykeio/ort/issues/547
 
 ## [0.14.0] - 2026-10-25
 
@@ -877,31 +877,41 @@ Both are additive and idempotent: `db::apply_incremental_migrations` gates on `P
 - `coraline_search`, `coraline_callers`, `coraline_callees`, `coraline_impact`, `coraline_context` MCP tools
 - Git post-commit hook integration
 
-[Unreleased]: https://github.com/greysquirr3l/coraline/compare/v0.12.0...HEAD
-[0.12.0]: https://github.com/greysquirr3l/coraline/compare/v0.11.0...v0.12.0
-[0.11.0]: https://github.com/greysquirr3l/coraline/compare/v0.10.2...v0.11.0
-[0.10.2]: https://github.com/greysquirr3l/coraline/compare/v0.10.1...v0.10.2
-[0.10.1]: https://github.com/greysquirr3l/coraline/compare/v0.10.0...v0.10.1
-[0.10.0]: https://github.com/greysquirr3l/coraline/compare/v0.9.0...v0.10.0
-[0.8.6]: https://github.com/greysquirr3l/coraline/compare/v0.8.5...v0.8.6
-[0.8.5]: https://github.com/greysquirr3l/coraline/compare/v0.8.4...v0.8.5
-[0.8.3]: https://github.com/greysquirr3l/coraline/compare/v0.8.2...v0.8.3
-[0.8.2]: https://github.com/greysquirr3l/coraline/compare/v0.8.1...v0.8.2
-[0.8.1]: https://github.com/greysquirr3l/coraline/compare/v0.8.0...v0.8.1
-[0.8.0]: https://github.com/greysquirr3l/coraline/compare/v0.7.0...v0.8.0
-[0.7.0]: https://github.com/greysquirr3l/coraline/compare/v0.6.0...v0.7.0
-[0.2.0]: https://github.com/greysquirr3l/coraline/compare/v0.1.3...v0.2.0
-[0.6.0]: https://github.com/greysquirr3l/coraline/compare/v0.5.0...v0.6.0
-[0.5.0]: https://github.com/greysquirr3l/coraline/compare/v0.4.4...v0.5.0
-[0.4.2]: https://github.com/greysquirr3l/coraline/compare/v0.4.1...v0.4.2
-[0.4.1]: https://github.com/greysquirr3l/coraline/compare/v0.4.0...v0.4.1
-[0.4.0]: https://github.com/greysquirr3l/coraline/compare/v0.3.1...v0.4.0
-[0.3.1]: https://github.com/greysquirr3l/coraline/compare/v0.3.0...v0.3.1
-[0.3.0]: https://github.com/greysquirr3l/coraline/compare/v0.2.3...v0.3.0
-[0.2.3]: https://github.com/greysquirr3l/coraline/compare/v0.2.2...v0.2.3
-[0.2.2]: https://github.com/greysquirr3l/coraline/compare/v0.2.1...v0.2.2
-[0.2.1]: https://github.com/greysquirr3l/coraline/compare/v0.2.0...v0.2.1
-[0.1.3]: https://github.com/greysquirr3l/coraline/compare/v0.1.2...v0.1.3
-[0.1.2]: https://github.com/greysquirr3l/coraline/compare/v0.1.1...v0.1.2
-[0.1.1]: https://github.com/greysquirr3l/coraline/compare/v0.1.0...v0.1.1
+[Unreleased]: https://github.com/greysquirr3l/coraline/compare/v0.15.0...HEAD
 [0.1.0]: https://github.com/greysquirr3l/coraline/releases/tag/v0.1.0
+[0.1.1]: https://github.com/greysquirr3l/coraline/compare/v0.1.0...v0.1.1
+[0.1.2]: https://github.com/greysquirr3l/coraline/compare/v0.1.1...v0.1.2
+[0.1.3]: https://github.com/greysquirr3l/coraline/compare/v0.1.2...v0.1.3
+[0.2.0]: https://github.com/greysquirr3l/coraline/compare/v0.1.3...v0.2.0
+[0.2.1]: https://github.com/greysquirr3l/coraline/compare/v0.2.0...v0.2.1
+[0.2.2]: https://github.com/greysquirr3l/coraline/compare/v0.2.1...v0.2.2
+[0.2.3]: https://github.com/greysquirr3l/coraline/compare/v0.2.2...v0.2.3
+[0.3.0]: https://github.com/greysquirr3l/coraline/compare/v0.2.3...v0.3.0
+[0.3.1]: https://github.com/greysquirr3l/coraline/compare/v0.3.0...v0.3.1
+[0.4.0]: https://github.com/greysquirr3l/coraline/compare/v0.3.1...v0.4.0
+[0.4.1]: https://github.com/greysquirr3l/coraline/compare/v0.4.0...v0.4.1
+[0.4.2]: https://github.com/greysquirr3l/coraline/compare/v0.4.1...v0.4.2
+[0.4.3]: https://github.com/greysquirr3l/coraline/compare/v0.4.2...v0.4.3
+[0.4.4]: https://github.com/greysquirr3l/coraline/compare/v0.4.3...v0.4.4
+[0.5.0]: https://github.com/greysquirr3l/coraline/compare/v0.4.4...v0.5.0
+[0.6.0]: https://github.com/greysquirr3l/coraline/compare/v0.5.0...v0.6.0
+[0.7.0]: https://github.com/greysquirr3l/coraline/compare/v0.6.0...v0.7.0
+[0.8.0]: https://github.com/greysquirr3l/coraline/compare/v0.7.0...v0.8.0
+[0.8.1]: https://github.com/greysquirr3l/coraline/compare/v0.8.0...v0.8.1
+[0.8.2]: https://github.com/greysquirr3l/coraline/compare/v0.8.1...v0.8.2
+[0.8.3]: https://github.com/greysquirr3l/coraline/compare/v0.8.2...v0.8.3
+[0.8.4]: https://github.com/greysquirr3l/coraline/compare/v0.8.3...v0.8.4
+[0.8.5]: https://github.com/greysquirr3l/coraline/compare/v0.8.4...v0.8.5
+[0.8.6]: https://github.com/greysquirr3l/coraline/compare/v0.8.5...v0.8.6
+[0.8.7]: https://github.com/greysquirr3l/coraline/compare/v0.8.6...v0.8.7
+[0.8.8]: https://github.com/greysquirr3l/coraline/compare/v0.8.7...v0.8.8
+[0.9.0]: https://github.com/greysquirr3l/coraline/compare/v0.8.8...v0.9.0
+[0.10.0]: https://github.com/greysquirr3l/coraline/compare/v0.9.0...v0.10.0
+[0.10.1]: https://github.com/greysquirr3l/coraline/compare/v0.10.0...v0.10.1
+[0.10.2]: https://github.com/greysquirr3l/coraline/compare/v0.10.1...v0.10.2
+[0.11.0]: https://github.com/greysquirr3l/coraline/compare/v0.10.2...v0.11.0
+[0.12.0]: https://github.com/greysquirr3l/coraline/compare/v0.11.0...v0.12.0
+[0.13.0]: https://github.com/greysquirr3l/coraline/compare/v0.12.0...v0.13.0
+[0.13.1]: https://github.com/greysquirr3l/coraline/compare/v0.13.0...v0.13.1
+[0.14.0]: https://github.com/greysquirr3l/coraline/compare/v0.13.1...v0.14.0
+[0.15.0]: https://github.com/greysquirr3l/coraline/compare/v0.14.0...v0.15.0
