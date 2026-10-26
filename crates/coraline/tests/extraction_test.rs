@@ -292,7 +292,11 @@ fn test_markdown_doc_structure_is_extracted() {
     for entry in std::fs::read_dir(fixture_src).expect("Failed to read fixture directory") {
         let entry = entry.expect("Failed to read directory entry");
         let dest = project_path.join(entry.file_name());
-        if entry.file_type().expect("Failed to read file type").is_dir() {
+        if entry
+            .file_type()
+            .expect("Failed to read file type")
+            .is_dir()
+        {
             std::fs::create_dir_all(&dest).expect("Failed to create fixture directory");
             for child in std::fs::read_dir(entry.path()).expect("Failed to read dir") {
                 let child = child.expect("Failed to read directory entry");

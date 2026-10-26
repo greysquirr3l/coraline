@@ -848,7 +848,9 @@ fn looks_like_symbol(s: &str) -> bool {
     if s.len() < 2 || s.contains(' ') {
         return false;
     }
-    if s.chars().all(|c| c.is_ascii_digit() || c == '.' || c == '_') {
+    if s.chars()
+        .all(|c| c.is_ascii_digit() || c == '.' || c == '_')
+    {
         return false;
     }
     let first = s.chars().next().unwrap_or('\0');
