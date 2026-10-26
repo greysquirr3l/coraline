@@ -3,6 +3,12 @@ name: Dependabot Auto-Merge
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      pr_url:
+        description: "Pull request to evaluate for auto-merge"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -12,24 +18,60 @@ jobs:
   auto-merge:
     name: Auto-merge Dependabot PRs
     runs-on: ubuntu-latest
-    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.pull_request.user.login == 'dependabot[bot]'
     # Auto-merging a PR requires contents: write (to push the merge commit)
     # and pull-requests: write (to flip the auto-merge flag).
     permissions:
       contents: write
       pull-requests: write
+    env:
+      PR_URL: ${{ github.event.pull_request.html_url || inputs.pr_url }}
     steps:
-      - name: Fetch Dependabot metadata
-        id: metadata
-        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v2
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          # Check out the *base* ref rather than the PR head: the script
+          # that decides whether to auto-merge must come from a trusted
+          # ref, never from the pull request being evaluated.
+          ref: ${{ github.event.pull_request.base.sha || github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Resolve the pull request
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          : "${PR_URL:?PR URL is required}"
+          # `pull_request` payloads carry the author, but a
+          # `workflow_dispatch` payload does not. Ask the API in both
+          # cases so the dispatch path cannot auto-merge a hand-written
+          # pull request.
+          .github/scripts/dependabot-author.sh "$PR_URL"
+          echo "url=${PR_URL}" >> "$GITHUB_OUTPUT"
+
+      - name: Classify the update level
+        id: level
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ steps.pr.outputs.url }}
+        run: |
+          set -euo pipefail
+          : "${PR_URL:?PR URL is required}"
+          # The classifier reads the Dependabot commit message and, for
+          # Cargo requirement updates, falls back to the manifest diff.
+          # An empty result means the level could not be established,
+          # which means no auto-merge.
+          level="$(.github/scripts/dependabot-level.sh "$PR_URL")"
+          echo "level=${level}" >> "$GITHUB_OUTPUT"
+          echo "Update level: ${level:-unknown}"
 
       - name: Enable auto-merge for patch and minor updates
         if: |
-          steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
-          steps.metadata.outputs.update-type == 'version-update:semver-minor'
+          steps.level.outputs.level == 'version-update:semver-patch' ||
+          steps.level.outputs.level == 'version-update:semver-minor'
         run: gh pr merge --auto --squash "$PR_URL"
         env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
