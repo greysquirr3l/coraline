@@ -378,3 +378,79 @@ fn test_markdown_doc_structure_is_extracted() {
         "a documented export must not be reported as undocumented"
     );
 }
+
+/// Perl support rests on a grammar swap: `tree-sitter-perl` 1.1.2 pins
+/// `tree-sitter` to `^0.26.3` as a runtime dependency, which makes it
+/// impossible to move the workspace to `tree-sitter` 0.27 alongside it.
+/// `ts-parser-perl` 2.0.0 is the maintained grammar from the
+/// `tree-sitter-perl` organisation and depends on `tree-sitter` only as
+/// a dev-dependency, so the two can coexist.
+///
+/// That swap replaces the parser implementation, so the node kinds the
+/// extractor keys off have to be asserted rather than assumed. This test
+/// is the first coverage Perl has had.
+#[test]
+fn test_extract_perl_module() {
+    let (_temp, project_root) = setup_test_db();
+    let project_path = Path::new(&project_root);
+
+    let fixture_src = Path::new("tests/fixtures/perl-module");
+    let fixture_dst = project_path.join("src");
+    std::fs::create_dir_all(&fixture_dst).expect("Failed to create fixture directory");
+
+    for entry in std::fs::read_dir(fixture_src).expect("Failed to read fixture directory") {
+        let entry = entry.expect("Failed to read directory entry");
+        let dest = fixture_dst.join(entry.file_name());
+        std::fs::copy(entry.path(), dest).expect("Failed to copy fixture file");
+    }
+
+    let cfg = config::create_default_config(project_path);
+
+    let result =
+        extraction::index_all(project_path, &cfg, false, None).expect("Failed to index project");
+
+    assert!(result.files_indexed > 0, "Should index at least one file");
+    assert!(result.nodes_created > 0, "Should create at least one node");
+
+    let conn = db::open_database(project_path).expect("Failed to open database");
+
+    // The package name is a module node.
+    let results =
+        db::search_nodes(&conn, "Greeter", None, 10).expect("Failed to search for 'Greeter'");
+    assert!(
+        results.iter().any(|r| r.node.name == "Greeter"),
+        "Should find the 'Greeter' package"
+    );
+
+    // The subroutines are functions.
+    for name in ["greet", "farewell"] {
+        let results =
+            db::search_nodes(&conn, name, None, 10).expect("Failed to search for a subroutine");
+        assert!(
+            results.iter().any(|r| r.node.name == name),
+            "Should find the '{name}' subroutine"
+        );
+    }
+
+    // The `@EXPORT_OK` list is how a Perl module advertises its
+    // interface, so `greet` and `farewell` are exported symbols. This
+    // is the part of the extraction that reads an `assignment` node, and
+    // it is the assertion that would catch a grammar change that
+    // renames that node kind.
+    let mut stmt = conn
+        .prepare("SELECT name FROM nodes WHERE kind = 'export'")
+        .expect("Failed to prepare the export query");
+    let exported: Vec<String> = stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .expect("Failed to query the exports")
+        .filter_map(Result::ok)
+        .collect();
+    assert!(
+        exported.iter().any(|e| e == "greet"),
+        "`greet` should be exported via @EXPORT_OK, got {exported:?}"
+    );
+    assert!(
+        exported.iter().any(|e| e == "farewell"),
+        "`farewell` should be exported via @EXPORT_OK, got {exported:?}"
+    );
+}

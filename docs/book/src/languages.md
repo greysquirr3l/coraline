@@ -4,44 +4,50 @@ Coraline parses **36 languages** with tree-sitter and builds the same
 semantic knowledge graph for every one of them: declarations, imports,
 calls, instantiations, inheritance and cross-file references.
 
-| Language | Extensions |
-| --- | --- |
-| TypeScript | `.ts` |
-| TSX | `.tsx` |
-| JavaScript | `.js` |
-| JSX | `.jsx` |
-| Python | `.py` |
-| Go | `.go` |
-| Rust | `.rs` |
-| Java | `.java` |
-| C | `.c`, `.h` |
-| C++ | `.cpp`, `.cc`, `.cxx`, `.hpp` |
-| C# | `.cs` |
-| PHP | `.php` |
-| Ruby | `.rb` |
-| Swift | `.swift` |
-| Kotlin | `.kt`, `.kts` |
-| Markdown | `.md`, `.markdown` |
-| TOML | `.toml` |
-| YAML | `.yml`, `.yaml` |
-| Zig | `.zig` |
-| Scala | `.scala`, `.sc` |
-| Haskell | `.hs` |
-| Lua | `.lua` |
-| Julia | `.jl` |
-| MATLAB | `.m` |
-| R | `.r` |
-| Erlang | `.erl`, `.hrl` |
-| Elixir | `.ex`, `.exs` |
-| Groovy | `.groovy`, `.gradle` |
-| Bash | `.sh`, `.bash` |
-| PowerShell | `.ps1` |
-| Nix | `.nix` |
-| Dart | `.dart` |
-| Fortran | `.f`, `.f90`, `.f95` |
-| Elm | `.elm` |
-| Perl | `.pl`, `.pm` |
-| Blazor | `.razor`, `.cshtml` |
+| Language | Extensions | Indexed |
+| --- | --- | :---: |
+| TypeScript | `.ts` | ✅ |
+| TSX | `.tsx` | ✅ |
+| JavaScript | `.js` | ✅ |
+| JSX | `.jsx` | ✅ |
+| Python | `.py` | ✅ |
+| Go | `.go` | ✅ |
+| Rust | `.rs` | ✅ |
+| Java | `.java` | ✅ |
+| C | `.c`, `.h` | ✅ |
+| C++ | `.cpp`, `.cc`, `.cxx`, `.hpp` | ✅ |
+| C# | `.cs` | ✅ |
+| PHP | `.php` | ✅ |
+| Ruby | `.rb` | ✅ |
+| Swift | `.swift` | ✅ |
+| Kotlin | `.kt`, `.kts` | ✅ |
+| Liquid | `.liquid` | ✅ |
+| Blazor | `.razor`, `.cshtml` | ✅ |
+| Markdown | `.md`, `.markdown` | ✅ |
+| Perl | `.pl`, `.pm` | ✅ |
+| Bash | `.sh`, `.bash` | ⏳ |
+| Dart | `.dart` | ⏳ |
+| Elixir | `.ex`, `.exs` | ⏳ |
+| Elm | `.elm` | ⏳ |
+| Erlang | `.erl`, `.hrl` | ⏳ |
+| Fortran | `.f`, `.f90`, `.f95` | ⏳ |
+| Groovy | `.groovy`, `.gradle` | ⏳ |
+| Haskell | `.hs` | ⏳ |
+| Julia | `.jl` | ⏳ |
+| Lua | `.lua` | ⏳ |
+| MATLAB | `.m` | ⏳ |
+| Nix | `.nix` | ⏳ |
+| PowerShell | `.ps1` | ⏳ |
+| R | `.r` | ⏳ |
+| Scala | `.scala`, `.sc` | ⏳ |
+| TOML | `.toml` | ⏳ |
+| YAML | `.yml`, `.yaml` | ⏳ |
+| Zig | `.zig` | ⏳ |
+
+**✅** — the language is indexed and its graph is built.
+**⏳** — the grammar and the extraction contract are in place, but the
+language is not yet enabled for indexing, so it produces no nodes. See
+[issue #128](https://github.com/greysquirr3l/coraline/issues/128).
 
 ## Enabling a language
 

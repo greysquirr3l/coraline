@@ -430,12 +430,13 @@ impl VectorManager {
     /// staleness, and coverage filters to stay correct across model
     /// switches.
     pub fn new(model_path: &Path, model_name: &str) -> io::Result<Self> {
-        let session = Session::builder()
-            .map_err(io::Error::other)?
+        let environment = ort::init().build().map_err(io::Error::other)?;
+        let session = Session::builder(&environment)
+            .map_err(|e| io::Error::other(e.to_string()))?
             .with_optimization_level(GraphOptimizationLevel::Level3)
-            .map_err(io::Error::other)?
+            .map_err(|e| io::Error::other(e.to_string()))?
             .with_intra_threads(4)
-            .map_err(io::Error::other)?
+            .map_err(|e| io::Error::other(e.to_string()))?
             .commit_from_file(model_path)
             .map_err(io::Error::other)?;
 

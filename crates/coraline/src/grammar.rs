@@ -650,4 +650,48 @@ pub static CONTRACTS: &[LanguageContract] = &[
         heritage: None,
         directory_packages: false,
     },
+    LanguageContract {
+        language: Language::Perl,
+        kinds: &[
+            (
+                "subroutine_declaration_statement",
+                NodeKind::Function,
+                false,
+            ),
+            ("method_declaration_statement", NodeKind::Method, false),
+            ("package_statement", NodeKind::Namespace, true),
+            ("class_statement", NodeKind::Class, true),
+            ("role_statement", NodeKind::Interface, true),
+            ("use_statement", NodeKind::Import, false),
+            ("variable_declaration", NodeKind::Variable, false),
+            // A Perl module advertises its interface through
+            // `our @EXPORT_OK = qw(...)`, which the grammar parses as an
+            // assignment. Mapping it to `Export` is what lets the
+            // export collector see it; an assignment that is not an
+            // export list produces no nodes.
+            ("assignment_expression", NodeKind::Export, false),
+        ],
+        call_kinds: &[
+            (
+                "function_call_expression",
+                CalleeSource::Field {
+                    callee: "function",
+                    receiver: None,
+                },
+            ),
+            (
+                "method_call_expression",
+                CalleeSource::Field {
+                    callee: "method",
+                    receiver: Some("invocant"),
+                },
+            ),
+        ],
+        import_kinds: &["use_statement"],
+        instantiation_kinds: &[],
+        // A Perl class inherits through `@ISA`, not a clause on the
+        // declaration, so there is no heritage node to read.
+        heritage: None,
+        directory_packages: false,
+    },
 ];
