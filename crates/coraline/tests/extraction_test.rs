@@ -275,3 +275,106 @@ fn test_cross_file_references() {
 
     assert!(!edges.is_empty(), "Should have import edges");
 }
+
+/// Markdown documents must produce a doc structure the audit can work with.
+///
+/// The Markdown extractor was dropped by the config.toml consolidation
+/// (`b079ac5`), which left `coraline audit-docs` reporting zero findings
+/// on every project: a Markdown file produced only a `file` node, so
+/// there were no heading sections to attribute references to and no
+/// `code_span` references to resolve.
+#[test]
+fn test_markdown_doc_structure_is_extracted() {
+    let (_temp, project_root) = setup_test_db();
+    let project_path = Path::new(&project_root);
+
+    let fixture_src = Path::new("tests/fixtures/markdown-doc");
+    for entry in std::fs::read_dir(fixture_src).expect("Failed to read fixture directory") {
+        let entry = entry.expect("Failed to read directory entry");
+        let dest = project_path.join(entry.file_name());
+        if entry
+            .file_type()
+            .expect("Failed to read file type")
+            .is_dir()
+        {
+            std::fs::create_dir_all(&dest).expect("Failed to create fixture directory");
+            for child in std::fs::read_dir(entry.path()).expect("Failed to read dir") {
+                let child = child.expect("Failed to read directory entry");
+                std::fs::copy(child.path(), dest.join(child.file_name()))
+                    .expect("Failed to copy fixture file");
+            }
+        } else {
+            std::fs::copy(entry.path(), dest).expect("Failed to copy fixture file");
+        }
+    }
+
+    let mut cfg = config::create_default_config(project_path);
+    cfg.include = vec!["**/*.rs".to_string(), "**/*.md".to_string()];
+
+    extraction::index_all(project_path, &cfg, false, None).expect("Failed to index project");
+
+    let conn = db::open_database(project_path).expect("Failed to open database");
+
+    // Every heading becomes a `module` node — this is what the audit
+    // counts as a doc section.
+    let sections: Vec<String> = conn
+        .prepare("SELECT name FROM nodes WHERE language = 'markdown' AND kind = 'module'")
+        .expect("Failed to prepare SQL statement")
+        .query_map([], |row| row.get::<_, String>(0))
+        .expect("Failed to query nodes")
+        .filter_map(Result::ok)
+        .collect();
+
+    assert!(
+        sections.contains(&"Widget Guide".to_string()),
+        "ATX heading should become a doc section, got {sections:?}"
+    );
+    assert!(
+        sections.contains(&"Advanced".to_string()),
+        "nested ATX heading should become a doc section, got {sections:?}"
+    );
+
+    // The coverage stats the audit reports come from these nodes.
+    let (files, section_count) =
+        db::get_doc_coverage_stats(&conn).expect("Failed to read doc coverage stats");
+    assert_eq!(files, 1, "one Markdown file should be indexed");
+    assert_eq!(section_count, 2, "two headings should be indexed");
+
+    // A `code_span` that names a real symbol resolves to a `references`
+    // edge; one that names nothing stays unresolved.
+    let resolved: Vec<String> = conn
+        .prepare(
+            "SELECT t.name FROM edges e
+             JOIN nodes s ON e.source = s.id
+             JOIN nodes t ON e.target = t.id
+             WHERE e.kind = 'references' AND s.language = 'markdown'",
+        )
+        .expect("Failed to prepare SQL statement")
+        .query_map([], |row| row.get::<_, String>(0))
+        .expect("Failed to query edges")
+        .filter_map(Result::ok)
+        .collect();
+
+    assert!(
+        resolved.contains(&"Widget".to_string()),
+        "`Widget` should resolve to the struct, got {resolved:?}"
+    );
+    assert!(
+        resolved.contains(&"resize".to_string()),
+        "`resize` should resolve to the method, got {resolved:?}"
+    );
+
+    let stale = db::list_doc_unresolved_refs(&conn).expect("Failed to list unresolved doc refs");
+    assert!(
+        stale.iter().any(|r| r.reference_name == "MissingHelper"),
+        "`MissingHelper` should be reported as a stale reference"
+    );
+
+    // `Widget` is documented, so it must not be listed as undocumented.
+    let undocumented =
+        db::list_undocumented_exports(&conn).expect("Failed to list undocumented exports");
+    assert!(
+        !undocumented.iter().any(|n| n.name == "Widget"),
+        "a documented export must not be reported as undocumented"
+    );
+}

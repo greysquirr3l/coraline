@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`coraline audit-docs` reported zero findings on every project.**
+  The Markdown doc-structure extractor (`extract_markdown_nodes`) was
+  dropped by the config.toml consolidation (`b079ac5`), so a Markdown
+  file produced only a `file` node: no heading sections to attribute
+  references to, and no `code_span` references to resolve. The audit's
+  two findings — stale references and undocumented exports — had no
+  input to work from, and `coraline_audit_docs` reported
+  `doc_files_indexed: 0` on every repository. The extractor is
+  restored: every ATX / setext heading becomes a `module` node and
+  every inline code span that looks like a symbol name becomes a
+  `References` reference that the resolver can link to real code.
+- **Markdown files were never indexed by default.** `**/*.md` was
+  missing from `default_include_patterns` and from the generated
+  `config.toml` template, so even with the extractor restored a
+  project would not have had a Markdown file to audit. It is now
+  included by default.
+
 ## [0.14.0] - 2026-10-25
 
 ### Added
