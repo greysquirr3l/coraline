@@ -72,6 +72,26 @@ jobs:
         if: |
           steps.level.outputs.level == 'version-update:semver-patch' ||
           steps.level.outputs.level == 'version-update:semver-minor'
-        run: gh pr merge --auto --squash "$PR_URL"
+        run: |
+          set -euo pipefail
+          # GitHub refuses to let the Actions app auto-merge a pull
+          # request that changes a workflow file whose permissions this
+          # job's token does not itself have -- a release workflow that
+          # asks for `id-token: write`, for instance. The guard is
+          # deliberate: it is what stops a bot from merging a change to
+          # the workflows that give it power.
+          #
+          # So the answer is to leave such a pull request for a human
+          # rather than to ask for more permission, and to say so
+          # clearly instead of failing the run.
+          if ! output="$(gh pr merge --auto --squash "$PR_URL" 2>&1)"; then
+            if printf '%s' "$output" | grep -q "refusing to allow a GitHub App"; then
+              echo "::warning::GitHub does not let the Actions app auto-merge this pull request, because it changes a workflow with permissions this job does not have. It needs a manual merge."
+              printf '%s\n' "$output" | sed 's/^/::warning::  /'
+              exit 0
+            fi
+            printf '%s\n' "$output" >&2
+            exit 1
+          fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
