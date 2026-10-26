@@ -52,38 +52,19 @@ jobs:
           .github/scripts/dependabot-author.sh "$PR_URL"
           echo "url=${PR_URL}" >> "$GITHUB_OUTPUT"
 
-      - name: Fetch Dependabot metadata
-        id: metadata
-        # fetch-metadata reads `github.event.pull_request` from the event
-        # payload and fails outright when the key is absent, so it can
-        # only run on the pull_request trigger.
-        if: github.event_name == 'pull_request'
-        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v2
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Classify the update level
         id: level
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
           PR_URL: ${{ steps.pr.outputs.url }}
         run: |
           set -euo pipefail
           : "${PR_URL:?PR URL is required}"
-          level="$UPDATE_TYPE"
-          if [ -z "$level" ] || [ "$level" = "null" ]; then
-            # Cargo requirement updates carry no "from" clause in the
-            # Dependabot commit message, so fetch-metadata resolves
-            # `update-type` to null. Reconstruct the bump level from the
-            # manifest diff instead.
-            classifier=".github/scripts/dependabot-semver.sh"
-            if [ ! -x "$classifier" ]; then
-              echo "::error::$classifier is missing from the checked-out ref; cannot classify the update level."
-              exit 1
-            fi
-            level="$(gh pr diff "$PR_URL" | "$classifier")"
-          fi
+          # The classifier reads the Dependabot commit message and, for
+          # Cargo requirement updates, falls back to the manifest diff.
+          # An empty result means the level could not be established,
+          # which means no auto-merge.
+          level="$(.github/scripts/dependabot-level.sh "$PR_URL")"
           echo "level=${level}" >> "$GITHUB_OUTPUT"
           echo "Update level: ${level:-unknown}"
 

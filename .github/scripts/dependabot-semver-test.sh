@@ -311,7 +311,9 @@ printf '\n%d test(s), %d failure(s)\n' "$tests" "$failures"
 
 if command -v shellcheck >/dev/null 2>&1; then
   printf '\n--- shellcheck ---\n'
-  shellcheck "$SCRIPT_DIR/dependabot-semver.sh" "$SCRIPT_DIR/dependabot-semver-test.sh" || failures=$((failures + 1))
+  # Every script in the directory, so that a sourced helper is checked
+  # alongside its callers.
+  shellcheck "${SCRIPT_DIR}"/*.sh || failures=$((failures + 1))
 fi
 
 if ((failures > 0)); then
