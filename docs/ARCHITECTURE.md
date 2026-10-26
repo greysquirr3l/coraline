@@ -138,6 +138,16 @@ its receiver, the node kinds that are imports, the node kinds that are
 instantiations, and the rules that describe inheritance
 (`extends` / `implements`).
 
+The contract also declares whether the language's package system *is* the
+directory layout (`directory_packages`). That is true for the JVM
+languages, Python, Go, Swift and PHP, where a shared directory prefix
+means the files belong to the same package family. It is false for Rust,
+TypeScript and Ruby, where a directory is only organisation — there
+`src/runtime.rs` and `src/legacy/api.rs` share the `src` prefix and
+nothing else. The resolver's same-package fallback only fires for the
+languages that declare it, so a directory layout never links unrelated
+symbols by name.
+
 The extractor reads that table instead of matching on grammar-specific
 strings inline. `crates/coraline/tests/grammar_contract_test.rs` asserts
 that every kind and field named in a contract exists in the grammar it
@@ -155,6 +165,20 @@ disabling the language.
 Resolution happens in two passes:
 
 1. **Name-based**: The `resolution::resolve_unresolved` function looks up reference names in the DB using ranked candidate scoring (file proximity, name similarity, kind match).
+
+   The ranking is a sequence of buckets, strongest first: an import that
+   matches the candidate's file, an import that matches the candidate's
+   package, the same file, the same directory, a candidate whose path
+   names the receiver of a qualified call, the same package, and finally
+   everything else. A reference resolves only when exactly one candidate
+   survives — an ambiguous reference is left unresolved rather than
+   pointed at an arbitrary target.
+
+   The receiver of a qualified call (`util.Area()`) is recorded on the
+   resolved edge, because the edge is the only thing that outlives the
+   resolution: when the target file is re-indexed the edge becomes an
+   unresolved reference again, and a reference that had lost its receiver
+   could be re-pointed at an unrelated symbol with the same name.
 
 2. **Framework fallback**: When no candidates score above threshold, `framework_fallback` is called. The registered `FrameworkResolver` implementations detect the active framework (by checking for `Cargo.toml`, `package.json`, `artisan`, `.csproj`, etc.) and return candidate file paths. Nodes from those files are then loaded and filtered by the referenced symbol name.
 
