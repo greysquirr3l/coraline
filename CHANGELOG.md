@@ -7,6 +7,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`tree-sitter` is now 0.27.1.** The bump was blocked by
+  `tree-sitter-perl` 1.1.2, which required `tree-sitter ^0.26.3` as a
+  runtime dependency. Because `tree-sitter` declares
+  `links = "tree-sitter"`, cargo may only place one of them in the
+  dependency graph, so the two could not coexist.
+- **The Perl grammar is now `ts-parser-perl` 2.0.0**, the maintained
+  grammar from the [`tree-sitter-perl` organisation][ts-perl]. It
+  depends on `tree-sitter` only as a dev-dependency, so it works
+  alongside 0.27. The two grammars are different implementations, so
+  the node kinds the extractor keys off changed; see *Added* below.
+- **`ort` is now 2.0.0-rc.15.** The pin was held at `=2.0.0-rc.11`
+  because rc.12 had a VitisAI build regression
+  ([pykeio/ort#547][ort-547]), which was fixed upstream one day after
+  rc.12 shipped ([pykeio/ort#546][ort-546]) — so rc.13 and later have
+  been clean since July 2026. rc.15 is the current release candidate
+  and fixes over 30 instances of undefined behaviour, which upstream
+  recommends upgrading to as soon as possible.
+
+  Its API changed in rc.14: `Session::builder()` now takes an
+  `&Environment`, and the builder methods return an
+  `ort::Error<SessionBuilder>` that is not `Send + Sync`, so the error
+  has to be rendered to a string before it can be wrapped in an
+  `io::Error`.
+
+### Added
+
+- **Perl is indexed.** Perl had a grammar and a dependency but was
+  never actually indexed: it was missing from `is_language_supported`,
+  from the default include patterns and from the `grammar.rs` contract
+  table, so a Perl file produced nothing but a `file` node. It now has
+  a `LanguageContract` — packages become namespaces, subroutines
+  become functions, methods become methods, `use` becomes an import,
+  and `our @EXPORT_OK = qw(...)` becomes a set of export symbols — and
+  it has its first extraction test.
+- **The grammar contract test covers Perl**, so the node kinds and
+  field names the extractor relies on are checked against the real
+  grammar.
+
+### Fixed
+
+- **The README and the language book page overstated the number of
+  languages that work.** They claimed 36 languages including Bash,
+  Haskell, Scala and Lua, but only 19 of the 36 produced graph nodes.
+  The remaining 17 have a grammar but are not enabled for indexing;
+  that gap is tracked in [#128](https://github.com/greysquirr3l/coraline/issues/128),
+  and the docs now mark which languages are indexed.
+
+[ts-perl]: https://github.com/tree-sitter-perl/tree-sitter-perl
+[ort-546]: https://github.com/pykeio/ort/pull/546
+[ort-547]: https://github.com/pykeio/ort/issues/547
+
 ### Fixed
 
 - **`coraline audit-docs` reported zero findings on every project.**

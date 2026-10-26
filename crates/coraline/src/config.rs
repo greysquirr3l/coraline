@@ -120,6 +120,10 @@ pub fn default_include_patterns() -> Vec<String> {
         "**/*.swift",
         "**/*.liquid",
         "**/*.razor",
+        // Perl. The grammar is `ts-parser-perl`, the maintained one
+        // from the tree-sitter-perl organisation.
+        "**/*.pl",
+        "**/*.pm",
         // Markdown is indexed so `coraline audit-docs` and the
         // `coraline_audit_docs` MCP tool can find stale references and
         // undocumented exports. Without it the audit reports zero findings.
@@ -255,6 +259,7 @@ pub const fn is_language_supported(language: &Language) -> bool {
             | Language::Liquid
             | Language::Markdown
             | Language::Blazor
+            | Language::Perl
     )
 }
 
@@ -727,7 +732,7 @@ include_patterns = [
   "**/*.rs", "**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx",
   "**/*.py", "**/*.go", "**/*.java", "**/*.cs", "**/*.cpp",
   "**/*.c", "**/*.h", "**/*.rb", "**/*.php", "**/*.swift",
-  "**/*.kt", "**/*.razor", "**/*.md",
+  "**/*.kt", "**/*.razor", "**/*.pl", "**/*.pm", "**/*.md",
 ]
 exclude_patterns = [
   "**/.git/**", "**/target/**", "**/node_modules/**",

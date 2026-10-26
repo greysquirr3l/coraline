@@ -928,7 +928,7 @@ fn language_to_parser(language: Language) -> Option<tree_sitter::Language> {
         Language::Lua => Some(tree_sitter::Language::new(tree_sitter_lua::LANGUAGE)),
         Language::Matlab => Some(tree_sitter::Language::new(tree_sitter_matlab::LANGUAGE)),
         Language::Nix => Some(tree_sitter::Language::new(tree_sitter_nix::LANGUAGE)),
-        Language::Perl => Some(tree_sitter::Language::new(tree_sitter_perl::LANGUAGE)),
+        Language::Perl => Some(tree_sitter::Language::new(ts_parser_perl::LANGUAGE)),
         Language::Powershell => Some(tree_sitter::Language::new(tree_sitter_powershell::LANGUAGE)),
         Language::R => Some(tree_sitter::Language::new(tree_sitter_r::LANGUAGE)),
         Language::Scala => Some(tree_sitter::Language::new(tree_sitter_scala::LANGUAGE)),
@@ -2614,7 +2614,9 @@ fn export_symbols(node: &TsNode, source: &str, language: Language) -> Vec<Export
 
         // === Perl: @EXPORT, @EXPORT_OK ===
         Language::Perl => {
-            if node.kind() == "assignment" {
+            // The grammar calls an assignment an `assignment_expression`;
+            // `our @EXPORT_OK = qw(...)` is one.
+            if node.kind() == "assignment_expression" {
                 let assign_text = node.utf8_text(source.as_bytes()).ok().unwrap_or("");
                 if assign_text.contains("@EXPORT") {
                     // Parse @EXPORT = qw(func1 func2 ...)

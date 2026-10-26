@@ -41,6 +41,7 @@ fn grammar_for(language: Language) -> Option<TsLanguage> {
         Language::Swift => TsLanguage::new(tree_sitter_swift::LANGUAGE),
         Language::Kotlin => TsLanguage::new(tree_sitter_kotlin_ng::LANGUAGE),
         Language::Blazor => TsLanguage::new(tree_sitter_blazor::LANGUAGE),
+        Language::Perl => TsLanguage::new(ts_parser_perl::LANGUAGE),
         _ => return None,
     })
 }
@@ -163,6 +164,12 @@ const CALL_SITES: &[(Language, &str, &str)] = &[
         "<?php $receiver?->helper();",
     ),
     (Language::Ruby, "call", "receiver.helper()"),
+    (Language::Perl, "function_call_expression", "helper();"),
+    (
+        Language::Perl,
+        "method_call_expression",
+        "$receiver->helper();",
+    ),
 ];
 
 #[test]

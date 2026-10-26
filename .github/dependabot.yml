@@ -15,19 +15,25 @@ updates:
           - "*"
     commit-message:
       prefix: "deps"
-    ignore:
-      # ort is pinned to =2.0.0-rc.11; rc.12 has a VitisAI build regression.
-      # Remove this ignore once a stable release or clean rc is available.
-      - dependency-name: "ort"
-        versions: ["2.0.0-rc.12"]
-      # tree-sitter 0.27 declares `links = "tree-sitter"`, so cargo refuses to
-      # put it in the graph next to any grammar crate that still requires
-      # tree-sitter 0.26 (tree-sitter-perl 1.1.2 — the latest release —
-      # requires ^0.26.3). The bump breaks every build.
-      # Remove this ignore once every grammar crate in crates/coraline/Cargo.toml
-      # accepts tree-sitter 0.27.
-      - dependency-name: "tree-sitter"
-        versions: ["0.27.x"]
+    # No `ignore` entries.
+    #
+    # `ort` was pinned to `=2.0.0-rc.11` while rc.12 had a VitisAI
+    # build regression. That regression was fixed upstream in
+    # pykeio/ort#546, one day after rc.12 shipped, so rc.13 and later
+    # are clean; the pin is now `=2.0.0-rc.15`.
+    #
+    # `tree-sitter` was held at 0.26 because `tree-sitter-perl` 1.1.2
+    # required `tree-sitter ^0.26.3` as a runtime dependency, and
+    # `tree-sitter` declares `links = "tree-sitter"`, so cargo may only
+    # place one of them in the graph. The Perl grammar is now
+    # `ts-parser-perl`, which depends on `tree-sitter` only as a
+    # dev-dependency, so 0.27 is available.
+    #
+    # `ort` is still a pre-release, and its API changes between release
+    # candidates — rc.14 replaced `Session::builder()` with a variant
+    # that takes an `&Environment`. A bump to a new rc will need a code
+    # change, not just a version bump, so it is worth watching for
+    # rather than ignoring.
 
   # GitHub Actions
   - package-ecosystem: "github-actions"
