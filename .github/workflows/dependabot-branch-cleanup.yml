@@ -1,0 +1,43 @@
+name: Dependabot Branch Cleanup
+
+on:
+  schedule:
+    # Weekly, off the hour so the run does not pile onto GitHub's
+    # busiest minute. Dependabot itself runs weekly, so a branch closed
+    # as superseded has a week to be collected.
+    - cron: "37 4 * * 1"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Report what would be deleted, delete nothing"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  cleanup:
+    name: Delete stale Dependabot branches
+    runs-on: ubuntu-latest
+    # Deleting a branch needs write access to the repository contents.
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Delete branches with no open pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          if [ "${DRY_RUN:-false}" = "true" ]; then
+            .github/scripts/dependabot-branch-cleanup.sh --dry-run
+          else
+            .github/scripts/dependabot-branch-cleanup.sh
+          fi
