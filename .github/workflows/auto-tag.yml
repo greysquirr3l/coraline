@@ -4,6 +4,13 @@ on:
   workflow_run:
     workflows: ["CI"]
     types: [completed]
+  # Manual path: lets a release be tagged without re-running CI, and is
+  # the path to verify end-to-end before cutting a real release.
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Commit to tag (a SHA or any ref on the default branch)"
+        required: true
 
 permissions:
   contents: read
@@ -11,16 +18,40 @@ permissions:
 jobs:
   tag:
     name: Push version tag if missing
-    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' }}
+    if: >-
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main') ||
+      github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     # Tag pushing requires contents: write; everything else in this workflow
     # only needs read.
     permissions:
       contents: write
     steps:
+      # The commit to tag comes from the event: the CI run's head for the
+      # automatic path, the explicit input for the manual one.
+      - name: Resolve the commit to tag
+        id: resolve
+        env:
+          DISPATCH_REF: ${{ inputs.ref }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            sha="${DISPATCH_REF}"
+          else
+            sha="${RUN_SHA}"
+          fi
+          if [[ -z "${sha}" ]]; then
+            echo "No commit to tag" >&2
+            exit 1
+          fi
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ steps.resolve.outputs.sha }}
           fetch-depth: 0
           # Don't persist GITHUB_TOKEN as a git credential. The checked-out
           # commit's Cargo.toml is later read by `cargo metadata`, which
@@ -61,10 +92,9 @@ jobs:
         if: steps.gate.outputs.run == 'true' && steps.check.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+          SHA: ${{ steps.resolve.outputs.sha }}
         run: |
-          TAG="${{ steps.version.outputs.tag }}"
-          SHA="${{ github.event.workflow_run.head_sha }}"
-
           # Use gh release create instead of `git tag` + `git push`. The
           # checkout step above uses `persist-credentials: false` (OSSF
           # Scorecard Dangerous-Workflow fix), so a plain `git push` would
@@ -76,12 +106,15 @@ jobs:
           # merged commits between this tag and the previous one; release.yml
           # overwrites the body with the curated CHANGELOG excerpt later
           # via `gh release edit`.
+          #
+          # No `--verify-tag`: that flag aborts unless the tag already
+          # exists, which is never true for a new release — `gh` creates
+          # the tag at --target when it is missing.
           if gh release create "$TAG" \
               --repo "${{ github.repository }}" \
               --target "$SHA" \
               --generate-notes \
-              --title "$TAG" \
-              --verify-tag; then
+              --title "$TAG"; then
             echo "Created release $TAG"
             exit 0
           fi

@@ -7,7 +7,11 @@ on:
   workflow_run:
     workflows: ["Auto-tag on release merge"]
     types: [completed]
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish (e.g. v0.14.0)"
+        required: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -32,6 +36,12 @@ jobs:
 
       - name: Resolve tag and commit SHA
         id: resolve
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TRIGGER_CREATED_AT: ${{ github.event.workflow_run.created_at }}
+          TRIGGER_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          DISPATCH_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
 
@@ -39,13 +49,43 @@ jobs:
           tag=""
           sha=""
 
-          if [[ "${GITHUB_REF:-}" == refs/tags/v* ]]; then
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            # The tag is named explicitly. This is the only path that can
+            # re-publish a release whose tag was cut before this workflow
+            # learned to resolve it, because it does not depend on the
+            # triggering run at all.
+            tag="${DISPATCH_TAG}"
+            sha="$(git rev-list -n1 "${tag}" 2>/dev/null || true)"
+            if [[ -z "${sha}" ]]; then
+              echo "Tag ${tag} not found in ${REPO}" >&2
+              exit 1
+            fi
+            should_release="true"
+          elif [[ "${GITHUB_REF:-}" == refs/tags/v* ]]; then
             tag="${GITHUB_REF#refs/tags/}"
             sha="${GITHUB_SHA}"
             should_release="true"
           elif [[ "${GITHUB_EVENT_NAME}" == "workflow_run" ]]; then
-            sha="${{ github.event.workflow_run.head_sha }}"
+            sha="${TRIGGER_HEAD_SHA}"
             tag="$(git tag --points-at "${sha}" | grep '^v' | head -n1 || true)"
+            if [[ -z "${tag}" ]]; then
+              # The triggering run may have been dispatched against a ref other
+              # than the commit it tagged, so the tag does not sit on the run's
+              # head commit. Fall back to the release the triggering run
+              # created: the first release published after that run started.
+              tag="$(gh api "repos/${REPO}/releases?per_page=20" \
+                --jq "map(select(.created_at >= \"${TRIGGER_CREATED_AT}\")) | sort_by(.created_at) | first | .tag_name // empty")"
+              if [[ "${tag}" != v* ]]; then
+                tag=""
+              elif ! git fetch --force --tags; then
+                tag=""
+              else
+                sha="$(git rev-list -n1 "${tag}" 2>/dev/null || true)"
+                if [[ -z "${sha}" ]]; then
+                  tag=""
+                fi
+              fi
+            fi
             if [[ -n "${tag}" ]]; then
               should_release="true"
             fi
@@ -382,14 +422,14 @@ jobs:
           # update body and assets instead of failing on duplicate create.
           if gh release view "$TAG" > /dev/null 2>&1; then
             echo "Release $TAG already exists; updating body and assets"
-            gh release edit "$TAG" --body "$BODY" $PRERELEASE_FLAG
+            gh release edit "$TAG" --notes "$BODY" $PRERELEASE_FLAG
           else
             echo "Creating release $TAG"
             # No files at create time — we upload them right after.
             gh release create "$TAG" \
               --target "$SHA" \
               --title "$TAG" \
-              --body "$BODY" \
+              --notes "$BODY" \
               $PRERELEASE_FLAG
           fi
 
