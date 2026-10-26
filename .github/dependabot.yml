@@ -5,6 +5,10 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    # Delete the branch once the pull request is merged. Without this the
+    # branch outlives the pull request, because the repository does not
+    # enable "automatically delete head branches".
+    delete-branch: true
     groups:
       rust-deps:
         patterns:
@@ -30,6 +34,10 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    # Delete the branch once the pull request is merged. Without this the
+    # branch outlives the pull request, because the repository does not
+    # enable "automatically delete head branches".
+    delete-branch: true
     groups:
       codeql:
         patterns:
