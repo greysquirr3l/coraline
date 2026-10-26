@@ -85,7 +85,7 @@ Number of files processed per indexing batch.
 Glob patterns for files to include. Uses `**` for recursive matching.
 
 - **Type:** array of strings
-- **Default:** Common source file extensions for 18+ languages
+- **Default:** Common source file extensions for the most widely used languages
 
 ```toml
 [indexing]
