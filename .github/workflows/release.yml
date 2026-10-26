@@ -32,6 +32,11 @@ jobs:
 
       - name: Resolve tag and commit SHA
         id: resolve
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TRIGGER_CREATED_AT: ${{ github.event.workflow_run.created_at }}
+          TRIGGER_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
 
@@ -44,8 +49,26 @@ jobs:
             sha="${GITHUB_SHA}"
             should_release="true"
           elif [[ "${GITHUB_EVENT_NAME}" == "workflow_run" ]]; then
-            sha="${{ github.event.workflow_run.head_sha }}"
+            sha="${TRIGGER_HEAD_SHA}"
             tag="$(git tag --points-at "${sha}" | grep '^v' | head -n1 || true)"
+            if [[ -z "${tag}" ]]; then
+              # The triggering run may have been dispatched against a ref other
+              # than the commit it tagged, so the tag does not sit on the run's
+              # head commit. Fall back to the release the triggering run
+              # created: the first release published after that run started.
+              tag="$(gh api "repos/${REPO}/releases?per_page=20" \
+                --jq "map(select(.created_at >= \"${TRIGGER_CREATED_AT}\")) | sort_by(.created_at) | first | .tag_name // empty")"
+              if [[ "${tag}" != v* ]]; then
+                tag=""
+              elif ! git fetch --force --tags; then
+                tag=""
+              else
+                sha="$(git rev-list -n1 "${tag}" 2>/dev/null || true)"
+                if [[ -z "${sha}" ]]; then
+                  tag=""
+                fi
+              fi
+            fi
             if [[ -n "${tag}" ]]; then
               should_release="true"
             fi
