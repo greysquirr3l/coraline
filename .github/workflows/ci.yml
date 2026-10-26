@@ -106,6 +106,27 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+  scripts:
+    name: Shell scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Run shell script tests
+        run: |
+          set -euo pipefail
+          for test_script in .github/scripts/*-test.sh; do
+            echo "::group::${test_script}"
+            "${test_script}"
+            echo "::endgroup::"
+          done
+
+      - name: Lint shell scripts
+        run: |
+          set -euo pipefail
+          command -v shellcheck >/dev/null || { echo "shellcheck is not installed"; exit 1; }
+          shellcheck .github/scripts/*.sh
+
   docs:
     name: Documentation
     runs-on: ubuntu-latest
