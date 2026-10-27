@@ -15,7 +15,7 @@ workspace = true
 [dependencies]
 coraline = { path = "../crates/coraline", default-features = false }
 libfuzzer-sys = "0.4"
-rusqlite = { version = "0.40", features = ["bundled"] }
+rusqlite = { version = "0.41", features = ["bundled"] }
 serde_json = "1"
 
 [[bin]]
