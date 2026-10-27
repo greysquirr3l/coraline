@@ -15,47 +15,9 @@
 
 use std::process::ExitCode;
 
+use coraline::extraction::language_to_parser;
+use coraline::types::Language;
 use tree_sitter::{Language as TsLanguage, Parser};
-
-/// The grammar backing each language the extractor knows about.
-fn grammar_for(name: &str) -> Option<TsLanguage> {
-    let language = match name {
-        "bash" => tree_sitter::Language::new(tree_sitter_bash::LANGUAGE),
-        "c" => tree_sitter::Language::new(tree_sitter_c::LANGUAGE),
-        "cpp" => tree_sitter::Language::new(tree_sitter_cpp::LANGUAGE),
-        "csharp" => tree_sitter::Language::new(tree_sitter_c_sharp::LANGUAGE),
-        "dart" => tree_sitter::Language::new(tree_sitter_dart::LANGUAGE),
-        "elixir" => tree_sitter::Language::new(tree_sitter_elixir::LANGUAGE),
-        "elm" => tree_sitter::Language::new(tree_sitter_elm::LANGUAGE),
-        "erlang" => tree_sitter::Language::new(tree_sitter_erlang::LANGUAGE),
-        "fortran" => tree_sitter::Language::new(tree_sitter_fortran::LANGUAGE),
-        "go" => tree_sitter::Language::new(tree_sitter_go::LANGUAGE),
-        "groovy" => tree_sitter::Language::new(tree_sitter_groovy::LANGUAGE),
-        "haskell" => tree_sitter::Language::new(tree_sitter_haskell::LANGUAGE),
-        "java" => tree_sitter::Language::new(tree_sitter_java::LANGUAGE),
-        "javascript" => tree_sitter::Language::new(tree_sitter_javascript::LANGUAGE),
-        "julia" => tree_sitter::Language::new(tree_sitter_julia::LANGUAGE),
-        "kotlin" => tree_sitter::Language::new(tree_sitter_kotlin_ng::LANGUAGE),
-        "lua" => tree_sitter::Language::new(tree_sitter_lua::LANGUAGE),
-        "matlab" => tree_sitter::Language::new(tree_sitter_matlab::LANGUAGE),
-        "nix" => tree_sitter::Language::new(tree_sitter_nix::LANGUAGE),
-        "perl" => tree_sitter::Language::new(ts_parser_perl::LANGUAGE),
-        "php" => tree_sitter::Language::new(tree_sitter_php::LANGUAGE_PHP),
-        "powershell" => tree_sitter::Language::new(tree_sitter_powershell::LANGUAGE),
-        "python" => tree_sitter::Language::new(tree_sitter_python::LANGUAGE),
-        "r" => tree_sitter::Language::new(tree_sitter_r::LANGUAGE),
-        "ruby" => tree_sitter::Language::new(tree_sitter_ruby::LANGUAGE),
-        "rust" => tree_sitter::Language::new(tree_sitter_rust::LANGUAGE),
-        "scala" => tree_sitter::Language::new(tree_sitter_scala::LANGUAGE),
-        "swift" => tree_sitter::Language::new(tree_sitter_swift::LANGUAGE),
-        "toml" => tree_sitter::Language::new(tree_sitter_toml_ng::LANGUAGE),
-        "typescript" => tree_sitter::Language::new(tree_sitter_typescript::LANGUAGE_TYPESCRIPT),
-        "yaml" => tree_sitter::Language::new(tree_sitter_yaml::LANGUAGE),
-        "zig" => tree_sitter::Language::new(tree_sitter_zig::LANGUAGE),
-        _ => return None,
-    };
-    Some(language)
-}
 
 /// Print the node kind, the field it sits in and a snippet of its text.
 fn print_tree(node: &tree_sitter::Node, source: &str, depth: usize, field: Option<&str>) {
@@ -116,8 +78,14 @@ fn main() -> ExitCode {
         return ExitCode::from(2);
     };
 
-    let Some(language) = grammar_for(name) else {
-        eprintln!("unknown grammar: {name}");
+    let language = Language::from_name(name);
+    if language == Language::Unknown {
+        eprintln!("unknown language: {name}");
+        return ExitCode::from(2);
+    }
+
+    let Some(language) = language_to_parser(language) else {
+        eprintln!("{name} has no tree-sitter grammar");
         return ExitCode::from(2);
     };
 

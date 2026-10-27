@@ -895,7 +895,13 @@ fn looks_like_symbol(s: &str) -> bool {
     )
 }
 
-fn language_to_parser(language: Language) -> Option<tree_sitter::Language> {
+/// The tree-sitter grammar for a language, if it has one.
+///
+/// This is the single source of truth for the language → grammar
+/// mapping. The `grammar_probe` example uses it rather than keeping
+/// its own list, so the tool can read out the node kinds of every
+/// language the extractor supports.
+pub fn language_to_parser(language: Language) -> Option<tree_sitter::Language> {
     match language {
         Language::Rust => Some(tree_sitter::Language::new(tree_sitter_rust::LANGUAGE)),
         Language::JavaScript | Language::Jsx => {
