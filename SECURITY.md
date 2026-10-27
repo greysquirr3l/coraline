@@ -2,12 +2,17 @@
 
 ## Supported Versions
 
-Coraline is currently in active development. Security updates will be provided for the latest version on the `main` branch.
+Security updates are provided for the latest released version. The
+project is in active development, so upgrading promptly is recommended.
 
 | Version | Supported          |
 | ------- | ------------------ |
-| main    | :white_check_mark: |
-| < 0.1.0 | :x:                |
+| 0.15.x  | :white_check_mark: |
+| 0.14.x  | :white_check_mark: |
+| < 0.14  | :x:                |
+`main` carries unreleased work and is not a supported target — use the
+latest release from [crates.io](https://crates.io/crates/coraline) or
+[GitHub Releases](https://github.com/greysquirr3l/coraline/releases).
 
 ## Reporting a Vulnerability
 
@@ -53,13 +58,36 @@ When using Coraline, we recommend:
 
 Coraline is built with security in mind:
 
-- ✅ **No unsafe code** - `#![forbid(unsafe_code)]` throughout the codebase
+- ✅ **No unsafe code in the default build** - The workspace sets
+  `unsafe_code = "deny"` and every crate opts in via
+  `[lints] workspace = true`, so `unsafe` is a compile error in the
+  library, the binary and the grammar crate alike. Two deliberate
+  exceptions exist, both narrow and both documented at the call site:
+  - `src/vec_ext.rs` registers the `sqlite-vec` extension through
+    `sqlite3_auto_extension`, which is `unsafe`. The module is
+    feature-gated behind `vec-ext` and the allowance is scoped to that
+    one FFI registration.
+  - `crates/tree-sitter-blazor/bindings/rust/lib.rs` calls
+    `LanguageFn::from_raw`, the standard tree-sitter binding pattern.
 - ✅ **Dependency scanning** - Automated security audits via GitHub Actions and `cargo-deny`
 - ✅ **Fuzz testing** - `cargo-fuzz` libFuzzer targets for the MCP JSON-RPC surface and the SQLite/FTS5 query layer, exercised nightly and on every PR via ClusterFuzzLite
 - ✅ **Code scanning** - CodeQL analysis (weekly) and `cargo-audit` dependency checks (daily)
-- ✅ **Local processing** - All data stays on your machine; no external API calls
-- ✅ **Minimal dependencies** - We carefully vet all dependencies
-- ✅ **Input validation** - All user inputs are validated before processing
+- ✅ **Local processing** - Your source code is never uploaded. The one
+  outbound request Coraline makes is downloading the embedding model
+  from HuggingFace, and only when you ask for it (`coraline model
+  download`, or the prompt during `coraline init`). The update checker
+  in `src/update.rs` queries the crates.io API for the latest version.
+- ✅ **Dependency review** - Every direct dependency is vetted by hand;
+  `cargo deny` enforces the licence, advisory and duplicate-version
+  policy, and `cargo audit` runs daily
+- ⚠️ **Input validation** - Arguments are parsed and validated at the
+  CLI and MCP boundaries. Note that three file tools accept paths outside
+  the project root: `coraline_read_file`, `coraline_list_dir` and
+  `coraline_get_file_nodes` resolve absolute paths as given, and a
+  relative path may contain `..`. The MCP server runs with the
+  privileges of the user who started it, so it can read any file that
+  user can. Run it against a project you are willing to expose to the
+  assistant.
 
 ### Disclosure Policy
 

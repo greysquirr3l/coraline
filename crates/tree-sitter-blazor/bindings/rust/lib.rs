@@ -4,6 +4,10 @@ extern "C" {
     fn tree_sitter_blazor() -> *const ();
 }
 
+#[expect(
+    unsafe_code,
+    reason = "LanguageFn::from_raw is the required tree-sitter binding pattern"
+)]
 pub const LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_blazor) };
 
 #[must_use]

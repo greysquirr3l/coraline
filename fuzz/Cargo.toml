@@ -9,6 +9,9 @@ description = "Fuzz targets for the Coraline MCP server and SQLite query layer."
 [package.metadata]
 cargo-fuzz = true
 
+[lints]
+workspace = true
+
 [dependencies]
 coraline = { path = "../crates/coraline", default-features = false }
 libfuzzer-sys = "0.4"

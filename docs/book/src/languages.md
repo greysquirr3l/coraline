@@ -1,8 +1,11 @@
 # Supported Languages
 
-Coraline parses **36 languages** with tree-sitter and builds the same
-semantic knowledge graph for every one of them: declarations, imports,
-calls, instantiations, inheritance and cross-file references.
+Coraline ships **36 languages** with tree-sitter grammars. **19** of
+them are indexed end to end: declarations, imports, calls,
+instantiations, inheritance and cross-file references are all resolved
+into the same semantic knowledge graph. The other 17 have their grammar
+dependency in place but no extraction contract yet, so a file in those
+languages produces no nodes. The table marks which is which.
 
 | Language | Extensions | Indexed |
 | --- | --- | :---: |
@@ -45,8 +48,8 @@ calls, instantiations, inheritance and cross-file references.
 | Zig | `.zig` | ⏳ |
 
 **✅** — the language is indexed and its graph is built.
-**⏳** — the grammar and the extraction contract are in place, but the
-language is not yet enabled for indexing, so it produces no nodes. See
+**⏳** — the grammar dependency is in place, but the language has no
+extraction contract yet, so it produces no nodes. See
 [issue #128](https://github.com/greysquirr3l/coraline/issues/128).
 
 ## Enabling a language

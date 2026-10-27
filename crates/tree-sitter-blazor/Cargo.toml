@@ -1,6 +1,6 @@
 [package]
 name = "tree-sitter-blazor"
-version = "0.4.1"
+version = "0.4.2"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Tree-sitter grammar for Blazor/Razor syntax"
@@ -10,6 +10,9 @@ readme = "README.md"
 keywords = ["tree-sitter", "blazor", "razor", "parser", "grammar"]
 categories = ["parsing", "development-tools"]
 build = "build.rs"
+
+[lints]
+workspace = true
 
 [lib]
 path = "bindings/rust/lib.rs"

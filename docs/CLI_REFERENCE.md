@@ -27,6 +27,7 @@ When `[PATH]` is omitted, the current working directory is used as the project r
 | `update`  | Check for available updates on crates.io                        |
 | `embed`   | Generate vector embeddings for indexed nodes                    |
 | `model`   | Manage the ONNX embedding model                                 |
+| `audit-docs` | Audit documentation accuracy and coverage against the graph  |
 
 ---
 
@@ -450,6 +451,80 @@ Typically invoked by an MCP client (Claude Desktop, Claude Code, etc.) rather th
 
 ---
 
+## `coraline audit-docs [PATH]`
+
+Audit documentation accuracy and coverage against the code graph. Two
+checks run over the Markdown files in the project:
+
+- **Stale references** — an inline code span that looks like a symbol
+  name, but resolves to nothing in the graph.
+- **Undocumented exports** — a public symbol with no matching reference
+  in any indexed documentation.
+
+The audit needs Markdown to be indexed. It is by default, but if your
+project excludes `**/*.md` the audit will report zero doc files.
+
+**Options:**
+
+| Option               | Description                                    |
+| -------------------- | ---------------------------------------------- |
+| `-p`, `--path PATH`  | Project root path                              |
+| `--no-stale`         | Hide stale-reference findings                  |
+| `--no-undocumented`  | Hide undocumented-export findings              |
+| `-l`, `--limit N`    | Maximum items per category (default: 50)       |
+| `-j`, `--json`       | Output raw JSON instead of formatted text      |
+
+**Examples:**
+
+```bash
+coraline audit-docs
+coraline audit-docs --json
+coraline audit-docs --no-stale
+```
+
+**Output:**
+
+```
+Doc audit — 1 file(s), 2 section(s) indexed
+
+Stale references (1 total)
+
+  README.md:5 — `nonexistent_symbol` (section: Overview)
+
+Undocumented exports (1 total)
+
+  function undocumented — lib.rs line 2
+```
+
+**Output (`--json`):**
+
+```json
+{
+  "doc_files_indexed": 1,
+  "doc_sections_indexed": 2,
+  "stale_refs": [
+    {
+      "column": 21,
+      "doc_file": "README.md",
+      "line": 5,
+      "reference": "nonexistent_symbol",
+      "section": "Overview"
+    }
+  ],
+  "undocumented_exports": [
+    {
+      "file": "lib.rs",
+      "kind": "function",
+      "line": 2,
+      "name": "undocumented",
+      "qualified_name": "lib.rs::undocumented"
+    }
+  ]
+}
+```
+
+---
+
 ## `coraline update`
 
 Check whether a newer version of Coraline is published on crates.io. Compares the running binary version against the latest release and prints upgrade instructions when an update is available.
@@ -465,13 +540,13 @@ coraline update
 **Output (when up to date):**
 
 ```
-✓ coraline is up to date (v0.3.0)
+✓ coraline is up to date (v0.15.1)
 ```
 
 **Output (when update available):**
 
 ```
-Update available: v0.3.0 → v0.4.0
+Update available: v0.15.0 → v0.15.1
 Run `cargo install coraline` to upgrade.
 ```
 
