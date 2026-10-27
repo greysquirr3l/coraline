@@ -48,48 +48,126 @@ pub enum EdgeKind {
     Decorates,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Language {
-    TypeScript,
-    JavaScript,
-    Tsx,
-    Jsx,
-    Python,
-    Go,
-    Rust,
-    Java,
-    C,
-    Cpp,
-    CSharp,
-    Php,
-    Ruby,
-    Swift,
-    Kotlin,
-    Liquid,
-    Blazor,
-    // New languages (tree-sitter support)
-    Bash,
-    Dart,
-    Elixir,
-    Elm,
-    Erlang,
-    Fortran,
-    Groovy,
-    Haskell,
-    Julia,
-    Lua,
-    Markdown,
-    Matlab,
-    Nix,
-    Perl,
-    Powershell,
-    R,
-    Scala,
-    Toml,
-    Yaml,
-    Zig,
-    Unknown,
+/// Define the `Language` enum, its canonical names, and the list of
+/// every language, from one list.
+///
+/// The three have to agree: a language without a name cannot be
+/// reported, and a name without a language cannot be looked up. Writing
+/// them out separately is how they drift apart, so they are written
+/// once here and the compiler checks that they match.
+macro_rules! languages {
+    ($($variant:ident => $name:literal),* $(,)?) => {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        pub enum Language {
+            $($variant,)*
+            /// The catch-all for a file Coraline does not recognise.
+            Unknown,
+        }
+
+        impl Language {
+            /// The language's canonical name.
+            ///
+            /// Lower case, and the same name the `grammar_probe`
+            /// example takes on the command line.
+            pub const fn name(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $name,)*
+                    Self::Unknown => "unknown",
+                }
+            }
+        }
+
+        /// Every language except the `Unknown` catch-all.
+        ///
+        /// `Unknown` is not a language: it is what an unrecognised
+        /// extension maps to, so it has no grammar and no contract.
+        pub const ALL_LANGUAGES: &[Language] = &[$(Language::$variant,)*];
+    };
+}
+
+languages! {
+    TypeScript => "typescript",
+    JavaScript => "javascript",
+    Tsx => "tsx",
+    Jsx => "jsx",
+    Python => "python",
+    Go => "go",
+    Rust => "rust",
+    Java => "java",
+    C => "c",
+    Cpp => "cpp",
+    CSharp => "csharp",
+    Php => "php",
+    Ruby => "ruby",
+    Swift => "swift",
+    Kotlin => "kotlin",
+    Liquid => "liquid",
+    Blazor => "blazor",
+    Bash => "bash",
+    Dart => "dart",
+    Elixir => "elixir",
+    Elm => "elm",
+    Erlang => "erlang",
+    Fortran => "fortran",
+    Groovy => "groovy",
+    Haskell => "haskell",
+    Julia => "julia",
+    Lua => "lua",
+    Markdown => "markdown",
+    Matlab => "matlab",
+    Nix => "nix",
+    Perl => "perl",
+    Powershell => "powershell",
+    R => "r",
+    Scala => "scala",
+    Toml => "toml",
+    Yaml => "yaml",
+    Zig => "zig",
+}
+
+impl Language {
+    /// The language with the given name, or `Unknown`.
+    ///
+    /// The lookup is case-insensitive, so `Fortran` and `fortran` are
+    /// the same language. The older snake-case spellings that earlier
+    /// indexes were written with are accepted too, so an index built by
+    /// an older version still reads back correctly.
+    pub fn from_name(name: &str) -> Self {
+        Self::lookup(name).unwrap_or(Self::Unknown)
+    }
+
+    /// The language with the given name, if the name is one Coraline
+    /// knows.
+    ///
+    /// Accepts the canonical names from [`Language::name`], and the
+    /// legacy spellings `type_script`, `java_script` and `c_sharp` that
+    /// older indexes stored.
+    fn lookup(name: &str) -> Option<Self> {
+        let name = name.to_ascii_lowercase();
+        match name.as_str() {
+            "type_script" => Some(Self::TypeScript),
+            "java_script" => Some(Self::JavaScript),
+            "c_sharp" => Some(Self::CSharp),
+            _ => ALL_LANGUAGES
+                .iter()
+                .copied()
+                .find(|language| language.name() == name),
+        }
+    }
+}
+
+impl Serialize for Language {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.name())
+    }
+}
+
+impl<'de> Deserialize<'de> for Language {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let name = String::deserialize(deserializer)?;
+        Self::lookup(&name)
+            .ok_or_else(|| serde::de::Error::custom(format!("unknown language: {name}")))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

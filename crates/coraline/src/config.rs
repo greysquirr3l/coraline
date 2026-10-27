@@ -134,6 +134,55 @@ pub fn default_include_patterns() -> Vec<String> {
         "**/*.md",
         // `.markdown` maps to Markdown in the extension table too.
         "**/*.markdown",
+        // Fortran. The free-form `.f90`/`.f95`/`.f03`/`.f08` extensions
+        // and the fixed-form `.f`/`.for` one.
+        "**/*.f",
+        "**/*.for",
+        "**/*.f90",
+        "**/*.f95",
+        "**/*.f03",
+        "**/*.f08",
+        // Haskell.
+        "**/*.hs",
+        // Julia.
+        "**/*.jl",
+        // Lua.
+        "**/*.lua",
+        // MATLAB and Octave.
+        "**/*.m",
+        // R.
+        "**/*.r",
+        "**/*.R",
+        // Scala.
+        "**/*.scala",
+        "**/*.sc",
+        // Zig.
+        "**/*.zig",
+        // Dart.
+        "**/*.dart",
+        // Groovy.
+        "**/*.groovy",
+        "**/*.gradle",
+        // PowerShell.
+        "**/*.ps1",
+        "**/*.psm1",
+        // Nix.
+        "**/*.nix",
+        // Erlang.
+        "**/*.erl",
+        "**/*.hrl",
+        // Elm.
+        "**/*.elm",
+        // Bash.
+        "**/*.sh",
+        "**/*.bash",
+        // Elixir.
+        "**/*.ex",
+        "**/*.exs",
+        // TOML and YAML.
+        "**/*.toml",
+        "**/*.yaml",
+        "**/*.yml",
     ]
     .into_iter()
     .map(std::string::ToString::to_string)
@@ -244,6 +293,109 @@ pub fn default_exclude_patterns() -> Vec<String> {
     .collect()
 }
 
+/// Every file extension Coraline recognises, and the language it maps to.
+///
+/// This is the single source of truth for the extension → language
+/// mapping. The detector consults it, and the default include patterns
+/// have to agree with it.
+///
+/// The two used to be separate lists, and they drifted. A pattern can
+/// name an extension the detector does not recognise: the file is then
+/// scanned, found to be an unknown language, and dropped — it contributes
+/// a `file` node and nothing else, with no error anywhere. That is the
+/// silent failure mode issue #128 is about, in a different guise.
+///
+/// Extensions are lower case. The lookup is case-insensitive, because
+/// `script.R` and `script.r` are the same language, but the *include*
+/// patterns are globs and globs are case-sensitive — which is why the
+/// default patterns list `**/*.R` alongside `**/*.r`.
+///
+/// `.m` is MATLAB here. It is also the extension Objective-C uses, but
+/// Coraline has no Objective-C grammar, so the file is parsed as MATLAB
+/// and the parse errors are reported rather than silently ignored.
+pub static EXTENSION_LANGUAGES: &[(&str, Language)] = &[
+    ("ts", Language::TypeScript),
+    ("tsx", Language::Tsx),
+    ("js", Language::JavaScript),
+    ("jsx", Language::Jsx),
+    ("py", Language::Python),
+    ("go", Language::Go),
+    ("rs", Language::Rust),
+    ("java", Language::Java),
+    ("c", Language::C),
+    ("h", Language::C),
+    ("cpp", Language::Cpp),
+    ("cc", Language::Cpp),
+    ("cxx", Language::Cpp),
+    ("hpp", Language::Cpp),
+    ("cs", Language::CSharp),
+    ("php", Language::Php),
+    ("rb", Language::Ruby),
+    ("kt", Language::Kotlin),
+    ("kts", Language::Kotlin),
+    ("swift", Language::Swift),
+    ("liquid", Language::Liquid),
+    // Blazor. `.cshtml` is the legacy extension and still maps to
+    // Blazor, so it has to be included too — otherwise a legacy project
+    // indexes as if it had no files.
+    ("razor", Language::Blazor),
+    ("cshtml", Language::Blazor),
+    // Perl. The grammar is `ts-parser-perl`, the maintained one from
+    // the tree-sitter-perl organisation.
+    ("pl", Language::Perl),
+    ("pm", Language::Perl),
+    // Markdown is indexed so `coraline audit-docs` and the
+    // `coraline_audit_docs` MCP tool can find stale references and
+    // undocumented exports. Without it the audit reports zero findings.
+    ("md", Language::Markdown),
+    ("markdown", Language::Markdown),
+    // Fortran. The free-form `.f90`/`.f95`/`.f03`/`.f08` extensions and
+    // the fixed-form `.f`/`.for` one.
+    ("f", Language::Fortran),
+    ("for", Language::Fortran),
+    ("f90", Language::Fortran),
+    ("f95", Language::Fortran),
+    ("f03", Language::Fortran),
+    ("f08", Language::Fortran),
+    ("hs", Language::Haskell),
+    ("jl", Language::Julia),
+    ("lua", Language::Lua),
+    ("m", Language::Matlab),
+    ("r", Language::R),
+    ("scala", Language::Scala),
+    ("sc", Language::Scala),
+    ("zig", Language::Zig),
+    ("dart", Language::Dart),
+    ("groovy", Language::Groovy),
+    ("gradle", Language::Groovy),
+    // PowerShell. `.psm1` is a module file.
+    ("ps1", Language::Powershell),
+    ("psm1", Language::Powershell),
+    ("nix", Language::Nix),
+    ("erl", Language::Erlang),
+    ("hrl", Language::Erlang),
+    ("elm", Language::Elm),
+    ("sh", Language::Bash),
+    ("bash", Language::Bash),
+    ("ex", Language::Elixir),
+    ("exs", Language::Elixir),
+    ("toml", Language::Toml),
+    ("yaml", Language::Yaml),
+    ("yml", Language::Yaml),
+];
+
+/// The language a file extension maps to, or `Unknown` if it is not a
+/// language Coraline knows.
+///
+/// The lookup is case-insensitive.
+pub fn language_for_extension(extension: &str) -> Language {
+    let extension = extension.to_ascii_lowercase();
+    EXTENSION_LANGUAGES
+        .iter()
+        .find(|(ext, _)| *ext == extension)
+        .map_or(Language::Unknown, |(_, language)| *language)
+}
+
 pub const fn is_language_supported(language: &Language) -> bool {
     matches!(
         language,
@@ -266,6 +418,24 @@ pub const fn is_language_supported(language: &Language) -> bool {
             | Language::Markdown
             | Language::Blazor
             | Language::Perl
+            | Language::Fortran
+            | Language::Haskell
+            | Language::Julia
+            | Language::Lua
+            | Language::Matlab
+            | Language::R
+            | Language::Scala
+            | Language::Zig
+            | Language::Dart
+            | Language::Groovy
+            | Language::Powershell
+            | Language::Nix
+            | Language::Erlang
+            | Language::Elm
+            | Language::Bash
+            | Language::Elixir
+            | Language::Toml
+            | Language::Yaml
     )
 }
 
@@ -737,9 +907,16 @@ batch_size    = 100
 include_patterns = [
   "**/*.rs", "**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx",
   "**/*.py", "**/*.go", "**/*.java", "**/*.cs", "**/*.cpp",
-  "**/*.c", "**/*.h", "**/*.rb", "**/*.php", "**/*.swift",
-  "**/*.kt", "**/*.razor", "**/*.cshtml", "**/*.pl", "**/*.pm",
+  "**/*.cc", "**/*.cxx", "**/*.c", "**/*.h", "**/*.hpp",
+  "**/*.rb", "**/*.php", "**/*.swift",
+  "**/*.kt", "**/*.kts", "**/*.razor", "**/*.cshtml", "**/*.pl", "**/*.pm",
   "**/*.md", "**/*.markdown", "**/*.liquid",
+  "**/*.f", "**/*.for", "**/*.f90", "**/*.f95", "**/*.f03", "**/*.f08",
+  "**/*.hs", "**/*.jl", "**/*.lua", "**/*.m", "**/*.r", "**/*.R",
+  "**/*.scala", "**/*.sc", "**/*.zig", "**/*.dart",
+  "**/*.groovy", "**/*.gradle", "**/*.ps1", "**/*.psm1", "**/*.nix",
+  "**/*.erl", "**/*.hrl", "**/*.elm", "**/*.sh", "**/*.bash",
+  "**/*.ex", "**/*.exs", "**/*.toml", "**/*.yaml", "**/*.yml",
 ]
 exclude_patterns = [
   "**/.git/**", "**/target/**", "**/node_modules/**",
@@ -825,3 +1002,48 @@ enforce_flow_policy = false
 max_read_then_write_events_per_session = 10
 max_output_chars = 50000
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The generated `config.toml` must list every default include
+    /// pattern.
+    ///
+    /// A project that is initialised from the template gets the
+    /// template's patterns, not `default_include_patterns`. If the
+    /// template falls behind, a freshly initialised project indexes
+    /// fewer files than one that was initialised before the change —
+    /// and nothing reports the difference.
+    #[test]
+    fn the_toml_template_lists_every_default_include_pattern() {
+        for pattern in default_include_patterns() {
+            assert!(
+                DEFAULT_TOML_TEMPLATE.contains(&pattern),
+                "the generated config.toml does not list {pattern}"
+            );
+        }
+    }
+
+    /// The template must not list a pattern that is not a default.
+    ///
+    /// The other direction: a pattern in the template that the default
+    /// patterns dropped would index a file the project was not
+    /// configured to index.
+    #[test]
+    fn the_toml_template_lists_no_extra_include_patterns() {
+        for line in DEFAULT_TOML_TEMPLATE.lines() {
+            let Some(rest) = line.trim().strip_prefix("\"**/*.") else {
+                continue;
+            };
+            let Some((extension, _)) = rest.split_once('"') else {
+                continue;
+            };
+            let pattern = format!("**/*.{extension}");
+            assert!(
+                default_include_patterns().contains(&pattern),
+                "the generated config.toml lists {pattern}, which is not a default include pattern"
+            );
+        }
+    }
+}

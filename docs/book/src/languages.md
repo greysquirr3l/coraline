@@ -2,11 +2,9 @@
 
 Coraline knows **37 languages**. **36** of them ship a tree-sitter
 grammar; Liquid is the exception — it has no grammar and is parsed by
-hand. **19** are indexed end to end: declarations, imports, calls,
+hand. **All 37** are indexed end to end: declarations, imports, calls,
 instantiations, inheritance and cross-file references are all resolved
-into the same semantic knowledge graph. The other 18 have their grammar
-dependency in place but no extraction contract yet, so a file in those
-languages produces no nodes. The table marks which is which.
+into the same semantic knowledge graph.
 
 | Language | Extensions | Indexed |
 | --- | --- | :---: |
@@ -29,35 +27,33 @@ languages produces no nodes. The table marks which is which.
 | Blazor | `.razor`, `.cshtml` | ✅ |
 | Markdown | `.md`, `.markdown` | ✅ |
 | Perl | `.pl`, `.pm` | ✅ |
-| Bash | `.sh`, `.bash` | ⏳ |
-| Dart | `.dart` | ⏳ |
-| Elixir | `.ex`, `.exs` | ⏳ |
-| Elm | `.elm` | ⏳ |
-| Erlang | `.erl`, `.hrl` | ⏳ |
-| Fortran | `.f`, `.f90`, `.f95` | ⏳ |
-| Groovy | `.groovy`, `.gradle` | ⏳ |
-| Haskell | `.hs` | ⏳ |
-| Julia | `.jl` | ⏳ |
-| Lua | `.lua` | ⏳ |
-| MATLAB | `.m` | ⏳ |
-| Nix | `.nix` | ⏳ |
-| PowerShell | `.ps1` | ⏳ |
-| R | `.r` | ⏳ |
-| Scala | `.scala`, `.sc` | ⏳ |
-| TOML | `.toml` | ⏳ |
-| YAML | `.yml`, `.yaml` | ⏳ |
-| Zig | `.zig` | ⏳ |
+| Bash | `.sh`, `.bash` | ✅ |
+| Dart | `.dart` | ✅ |
+| Elixir | `.ex`, `.exs` | ✅ |
+| Elm | `.elm` | ✅ |
+| Erlang | `.erl`, `.hrl` | ✅ |
+| Fortran | `.f`, `.for`, `.f90`, `.f95`, `.f03`, `.f08` | ✅ |
+| Groovy | `.groovy`, `.gradle` | ✅ |
+| Haskell | `.hs` | ✅ |
+| Julia | `.jl` | ✅ |
+| Lua | `.lua` | ✅ |
+| MATLAB | `.m` | ✅ |
+| Nix | `.nix` | ✅ |
+| PowerShell | `.ps1`, `.psm1` | ✅ |
+| R | `.r`, `.R` | ✅ |
+| Scala | `.scala`, `.sc` | ✅ |
+| TOML | `.toml` | ✅ |
+| YAML | `.yml`, `.yaml` | ✅ |
+| Zig | `.zig` | ✅ |
 
 **✅** — the language is indexed and its graph is built.
-**⏳** — the grammar dependency is in place, but the language has no
-extraction contract yet, so it produces no nodes. See
-[issue #128](https://github.com/greysquirr3l/coraline/issues/128).
 
 ## Enabling a language
 
-Not every language is indexed by default. The default include patterns
-cover the common source file extensions; a language outside that set has
-to be enabled in `.coraline/config.toml`:
+Every language Coraline knows about is indexed by default — the default
+include patterns cover all of their extensions. A language *outside*
+that set, or a project using an extension the default patterns do not
+list, has to be enabled in `.coraline/config.toml`:
 
 ```json
 {
