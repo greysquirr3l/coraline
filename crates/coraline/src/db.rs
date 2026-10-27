@@ -1284,10 +1284,7 @@ pub fn get_db_stats(conn: &Connection) -> std::io::Result<DbStats> {
 }
 
 pub fn language_to_string(language: Language) -> String {
-    serde_json::to_value(language)
-        .ok()
-        .and_then(|v| v.as_str().map(std::string::ToString::to_string))
-        .unwrap_or_else(|| "unknown".to_string())
+    language.name().to_string()
 }
 
 pub fn kind_to_string(kind: NodeKind) -> String {
@@ -1316,7 +1313,7 @@ fn parse_kind(raw: &str) -> NodeKind {
 }
 
 fn parse_language(raw: &str) -> Language {
-    serde_json::from_str::<Language>(&format!("\"{raw}\"")).unwrap_or(Language::Unknown)
+    Language::from_name(raw)
 }
 
 fn parse_visibility(raw: &str) -> Visibility {

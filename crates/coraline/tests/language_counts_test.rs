@@ -22,60 +22,13 @@
 //! silently make the prose wrong again.
 
 use coraline::config::is_language_supported;
+use coraline::extraction::language_to_parser;
 use coraline::grammar::contract_for;
-use coraline::types::Language;
+use coraline::types::{ALL_LANGUAGES, Language};
 
-/// Every language Coraline knows about, minus the `Unknown` catch-all.
-///
-/// `Unknown` is not a language: it is what an unrecognised extension
-/// maps to, so it has no grammar and no contract.
-const KNOWN: &[Language] = &[
-    Language::TypeScript,
-    Language::JavaScript,
-    Language::Tsx,
-    Language::Jsx,
-    Language::Python,
-    Language::Go,
-    Language::Rust,
-    Language::Java,
-    Language::C,
-    Language::Cpp,
-    Language::CSharp,
-    Language::Php,
-    Language::Ruby,
-    Language::Swift,
-    Language::Kotlin,
-    Language::Liquid,
-    Language::Blazor,
-    Language::Bash,
-    Language::Dart,
-    Language::Elixir,
-    Language::Elm,
-    Language::Erlang,
-    Language::Fortran,
-    Language::Groovy,
-    Language::Haskell,
-    Language::Julia,
-    Language::Lua,
-    Language::Markdown,
-    Language::Matlab,
-    Language::Nix,
-    Language::Perl,
-    Language::Powershell,
-    Language::R,
-    Language::Scala,
-    Language::Toml,
-    Language::Yaml,
-    Language::Zig,
-];
-
-/// Languages with no tree-sitter grammar, parsed by hand instead.
-///
-/// `Liquid` is the only one: it has no grammar crate, and the extractor
-/// handles it with a bespoke parser.
+/// Languages Coraline knows but has no tree-sitter grammar for.
 const NO_GRAMMAR: &[Language] = &[Language::Liquid];
 
-/// The count of languages Coraline knows about.
 const KNOWN_COUNT: usize = 37;
 
 /// The count of languages that ship a tree-sitter grammar.
@@ -87,10 +40,34 @@ const INDEXED_COUNT: usize = 37;
 /// The count of languages that have a grammar but no extraction contract.
 const PENDING_COUNT: usize = 0;
 
+/// Every language with a grammar has to be one the probe can reach by
+/// name, otherwise the tool that discovers node kinds cannot be used
+/// on it.
+#[test]
+fn every_grammar_backed_language_is_reachable_by_name() {
+    for language in ALL_LANGUAGES {
+        if language_to_parser(*language).is_none() {
+            continue;
+        }
+        let resolved = Language::from_name(language.name());
+        assert_eq!(
+            resolved,
+            *language,
+            "{} has a grammar but is not reachable by name",
+            language.name()
+        );
+        assert!(
+            language_to_parser(resolved).is_some(),
+            "{} resolves to a language with no grammar",
+            language.name()
+        );
+    }
+}
+
 #[test]
 fn known_languages_are_enumerated() {
     assert_eq!(
-        KNOWN.len(),
+        ALL_LANGUAGES.len(),
         KNOWN_COUNT,
         "the known-language list must match the documented count"
     );
@@ -103,7 +80,7 @@ fn known_languages_are_enumerated() {
 /// either silently skipped or silently produces an empty file node.
 #[test]
 fn default_include_patterns_agree_with_is_language_supported() {
-    for language in KNOWN {
+    for language in ALL_LANGUAGES {
         assert_eq!(
             is_included_by_default(*language),
             is_language_supported(language),
@@ -200,7 +177,7 @@ fn every_contracted_language_is_indexed() {
 
 #[test]
 fn grammar_backed_languages_are_counted() {
-    let with_grammar = KNOWN
+    let with_grammar = ALL_LANGUAGES
         .iter()
         .filter(|language| !NO_GRAMMAR.contains(language))
         .count();
@@ -212,7 +189,7 @@ fn grammar_backed_languages_are_counted() {
 
 #[test]
 fn indexed_languages_are_counted() {
-    let indexed = KNOWN
+    let indexed = ALL_LANGUAGES
         .iter()
         .filter(|language| is_language_supported(language))
         .count();
@@ -224,7 +201,7 @@ fn indexed_languages_are_counted() {
 
 #[test]
 fn pending_languages_are_counted() {
-    let pending = KNOWN
+    let pending = ALL_LANGUAGES
         .iter()
         .filter(|language| !is_language_supported(language))
         .count();
@@ -242,7 +219,7 @@ fn pending_languages_are_counted() {
 fn every_indexed_language_has_a_contract_or_is_markup() {
     const MARKUP: &[Language] = &[Language::Markdown, Language::Liquid];
 
-    for language in KNOWN.iter().filter(|l| is_language_supported(l)) {
+    for language in ALL_LANGUAGES.iter().filter(|l| is_language_supported(l)) {
         if MARKUP.contains(language) {
             continue;
         }
