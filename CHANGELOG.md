@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Fortran, Haskell, Julia, Lua, MATLAB and R are indexed end to end.**
+  All six had their tree-sitter grammar wired up but no extraction
+  contract, so a file in those languages parsed perfectly and still
+  produced nothing but a `file` node — no declarations, no call edges, no
+  imports, and no symptom beyond `coraline callers` returning nothing.
+  Each now has a contract in `crates/coraline/src/grammar.rs` that maps
+  its grammar's node kinds onto graph nodes, so the six languages join
+  the 19 that were already indexed: 25 of the 37 languages Coraline
+  knows about now produce a graph, and the remaining 12 are the ones
+  still waiting on a contract.
+
+  The contracts are the interesting part, because each grammar names
+  things differently: Fortran wraps a declaration and its body in a
+  `module` / `function` / `subroutine` node and names it in the nested
+  statement; Haskell's applications nest (`f a b` is
+  `apply(apply(f, a), b)`), so the callee is the leftmost function in
+  the chain rather than the text of the `function` field; Julia keeps a
+  declaration's name in a `signature` or `type_head` child rather than a
+  field, and a supertype after the `<:` operator; Lua's `function M.f()`
+  names the function by its last segment; MATLAB's enumeration members
+  are one `enum` node each; and R's function is named by the assignment
+  it is bound to.
+
+  `crates/coraline/tests/language_contracts_test.rs` indexes a fixture
+  per language and asserts the graph each contract promises, and
+  `grammar_contract_test.rs` checks every declared node kind and callee
+  field against the grammar it claims to describe.
+
 ## [0.15.2] - 2026-10-27
 
 ### Fixed

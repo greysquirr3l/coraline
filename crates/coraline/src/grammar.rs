@@ -694,4 +694,212 @@ pub static CONTRACTS: &[LanguageContract] = &[
         heritage: None,
         directory_packages: false,
     },
+    LanguageContract {
+        language: Language::Fortran,
+        kinds: &[
+            // The grammar wraps a declaration and its body: the `module`
+            // node holds the `module_statement` that names it.
+            ("module", NodeKind::Module, true),
+            // `function area(c) result(a)` and `subroutine report(a)` have
+            // the same shape — a wrapper node around the statement that
+            // names it.
+            ("function", NodeKind::Function, true),
+            ("subroutine", NodeKind::Function, true),
+            // `program main` — a main program.
+            ("program", NodeKind::Module, true),
+            // `type, extends(shape_base) :: circle` — the type name is the
+            // `type_name` child of the nested `derived_type_statement`.
+            ("derived_type_definition", NodeKind::Struct, true),
+            // `real(real64) :: radius` — the name is the `declarator` field.
+            ("variable_declaration", NodeKind::Field, false),
+            // `use iso_fortran_env, only: real64`.
+            ("use_statement", NodeKind::Import, false),
+            // `public :: area` — a module's export list.
+            ("public_statement", NodeKind::Export, false),
+        ],
+        call_kinds: &[
+            (
+                "subroutine_call",
+                CalleeSource::Field {
+                    callee: "subroutine",
+                    receiver: None,
+                },
+            ),
+            // `r = g(x)` — a function used inside an expression has no
+            // callee field, so the callee is its first named child.
+            ("call_expression", CalleeSource::FirstChildLastIdentifier),
+        ],
+        import_kinds: &["use_statement"],
+        instantiation_kinds: &[],
+        heritage: Some(&[HeritageRule {
+            // `type, extends(base_t) :: derived` — the parent type is the
+            // `base` field of the nested `derived_type_statement`.
+            source: HeritageSource::ChildField("derived_type_statement", "base"),
+            kind: HeritageKind::Extends,
+        }]),
+        directory_packages: false,
+    },
+    LanguageContract {
+        language: Language::Haskell,
+        kinds: &[
+            // The root node of a Haskell file holds the module header and
+            // the declarations that follow it, so it is what makes the
+            // module a namespace for them. The name is the `module` field
+            // of the nested `header`.
+            ("haskell", NodeKind::Module, true),
+            // `import Data.List (sortBy)`.
+            ("import", NodeKind::Import, false),
+            // `greet name = name` — a function with arguments.
+            ("function", NodeKind::Function, false),
+            // `greet = "hi"` — a binding without arguments is still a
+            // top-level definition, and calls to it have to resolve.
+            ("bind", NodeKind::Function, false),
+            // `data Shape = Circle Double | Square Double`.
+            ("data_type", NodeKind::Struct, true),
+            // `newtype Wrapper a = Wrapper { unwrap :: a }`.
+            ("newtype", NodeKind::Struct, true),
+            // `type Name = String`.
+            ("type_synonym", NodeKind::TypeAlias, false),
+            // `class Container f where` — a type class.
+            ("class", NodeKind::Interface, true),
+        ],
+        call_kinds: &[(
+            "apply",
+            CalleeSource::Field {
+                callee: "function",
+                receiver: None,
+            },
+        )],
+        import_kinds: &["import"],
+        instantiation_kinds: &[],
+        heritage: Some(&[HeritageRule {
+            // `data Shape = … deriving (Show, Eq)` — the derived classes are
+            // the `deriving` field of the declaration.
+            source: HeritageSource::Field("deriving"),
+            kind: HeritageKind::Implements,
+        }]),
+        directory_packages: false,
+    },
+    LanguageContract {
+        language: Language::Julia,
+        kinds: &[
+            // `module MyMod` — the module name is the `name` field.
+            ("module_definition", NodeKind::Module, true),
+            // `function greet(name) … end` — the name is the identifier in
+            // the `signature` child.
+            ("function_definition", NodeKind::Function, false),
+            // `macro timeit(ex) … end`.
+            ("macro_definition", NodeKind::Function, false),
+            // `struct Point … end`.
+            ("struct_definition", NodeKind::Struct, true),
+            // `abstract type Shape end`.
+            ("abstract_definition", NodeKind::Interface, false),
+            // `primitive type Number2 32 end`.
+            ("primitive_definition", NodeKind::Struct, false),
+            // `const MAX = 10`.
+            ("const_statement", NodeKind::Constant, false),
+            // `using LinearAlgebra` and `import Base: show`.
+            ("using_statement", NodeKind::Import, false),
+            ("import_statement", NodeKind::Import, false),
+            // `export greet, other`.
+            ("export_statement", NodeKind::Export, false),
+            // `area(shape) = 3.14` — the short form of a function
+            // definition is an assignment whose left-hand side is a call.
+            // A plain assignment produces no node: it has no name.
+            ("assignment", NodeKind::Function, false),
+        ],
+        call_kinds: &[
+            // `helper(name)` — the callee is the first named child.
+            ("call_expression", CalleeSource::FirstChildLastIdentifier),
+            // `f.(a)` — a broadcast call.
+            (
+                "broadcast_call_expression",
+                CalleeSource::FirstChildLastIdentifier,
+            ),
+            // `@printf("%d", a)` — a macro call.
+            (
+                "macrocall_expression",
+                CalleeSource::FirstChildLastIdentifier,
+            ),
+        ],
+        import_kinds: &["using_statement", "import_statement"],
+        instantiation_kinds: &[],
+        heritage: Some(&[HeritageRule {
+            // `struct Point <: Shape` — the supertype is the identifier
+            // that follows the `<:` operator in the `type_head`.
+            source: HeritageSource::ChildNested("type_head", "identifier"),
+            kind: HeritageKind::Extends,
+        }]),
+        directory_packages: false,
+    },
+    LanguageContract {
+        language: Language::Lua,
+        kinds: &[
+            // `function helper(name) … end`.
+            ("function_declaration", NodeKind::Function, false),
+            // `local M = {}` — the names a statement binds are the `name`
+            // fields of the `variable_list` it holds.
+            ("variable_list", NodeKind::Variable, false),
+        ],
+        call_kinds: &[(
+            "function_call",
+            CalleeSource::Field {
+                callee: "name",
+                receiver: None,
+            },
+        )],
+        import_kinds: &[],
+        instantiation_kinds: &[],
+        heritage: None,
+        directory_packages: false,
+    },
+    LanguageContract {
+        language: Language::Matlab,
+        kinds: &[
+            // `function y = hello(name) … end` — the name is the `name`
+            // field.
+            ("function_definition", NodeKind::Function, false),
+            // `classdef MyClass < handle`.
+            ("class_definition", NodeKind::Class, true),
+            // `properties … Name … end`.
+            ("property", NodeKind::Property, false),
+            // `enumeration … RED … end` — one `enum` node per member.
+            ("enum", NodeKind::EnumMember, false),
+        ],
+        call_kinds: &[(
+            "function_call",
+            CalleeSource::Field {
+                callee: "name",
+                receiver: None,
+            },
+        )],
+        import_kinds: &[],
+        instantiation_kinds: &[],
+        heritage: Some(&[HeritageRule {
+            // `classdef MyClass < handle` — the supertype is the
+            // `property_name` inside the `superclasses` child.
+            source: HeritageSource::ChildNested("superclasses", "property_name"),
+            kind: HeritageKind::Extends,
+        }]),
+        directory_packages: false,
+    },
+    LanguageContract {
+        language: Language::R,
+        kinds: &[
+            // `greet <- function(name) name` — the name of the function is
+            // the left-hand side of the assignment it is bound to.
+            ("function_definition", NodeKind::Function, false),
+        ],
+        call_kinds: &[(
+            "call",
+            CalleeSource::Field {
+                callee: "function",
+                receiver: None,
+            },
+        )],
+        import_kinds: &[],
+        instantiation_kinds: &[],
+        heritage: None,
+        directory_packages: false,
+    },
 ];

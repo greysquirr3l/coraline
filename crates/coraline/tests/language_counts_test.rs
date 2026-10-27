@@ -82,10 +82,10 @@ const KNOWN_COUNT: usize = 37;
 const WITH_GRAMMAR_COUNT: usize = 36;
 
 /// The count of languages that are indexed end to end.
-const INDEXED_COUNT: usize = 19;
+const INDEXED_COUNT: usize = 25;
 
 /// The count of languages that have a grammar but no extraction contract.
-const PENDING_COUNT: usize = 18;
+const PENDING_COUNT: usize = 12;
 
 #[test]
 fn known_languages_are_enumerated() {
@@ -169,8 +169,8 @@ fn every_indexed_language_has_a_contract_or_is_markup() {
 /// The contract count is deliberately lower than the indexed count.
 ///
 /// `contract_for` maps TSX onto the TypeScript contract and JSX onto
-/// the JavaScript one, so 15 declared contracts cover 17 languages.
-/// Together with the two markup languages that makes 19 indexed.
+/// the JavaScript one, so 21 declared contracts cover 23 languages.
+/// Together with the two markup languages that makes 25 indexed.
 #[test]
 fn contracts_cover_the_indexed_languages_with_declarations() {
     let declared = coraline::grammar::CONTRACTS.len();
@@ -324,7 +324,7 @@ const fn known_extensions(language: Language) -> &'static [&'static str] {
         Language::Elixir => &["ex", "exs"],
         Language::Elm => &["elm"],
         Language::Erlang => &["erl", "hrl"],
-        Language::Fortran => &["f", "f90", "f95"],
+        Language::Fortran => &["f", "for", "f90", "f95"],
         Language::Groovy => &["groovy", "gradle"],
         Language::Haskell => &["hs"],
         Language::Julia => &["jl"],
@@ -332,7 +332,7 @@ const fn known_extensions(language: Language) -> &'static [&'static str] {
         Language::Matlab => &["m"],
         Language::Nix => &["nix"],
         Language::Powershell => &["ps1"],
-        Language::R => &["r"],
+        Language::R => &["r", "R"],
         Language::Scala => &["scala", "sc"],
         Language::Toml => &["toml"],
         Language::Yaml => &["yml", "yaml"],

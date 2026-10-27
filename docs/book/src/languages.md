@@ -2,9 +2,9 @@
 
 Coraline knows **37 languages**. **36** of them ship a tree-sitter
 grammar; Liquid is the exception — it has no grammar and is parsed by
-hand. **19** are indexed end to end: declarations, imports, calls,
+hand. **25** are indexed end to end: declarations, imports, calls,
 instantiations, inheritance and cross-file references are all resolved
-into the same semantic knowledge graph. The other 18 have their grammar
+into the same semantic knowledge graph. The other 12 have their grammar
 dependency in place but no extraction contract yet, so a file in those
 languages produces no nodes. The table marks which is which.
 
@@ -34,15 +34,15 @@ languages produces no nodes. The table marks which is which.
 | Elixir | `.ex`, `.exs` | ⏳ |
 | Elm | `.elm` | ⏳ |
 | Erlang | `.erl`, `.hrl` | ⏳ |
-| Fortran | `.f`, `.f90`, `.f95` | ⏳ |
+| Fortran | `.f`, `.for`, `.f90`, `.f95` | ✅ |
 | Groovy | `.groovy`, `.gradle` | ⏳ |
-| Haskell | `.hs` | ⏳ |
-| Julia | `.jl` | ⏳ |
-| Lua | `.lua` | ⏳ |
-| MATLAB | `.m` | ⏳ |
+| Haskell | `.hs` | ✅ |
+| Julia | `.jl` | ✅ |
+| Lua | `.lua` | ✅ |
+| MATLAB | `.m` | ✅ |
 | Nix | `.nix` | ⏳ |
 | PowerShell | `.ps1` | ⏳ |
-| R | `.r` | ⏳ |
+| R | `.r`, `.R` | ✅ |
 | Scala | `.scala`, `.sc` | ⏳ |
 | TOML | `.toml` | ⏳ |
 | YAML | `.yml`, `.yaml` | ⏳ |

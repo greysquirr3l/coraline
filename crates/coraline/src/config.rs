@@ -134,6 +134,22 @@ pub fn default_include_patterns() -> Vec<String> {
         "**/*.md",
         // `.markdown` maps to Markdown in the extension table too.
         "**/*.markdown",
+        // Fortran.
+        "**/*.f",
+        "**/*.for",
+        "**/*.f90",
+        "**/*.f95",
+        // Haskell.
+        "**/*.hs",
+        // Julia.
+        "**/*.jl",
+        // Lua.
+        "**/*.lua",
+        // MATLAB and Octave.
+        "**/*.m",
+        // R.
+        "**/*.r",
+        "**/*.R",
     ]
     .into_iter()
     .map(std::string::ToString::to_string)
@@ -266,6 +282,12 @@ pub const fn is_language_supported(language: &Language) -> bool {
             | Language::Markdown
             | Language::Blazor
             | Language::Perl
+            | Language::Fortran
+            | Language::Haskell
+            | Language::Julia
+            | Language::Lua
+            | Language::Matlab
+            | Language::R
     )
 }
 
@@ -740,6 +762,8 @@ include_patterns = [
   "**/*.c", "**/*.h", "**/*.rb", "**/*.php", "**/*.swift",
   "**/*.kt", "**/*.razor", "**/*.cshtml", "**/*.pl", "**/*.pm",
   "**/*.md", "**/*.markdown", "**/*.liquid",
+  "**/*.f", "**/*.for", "**/*.f90", "**/*.f95",
+  "**/*.hs", "**/*.jl", "**/*.lua", "**/*.m", "**/*.r", "**/*.R",
 ]
 exclude_patterns = [
   "**/.git/**", "**/target/**", "**/node_modules/**",

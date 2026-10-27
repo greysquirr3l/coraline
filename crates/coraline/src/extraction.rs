@@ -1078,18 +1078,32 @@ fn walk_tree_collect(
 
     if let Some(NodeKind::Module) = kind {
         if let Some(parent_id) = parent_id.clone() {
-            add_module_node(
-                &node,
-                source,
-                project_root,
-                language,
-                file_path,
-                parent_id,
-                nodes,
-                edges,
-                now_ms,
-            );
-            return;
+            match language {
+                // Rust's `mod foo;` declares nothing of its own, so the
+                // module node is created here and the walk ends with it.
+                Language::Rust => {
+                    add_module_node(
+                        &node,
+                        source,
+                        project_root,
+                        language,
+                        file_path,
+                        parent_id,
+                        nodes,
+                        edges,
+                        now_ms,
+                    );
+                    return;
+                }
+                // Kotlin's `package` header marks the file's package
+                // rather than declaring anything, so it produces no node
+                // of its own.
+                Language::Kotlin => return,
+                // Every other language declares inside its module, so the
+                // module node is created by the normal path below and the
+                // walk continues into it.
+                _ => {}
+            }
         }
     }
 
@@ -1567,6 +1581,134 @@ fn node_name(node: &TsNode, source: &str, language: Language) -> Option<String> 
             // PHP wraps identifiers in a `name` node; its text is the name.
             return text_of(node);
         }
+        Language::Fortran => {
+            // The grammar wraps a declaration and its body: the `module`
+            // node holds the `module_statement` that names it, and the
+            // `function` and `subroutine` nodes hold the statement that
+            // names them.
+            let statement_kind = match node.kind() {
+                "module" => Some("module_statement"),
+                "program" => Some("program_statement"),
+                "function" => Some("function_statement"),
+                "subroutine" => Some("subroutine_statement"),
+                _ => None,
+            };
+            if let Some(statement_kind) = statement_kind {
+                let mut cursor = node.walk();
+                let statement = node
+                    .named_children(&mut cursor)
+                    .find(|c| c.kind() == statement_kind)?;
+                // A function or subroutine statement names itself through a
+                // `name` field; a module or program statement holds a plain
+                // `name` child instead.
+                if let Some(name) = statement.child_by_field_name("name") {
+                    return text_of(&name);
+                }
+                let mut inner = statement.walk();
+                let name = statement
+                    .named_children(&mut inner)
+                    .find(|c| c.kind() == "name")?;
+                return text_of(&name);
+            }
+            // `type, public :: circle` — the type name is the `type_name`
+            // child of the nested `derived_type_statement`, not a field of
+            // the definition itself.
+            if node.kind() == "derived_type_definition" {
+                let mut cursor = node.walk();
+                let statement = node
+                    .named_children(&mut cursor)
+                    .find(|c| c.kind() == "derived_type_statement")?;
+                let mut inner = statement.walk();
+                let type_name = statement
+                    .named_children(&mut inner)
+                    .find(|c| c.kind() == "type_name")?;
+                return text_of(&type_name);
+            }
+            // `real(real64) :: radius` — the declared name is the
+            // `declarator` field.
+            if node.kind() == "variable_declaration" {
+                return text_of(&node.child_by_field_name("declarator")?);
+            }
+        }
+        Language::Haskell => {
+            // The root node of a Haskell file holds the module header, so
+            // the module's name is the `module` field of the nested
+            // `header`.
+            if node.kind() == "haskell" {
+                let mut cursor = node.walk();
+                let header = node
+                    .named_children(&mut cursor)
+                    .find(|c| c.kind() == "header")?;
+                return text_of(&header.child_by_field_name("module")?);
+            }
+        }
+        Language::Julia => {
+            // Julia's declarations carry no `name` field: the name of a
+            // function or a macro is the identifier in its `signature`, and
+            // the name of a type is the identifier in its `type_head`. In
+            // every case it is the first identifier of the declaration.
+            if matches!(
+                node.kind(),
+                "function_definition"
+                    | "macro_definition"
+                    | "struct_definition"
+                    | "abstract_definition"
+                    | "primitive_definition"
+                    | "const_statement"
+            ) {
+                return first_identifier_text(node, source);
+            }
+            // `area(shape) = 3.14` — the short form of a function
+            // definition is an assignment whose left-hand side is a call.
+            // A plain assignment is not a declaration, so it has no name.
+            if node.kind() == "assignment" {
+                let mut cursor = node.walk();
+                let lhs = node.named_children(&mut cursor).next()?;
+                if lhs.kind() == "call_expression" {
+                    return first_identifier_text(&lhs, source);
+                }
+                return None;
+            }
+        }
+        Language::Lua => {
+            // `function M.hello(name)` — the name field holds a
+            // `dot_index_expression` or a `method_index_expression`, and the
+            // function's own name is its last segment.
+            if node.kind() == "function_declaration" {
+                let raw = text_of(&node.child_by_field_name("name")?)?;
+                let last = raw
+                    .rsplit(['.', ':'])
+                    .next()
+                    .unwrap_or(&raw)
+                    .trim()
+                    .to_string();
+                if !last.is_empty() {
+                    return Some(last);
+                }
+            }
+        }
+        Language::Matlab => {
+            // `enum RED` — the member name is the `identifier` child of the
+            // `enum` node; the grammar gives it no name field.
+            if node.kind() == "enum" {
+                let mut cursor = node.walk();
+                let identifier = node
+                    .named_children(&mut cursor)
+                    .find(|c| c.kind() == "identifier")?;
+                return text_of(&identifier);
+            }
+        }
+        Language::R if node.kind() == "function_definition" => {
+            // `greet <- function(name) name` — the name of the function is
+            // the left-hand side of the assignment it is bound to. The
+            // `name` field of the `function_definition` holds the
+            // `function` keyword, so it must never be used as a fallback.
+            let parent = node.parent()?;
+            if parent.kind() == "binary_operator" {
+                return text_of(&parent.child_by_field_name("lhs")?);
+            }
+            return None;
+        }
         _ => {}
     }
 
@@ -1577,6 +1719,29 @@ fn node_name(node: &TsNode, source: &str, language: Language) -> Option<String> 
         .or_else(|| node.child_by_field_name("tag_name"));
 
     name_node.and_then(|n| text_of(&n))
+}
+
+/// The text of the first identifier in a subtree, in document order.
+///
+/// Julia's declarations are the reason this exists: `function greet(name)`
+/// puts the name in a `signature` child and `struct Point` puts it in a
+/// `type_head` child, and neither is reachable through a field. In both
+/// cases the name is the first identifier of the declaration.
+fn first_identifier_text(node: &TsNode, source: &str) -> Option<String> {
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        if child.kind() == "identifier" {
+            return child
+                .utf8_text(source.as_bytes())
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty());
+        }
+        if let Some(found) = first_identifier_text(&child, source) {
+            return Some(found);
+        }
+    }
+    None
 }
 
 #[derive(Debug, Clone)]
@@ -2090,11 +2255,13 @@ fn import_module_path(node: &TsNode, source: &str, language: Language) -> Option
         Language::Scala => Some("path"),
         Language::Groovy => Some("name"),
         Language::Dart => Some("uri"),
-        Language::Julia => Some("module"),
+        // Julia and Fortran keep the imported module in a child node, not in
+        // a field; they are handled in the `None` branch below.
+        Language::Julia => None,
         Language::Nix => Some("source"),
         Language::R => Some("argument"),
         Language::Matlab => Some("argument"),
-        Language::Fortran => Some("name"),
+        Language::Fortran => None,
         Language::Elm => Some("module_name"),
         Language::Perl => Some("module"),
         Language::Powershell => Some("name"),
@@ -2172,6 +2339,34 @@ fn import_module_path(node: &TsNode, source: &str, language: Language) -> Option
                         node.named_children(&mut cursor)
                             .find(|c| c.kind() == "identifier")
                     })?
+            }
+            // Julia: `using LinearAlgebra` and `import Base: show` — the
+            // module is the `identifier` (or `scoped_identifier`) child, and
+            // a selective import keeps it in the first identifier of the
+            // `selected_import`.
+            Language::Julia => {
+                let mut cursor = node.walk();
+                let child = node.named_children(&mut cursor).find(|c| {
+                    matches!(
+                        c.kind(),
+                        "scoped_identifier" | "identifier" | "selected_import"
+                    )
+                })?;
+                if child.kind() == "selected_import" {
+                    let mut inner = child.walk();
+                    child
+                        .named_children(&mut inner)
+                        .find(|c| c.kind() == "identifier")?
+                } else {
+                    child
+                }
+            }
+            // Fortran: `use iso_fortran_env, only: real64` — the module is
+            // the `module_name` child.
+            Language::Fortran => {
+                let mut cursor = node.walk();
+                node.named_children(&mut cursor)
+                    .find(|c| c.kind() == "module_name")?
             }
             _ => return None,
         }
@@ -2594,8 +2789,13 @@ fn export_symbols(node: &TsNode, source: &str, language: Language) -> Vec<Export
             Vec::new()
         }
 
-        // === Julia: implicit (all public names) ===
-        Language::Julia => Vec::new(),
+        // === Julia: `export greet, other` ===
+        Language::Julia => {
+            if node.kind() == "export_statement" {
+                return identifier_exports(node, source);
+            }
+            Vec::new()
+        }
 
         // === Nix: implicit (let-in returns) ===
         Language::Nix => Vec::new(),
@@ -2606,8 +2806,13 @@ fn export_symbols(node: &TsNode, source: &str, language: Language) -> Vec<Export
         // === MATLAB: implicit (global scope) ===
         Language::Matlab => Vec::new(),
 
-        // === Fortran: module exports ===
-        Language::Fortran => Vec::new(),
+        // === Fortran: `public :: area` ===
+        Language::Fortran => {
+            if node.kind() == "public_statement" {
+                return identifier_exports(node, source);
+            }
+            Vec::new()
+        }
 
         // === Elm: module declaration with export list ===
         Language::Elm => Vec::new(),
@@ -2660,6 +2865,24 @@ fn rust_use_path(node: &TsNode, source: &str) -> Option<String> {
     let child = node.child_by_field_name("path")?;
     let raw = child.utf8_text(source.as_bytes()).ok()?.trim().to_string();
     if raw.is_empty() { None } else { Some(raw) }
+}
+
+/// Collect the names a declaration exports, listed as plain identifiers.
+///
+/// Julia's `export greet, other` and Fortran's `public :: area` both spell
+/// the exported names as identifiers under the statement.
+fn identifier_exports(node: &TsNode, source: &str) -> Vec<ExportSymbol> {
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .filter(|c| c.kind() == "identifier")
+        .filter_map(|c| c.utf8_text(source.as_bytes()).ok())
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty())
+        .map(|name| ExportSymbol {
+            name,
+            module_path: None,
+        })
+        .collect()
 }
 
 fn rust_use_alias(node: &TsNode, source: &str) -> Option<String> {
@@ -2753,6 +2976,34 @@ fn is_call_expression(kind: &str, language: Language) -> bool {
 /// resolve without reintroducing the name-collision false positives from #43.
 fn call_name(node: &TsNode, source: &str, language: Language) -> Option<(String, Option<String>)> {
     let source_bytes = source.as_bytes();
+
+    // Haskell's applications nest: `f a b` parses as
+    // `apply(apply(f, a), b)`, so the callee of an application is the
+    // leftmost function in the chain rather than the text of the
+    // `function` field.
+    if language == Language::Haskell {
+        return haskell_call_name(node, source_bytes);
+    }
+
+    // Julia: a declaration's signature parses as a call — `function area(x)`
+    // is a `call_expression` — and the short form `area(x) = ...` is an
+    // assignment whose left-hand side is a call. Neither is a call site,
+    // and recording them would give every Julia function a self-call.
+    if language == Language::Julia {
+        if let Some(parent) = node.parent() {
+            if parent.kind() == "signature" {
+                return None;
+            }
+            if parent.kind() == "assignment" {
+                let mut cursor = parent.walk();
+                let is_left_hand_side = parent.named_children(&mut cursor).next() == Some(*node);
+                if is_left_hand_side {
+                    return None;
+                }
+            }
+        }
+    }
+
     let callee_strategy = grammar::callee_source(language, node.kind())?;
 
     let callee = match callee_strategy {
@@ -2805,6 +3056,46 @@ fn call_name(node: &TsNode, source: &str, language: Language) -> Option<(String,
         None
     } else {
         Some((name, qualifier))
+    }
+}
+
+/// Recover the callee of a Haskell application.
+///
+/// `f a b` parses as `apply(apply(f, a), b)`, so the `function` field of
+/// the outer application is another application rather than the callee. The
+/// callee is found by walking down the chain to the leftmost function, and
+/// a qualified name (`Data.List.sortBy`) keeps its module as the qualifier.
+fn haskell_call_name(node: &TsNode, source_bytes: &[u8]) -> Option<(String, Option<String>)> {
+    let mut current = node.child_by_field_name("function")?;
+    loop {
+        match current.kind() {
+            "apply" => {
+                current = current.child_by_field_name("function")?;
+            }
+            "qualified" => {
+                // `Data.List.sortBy` — the name is the `id` field and the
+                // module is the `module` field, which keeps the trailing
+                // dot of the qualified name.
+                let name = current
+                    .child_by_field_name("id")
+                    .and_then(|n| n.utf8_text(source_bytes).ok())
+                    .map(|t| t.trim().to_string())
+                    .filter(|t| !t.is_empty())?;
+                let qualifier = current
+                    .child_by_field_name("module")
+                    .and_then(|n| n.utf8_text(source_bytes).ok())
+                    .map(|t| t.trim().trim_end_matches('.').to_string())
+                    .filter(|t| !t.is_empty());
+                return Some((name, qualifier));
+            }
+            _ => {
+                let name = current.utf8_text(source_bytes).ok()?.trim().to_string();
+                if name.is_empty() {
+                    return None;
+                }
+                return Some((name, None));
+            }
+        }
     }
 }
 
@@ -2915,6 +3206,16 @@ fn heritage_names(
                 }
             }
             grammar::HeritageSource::ChildNested(child_kind, nested_kind) => {
+                if language == Language::Julia {
+                    // Julia: `struct Point <: Shape` — the supertype is the
+                    // identifier that follows the `<:` operator, so the
+                    // generic "first identifier of the child" search would
+                    // find the type's own name instead.
+                    if let Some(name) = julia_supertype(node, source) {
+                        push(name, rule.kind);
+                    }
+                    continue;
+                }
                 let mut cursor = node.walk();
                 for child in node.named_children(&mut cursor) {
                     if child.kind() != child_kind {
@@ -2933,6 +3234,42 @@ fn heritage_names(
     }
 
     found
+}
+
+/// The supertype of a Julia type declaration.
+///
+/// `struct Point <: Shape` keeps the supertype after the `<:` operator
+/// inside the `type_head`; a type without a supertype has no `<:` at all,
+/// so there is nothing to report.
+fn julia_supertype(node: &TsNode, source: &str) -> Option<String> {
+    if !matches!(
+        node.kind(),
+        "struct_definition" | "abstract_definition" | "primitive_definition"
+    ) {
+        return None;
+    }
+
+    let mut cursor = node.walk();
+    let head = node
+        .named_children(&mut cursor)
+        .find(|c| c.kind() == "type_head")?;
+
+    // The supertype is the operand that follows the `<:` operator inside
+    // the `type_head`'s expression.
+    let mut inner = head.walk();
+    let expression = head
+        .named_children(&mut inner)
+        .find(|c| c.kind() == "binary_expression")?;
+
+    let mut expression_cursor = expression.walk();
+    let children: Vec<TsNode> = expression.named_children(&mut expression_cursor).collect();
+    let operator_at = children.iter().position(|c| {
+        c.kind() == "operator"
+            && c.utf8_text(source.as_bytes())
+                .is_ok_and(|text| text.trim() == "<:")
+    })?;
+
+    simple_type_name(children.get(operator_at + 1)?, source)
 }
 
 /// Find the type named by a descendant of the given kind, searching at
@@ -3490,7 +3827,7 @@ fn detect_language(path: &str) -> Language {
         "ex" | "exs" => Language::Elixir,
         "elm" => Language::Elm,
         "erl" | "hrl" => Language::Erlang,
-        "f" | "f90" | "f95" => Language::Fortran,
+        "f" | "f90" | "f95" | "for" | "f03" | "f08" => Language::Fortran,
         "groovy" | "gradle" => Language::Groovy,
         "hs" => Language::Haskell,
         "jl" => Language::Julia,

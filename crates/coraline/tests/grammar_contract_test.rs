@@ -42,6 +42,12 @@ fn grammar_for(language: Language) -> Option<TsLanguage> {
         Language::Kotlin => TsLanguage::new(tree_sitter_kotlin_ng::LANGUAGE),
         Language::Blazor => TsLanguage::new(tree_sitter_blazor::LANGUAGE),
         Language::Perl => TsLanguage::new(ts_parser_perl::LANGUAGE),
+        Language::Fortran => TsLanguage::new(tree_sitter_fortran::LANGUAGE),
+        Language::Haskell => TsLanguage::new(tree_sitter_haskell::LANGUAGE),
+        Language::Julia => TsLanguage::new(tree_sitter_julia::LANGUAGE),
+        Language::Lua => TsLanguage::new(tree_sitter_lua::LANGUAGE),
+        Language::Matlab => TsLanguage::new(tree_sitter_matlab::LANGUAGE),
+        Language::R => TsLanguage::new(tree_sitter_r::LANGUAGE),
         _ => return None,
     })
 }
@@ -170,6 +176,11 @@ const CALL_SITES: &[(Language, &str, &str)] = &[
         "method_call_expression",
         "$receiver->helper();",
     ),
+    (Language::Fortran, "subroutine_call", "call report(1)"),
+    (Language::Haskell, "apply", "area (head shapes)"),
+    (Language::Lua, "function_call", "helper(1)"),
+    (Language::Matlab, "function_call", "helper(1);"),
+    (Language::R, "call", "area(radius)"),
 ];
 
 #[test]

@@ -31,6 +31,8 @@ include_patterns = [
   "**/*.c", "**/*.h", "**/*.rb", "**/*.php", "**/*.swift",
   "**/*.kt", "**/*.razor", "**/*.cshtml", "**/*.pl", "**/*.pm",
   "**/*.md", "**/*.markdown", "**/*.liquid",
+  "**/*.f", "**/*.for", "**/*.f90", "**/*.f95",
+  "**/*.hs", "**/*.jl", "**/*.lua", "**/*.m", "**/*.r", "**/*.R",
 ]
 exclude_patterns = [
   "**/.git/**", "**/target/**", "**/node_modules/**",
