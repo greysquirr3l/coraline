@@ -20,6 +20,15 @@
 # Environment:
 #   CARGO_REGISTRY_TOKEN   passed through to cargo publish
 #
+# ## Streams
+#
+# stdout carries exactly one line: the verdict, and nothing else. That
+# makes it safe for a caller to capture stdout and branch on it --
+# `output="$(publish-crate.sh ...)"` gives a clean value.
+#
+# cargo's own output goes to stderr, so it stays visible in the CI log
+# without polluting the verdict.
+#
 # `set -o pipefail` is load-bearing. cargo's output is piped through
 # `tee` so the log is available for inspection, and without pipefail the
 # pipeline's exit status is tee's -- which is always 0. The success
@@ -37,7 +46,7 @@ log_path="${2:?usage: publish-crate.sh <package-name> <log-path>}"
 version="$(cargo metadata --no-deps --format-version 1 \
   | jq -r --arg pkg "$package" '.packages[] | select(.name == $pkg) | .version')"
 
-if cargo publish --package "$package" 2>&1 | tee "$log_path"; then
+if cargo publish --package "$package" 2>&1 | tee "$log_path" >&2; then
   echo "PUBLISHED $package@$version"
   exit 0
 fi
