@@ -540,13 +540,13 @@ coraline update
 **Output (when up to date):**
 
 ```
-✓ coraline is up to date (v0.15.2)
+✓ coraline is up to date (v0.16.0)
 ```
 
 **Output (when update available):**
 
 ```
-Update available: v0.15.1 → v0.15.2
+Update available: v0.15.2 → v0.16.0
 Run `cargo install coraline` to upgrade.
 ```
 

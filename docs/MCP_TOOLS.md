@@ -87,7 +87,7 @@ Search for code symbols by name or pattern across the indexed codebase.
         "file_path": "/path/to/resolution/mod.rs",
         "start_line": 42,
         "end_line": 95,
-        "language": "Rust",
+        "language": "rust",
         "signature": "fn resolve_unresolved(conn: &mut Connection, ...)"
       },
       "score": 0.92
