@@ -133,12 +133,61 @@ Fixtures are small, self-contained codebases checked into the repo.
 
 ## Adding a New Tree-Sitter Language
 
-1. Add the tree-sitter crate to `crates/coraline/Cargo.toml`.
-2. Add the language variant to `Language` enum in `types.rs`.
-3. Add the file extension mapping in `extraction.rs` (`language_from_path`).
-4. Add an extraction branch in `extraction.rs` (`extract_nodes_from_ast`).
-5. Add to the `is_language_supported` list in `config.rs`.
-6. Add at least one fixture file and a test case in `tests/extraction_test.rs`.
+A language is indexed in four places, and it is only indexed when all
+four agree. A language that misses any one of them parses perfectly and
+produces nothing but a `file` node — no error, no warning, just an
+empty graph. That is how eighteen languages sat inert for months
+(issue #128), so each step below has a test that fails if it is
+missed.
+
+**1. The grammar.** Add the tree-sitter crate to
+`crates/coraline/Cargo.toml`, the language variant to the `Language`
+enum in `types.rs`, and the parser binding to `language_to_parser` in
+`extraction.rs`.
+
+**2. The extension.** Add the extension to `EXTENSION_LANGUAGES` in
+`config.rs`. That table is the single source of truth: `detect_language`
+consults it, and the default include patterns are checked against it.
+Add the same extension to `default_include_patterns` in `config.rs` and
+to the `config.toml` template beside it — the two lists must agree, and
+`include_patterns_agree_with_the_extension_table` in
+`tests/language_counts_test.rs` fails if they do not.
+
+Add the language to `is_language_supported` in `config.rs` as well. It
+is a separate switch from the patterns, and
+`default_include_patterns_agree_with_is_language_supported` fails if
+the two disagree.
+
+**3. The contract.** Add a `LanguageContract` to `CONTRACTS` in
+`grammar.rs`, declaring which grammar node kinds become which graph
+node kinds, the call kinds with their callee field, the import kinds
+and the heritage rules.
+
+This is the step that matters, and the node kinds have to be *read out
+of the grammar*, never guessed. A wrong guess is not a compile error:
+it is a language that silently produces no call, import or inheritance
+edges. The module comment at the top of `grammar.rs` records what that
+cost before — Kotlin's `interface_declaration` and Swift's
+`function_call_expression` do not exist, and both languages were
+quietly broken.
+
+Use the probe tool to read the grammar:
+
+```bash
+cargo run --example grammar_probe -- fortran           # node kinds and fields
+cargo run --example grammar_probe -- fortran file.f90   # the parse tree
+```
+
+**4. The tests.** Add the language to the grammar table in
+`tests/grammar_contract_test.rs` so its declared node kinds and callee
+fields are checked against the real grammar, add a call-site snippet if
+it declares a callee field, and add a fixture and a test in
+`tests/language_contracts_test.rs` that indexes the fixture and asserts
+the graph the contract promises.
+
+Then update the counts in `tests/language_counts_test.rs` — they are
+asserted against the README and the book's language table, so they
+cannot drift.
 
 ---
 
