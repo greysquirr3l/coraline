@@ -74,7 +74,9 @@ fn print_tree(node: &tree_sitter::Node, source: &str, depth: usize, field: Optio
     let mut cursor = node.walk();
     let children: Vec<_> = node.children(&mut cursor).collect();
     for (index, child) in children.iter().enumerate() {
-        let field = u32::try_from(index).ok().and_then(|index| node.field_name_for_child(index));
+        let field = u32::try_from(index)
+            .ok()
+            .and_then(|index| node.field_name_for_child(index));
         print_tree(child, source, depth + 1, field);
     }
 }

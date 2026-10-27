@@ -695,6 +695,320 @@ pub static CONTRACTS: &[LanguageContract] = &[
         directory_packages: false,
     },
     LanguageContract {
+        language: Language::Toml,
+        kinds: &[
+            // `[server]` — a table holds the keys under it.
+            ("table", NodeKind::Struct, true),
+            // `host = "localhost"` — a key.
+            ("pair", NodeKind::Field, false),
+        ],
+        call_kinds: &[],
+        import_kinds: &[],
+        instantiation_kinds: &[],
+        heritage: None,
+        directory_packages: false,
+    },
+    LanguageContract {
+        language: Language::Yaml,
+        kinds: &[
+            // `server:` — a mapping holds the keys under it.
+            ("block_mapping", NodeKind::Struct, true),
+            // `host: localhost` — a key.
+            ("block_mapping_pair", NodeKind::Field, false),
+        ],
+        call_kinds: &[],
+        import_kinds: &[],
+        instantiation_kinds: &[],
+        heritage: None,
+        directory_packages: false,
+    },
+    LanguageContract {
+        language: Language::Erlang,
+        kinds: &[
+            // `-module(geometry).` — the module, its records and its
+            // imports are all module attributes; the attribute's name
+            // decides which one it is.
+            ("module_attribute", NodeKind::Module, false),
+            // `-record(circle, {radius = 0.0}).`
+            ("record_decl", NodeKind::Struct, false),
+            // `area(#circle{radius = Radius}) -> …`.
+            ("fun_decl", NodeKind::Function, true),
+        ],
+        call_kinds: &[
+            (
+                "call",
+                CalleeSource::Field {
+                    callee: "expr",
+                    receiver: None,
+                },
+            ),
+            (
+                // `lists:map(f, X)` — a remote call.
+                "remote",
+                CalleeSource::Field {
+                    callee: "fun",
+                    receiver: None,
+                },
+            ),
+        ],
+        import_kinds: &["module_attribute"],
+        instantiation_kinds: &[],
+        heritage: None,
+        directory_packages: false,
+    },
+    LanguageContract {
+        language: Language::Elm,
+        kinds: &[
+            // `module Geometry exposing (area, total)`.
+            ("module_declaration", NodeKind::Module, true),
+            // `import Html exposing (text)`.
+            ("import_clause", NodeKind::Import, false),
+            // `area radius = …`.
+            ("value_declaration", NodeKind::Function, true),
+        ],
+        call_kinds: &[(
+            "function_call_expr",
+            CalleeSource::Field {
+                callee: "target",
+                receiver: None,
+            },
+        )],
+        import_kinds: &["import_clause"],
+        instantiation_kinds: &[],
+        heritage: None,
+        directory_packages: false,
+    },
+    LanguageContract {
+        language: Language::Bash,
+        kinds: &[
+            // `area() { … }`.
+            ("function_definition", NodeKind::Function, true),
+            // `RADIUS=2.0`.
+            ("variable_assignment", NodeKind::Variable, false),
+        ],
+        call_kinds: &[(
+            // `echo "hello"` — a command is a call.
+            "command",
+            CalleeSource::Field {
+                callee: "name",
+                receiver: None,
+            },
+        )],
+        import_kinds: &[],
+        instantiation_kinds: &[],
+        heritage: None,
+        directory_packages: false,
+    },
+    LanguageContract {
+        language: Language::Elixir,
+        kinds: &[
+            // Elixir's grammar gives every construct the same node: a call
+            // whose target names the construct. `defmodule Geometry do`,
+            // `def area(x) do`, `defstruct [:radius]` and `alias Foo` are
+            // all calls.
+            ("call", NodeKind::Function, true),
+        ],
+        call_kinds: &[(
+            // `Enum.map(shapes, &Circle.area/1)` — a call is a call whose
+            // target is not a construct keyword.
+            "call",
+            CalleeSource::Field {
+                callee: "target",
+                receiver: None,
+            },
+        )],
+        import_kinds: &[],
+        instantiation_kinds: &[],
+        heritage: None,
+        directory_packages: false,
+    },
+    LanguageContract {
+        language: Language::Powershell,
+        kinds: &[
+            // `function Get-Area { … }` — the name is the `function_name`
+            // child.
+            ("function_statement", NodeKind::Function, true),
+        ],
+        call_kinds: &[(
+            // `Get-Area -Radius $r` — a command is a call to the cmdlet.
+            "command",
+            CalleeSource::Field {
+                callee: "command_name",
+                receiver: None,
+            },
+        )],
+        // `Import-Module Geometry` is a command like any other, so it
+        // stays a call rather than becoming an import.
+        import_kinds: &[],
+        instantiation_kinds: &[],
+        heritage: None,
+        directory_packages: false,
+    },
+    LanguageContract {
+        language: Language::Nix,
+        kinds: &[
+            // `radius = 2.0;` — a binding in a `let` or an attribute set.
+            // A binding to a function is a function, any other binding is
+            // a value.
+            ("binding", NodeKind::Variable, false),
+            // `inherit radius;`.
+            ("inherit", NodeKind::Variable, false),
+        ],
+        call_kinds: &[(
+            // `area radius` — a call is an application.
+            "apply_expression",
+            CalleeSource::Field {
+                callee: "function",
+                receiver: None,
+            },
+        )],
+        import_kinds: &[],
+        instantiation_kinds: &[],
+        heritage: None,
+        directory_packages: false,
+    },
+    LanguageContract {
+        language: Language::Groovy,
+        kinds: &[
+            // `package geometry` — the package name is the identifier.
+            ("package_declaration", NodeKind::Module, false),
+            // `class Circle extends Shape`.
+            ("class_declaration", NodeKind::Class, true),
+            // `interface Shape`.
+            ("interface_declaration", NodeKind::Interface, true),
+            // `double area() { … }`.
+            ("method_declaration", NodeKind::Function, true),
+            // `def describe(shape) { … }`.
+            ("function_definition", NodeKind::Function, true),
+            // `double radius` — a field of the class.
+            ("field_declaration", NodeKind::Field, false),
+            // `import java.util.List`.
+            ("import_declaration", NodeKind::Import, false),
+        ],
+        call_kinds: &[(
+            "method_invocation",
+            CalleeSource::Field {
+                callee: "name",
+                receiver: Some("object"),
+            },
+        )],
+        import_kinds: &["import_declaration"],
+        instantiation_kinds: &[],
+        heritage: Some(&[HeritageRule {
+            // `class Circle extends Shape` — the supertype is the
+            // `type_identifier` inside the `superclass` child.
+            source: HeritageSource::ChildNested("superclass", "type_identifier"),
+            kind: HeritageKind::Extends,
+        }]),
+        directory_packages: false,
+    },
+    LanguageContract {
+        language: Language::Dart,
+        kinds: &[
+            // `class Circle extends Shape`.
+            ("class_declaration", NodeKind::Class, true),
+            // `mixin Describable { … }`.
+            ("mixin_declaration", NodeKind::Class, true),
+            // `double area() => …` — the name is in the signature.
+            ("method_declaration", NodeKind::Function, true),
+            // A top-level function.
+            ("function_declaration", NodeKind::Function, true),
+            // `double area();` — an abstract method's signature.
+            ("function_signature", NodeKind::Function, false),
+            // `Circle(this.radius);` — a constructor.
+            ("constructor_signature", NodeKind::Function, false),
+            // `final double radius;` — a field.
+            ("initialized_identifier", NodeKind::Field, false),
+            // `var sum = 0.0;` — a local variable.
+            ("initialized_variable_definition", NodeKind::Variable, false),
+            // `import 'dart:math';`.
+            ("import_or_export", NodeKind::Import, false),
+        ],
+        call_kinds: &[(
+            "call_expression",
+            CalleeSource::Field {
+                callee: "function",
+                receiver: None,
+            },
+        )],
+        import_kinds: &["import_or_export"],
+        instantiation_kinds: &[],
+        heritage: Some(&[HeritageRule {
+            // `class Circle extends Shape` — the supertype is the `type`
+            // field of the `superclass` child.
+            source: HeritageSource::ChildField("superclass", "type"),
+            kind: HeritageKind::Extends,
+        }]),
+        directory_packages: false,
+    },
+    LanguageContract {
+        language: Language::Zig,
+        kinds: &[
+            // `pub fn total(shapes: []Circle) f64 { … }`.
+            ("function_declaration", NodeKind::Function, true),
+            // `pub const Circle = struct { … }` — a type is named by the
+            // constant it is bound to.
+            ("struct_declaration", NodeKind::Struct, true),
+            ("enum_declaration", NodeKind::Enum, true),
+            ("union_declaration", NodeKind::Struct, true),
+            ("error_set_declaration", NodeKind::Enum, true),
+            ("opaque_declaration", NodeKind::Struct, true),
+            // `const std = @import("std");` — a binding.
+            ("variable_declaration", NodeKind::Variable, false),
+            // `radius: f64` — a field of a struct.
+            ("container_field", NodeKind::Field, false),
+        ],
+        call_kinds: &[(
+            "call_expression",
+            CalleeSource::Field {
+                callee: "function",
+                receiver: None,
+            },
+        )],
+        // Zig has no import statement: `@import("std")` is a call to a
+        // builtin function, so it stays a call.
+        import_kinds: &[],
+        instantiation_kinds: &[],
+        heritage: None,
+        directory_packages: false,
+    },
+    LanguageContract {
+        language: Language::Scala,
+        kinds: &[
+            // `package geometry` — the package name is the `name` field.
+            ("package_clause", NodeKind::Module, false),
+            // `class Circle(val radius: Double) extends Shape`.
+            ("class_definition", NodeKind::Class, true),
+            // `trait Shape`.
+            ("trait_definition", NodeKind::Interface, true),
+            // `object Geometry` — a singleton, like Kotlin's `object`.
+            ("object_definition", NodeKind::Class, true),
+            // `def area(): Double = …` and the abstract `def area(): Double`.
+            ("function_definition", NodeKind::Function, true),
+            ("function_declaration", NodeKind::Function, false),
+            // `val MAX = 10` — the name is the `pattern` field.
+            ("val_definition", NodeKind::Constant, false),
+            // `import scala.collection.mutable`.
+            ("import_declaration", NodeKind::Import, false),
+        ],
+        call_kinds: &[(
+            "call_expression",
+            CalleeSource::Field {
+                callee: "function",
+                receiver: None,
+            },
+        )],
+        import_kinds: &["import_declaration"],
+        instantiation_kinds: &[],
+        heritage: Some(&[HeritageRule {
+            // `class Circle … extends Shape` — the supertype is the `type`
+            // field of the `extends_clause`.
+            source: HeritageSource::ChildField("extends_clause", "type"),
+            kind: HeritageKind::Extends,
+        }]),
+        directory_packages: false,
+    },
+    LanguageContract {
         language: Language::Fortran,
         kinds: &[
             // The grammar wraps a declaration and its body: the `module`

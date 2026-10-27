@@ -9,6 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Bash, Dart, Elixir, Elm, Erlang, Groovy, Nix, PowerShell, Scala,
+  TOML, YAML and Zig are indexed end to end.** These twelve were the
+  last of the 37 languages Coraline knows about to lack an extraction
+  contract: their grammars were wired up and their files were parsed,
+  but a file in those languages produced nothing but a `file` node — no
+  declarations, no call edges, no imports. Each now has a contract in
+  `crates/coraline/src/grammar.rs` that maps its grammar's node kinds
+  onto graph nodes, so all 37 known languages now produce a graph.
+
+  Each grammar names things differently, and the contracts are where
+  that difference is recorded: Scala spreads an import's path over one
+  `path` field per segment and names a value in its `pattern` field;
+  Zig names a type by the constant it is bound to rather than by the
+  type node itself; Dart keeps a method's name in a signature several
+  levels below the declaration; Groovy names a field through its
+  declarator; Elixir and Erlang reuse a single node kind for every
+  construct — a call whose target names it, and a module attribute
+  whose name decides whether it is a module, a record or an import —
+  so their contracts discriminate on the name rather than the kind;
+  Bash's `source` is an import while every other command is a call;
+  and TOML and YAML are configuration formats, so a table or a mapping
+  becomes a container node and a key becomes a field.
+
+  `crates/coraline/tests/language_contracts_test.rs` indexes a fixture
+  per language and asserts the graph each contract promises, and
+  `grammar_contract_test.rs` checks every declared node kind and callee
+  field against the grammar it claims to describe.
+
 - **Fortran, Haskell, Julia, Lua, MATLAB and R are indexed end to end.**
   All six had their tree-sitter grammar wired up but no extraction
   contract, so a file in those languages parsed perfectly and still

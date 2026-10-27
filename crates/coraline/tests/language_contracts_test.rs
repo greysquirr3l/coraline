@@ -102,6 +102,31 @@ fn assert_edge(conn: &Connection, kind: &str, source: &str, target: &str) {
     );
 }
 
+/// The module path an import node names.
+///
+/// The node's own name is the last segment of the path (`mutable`), and
+/// the path itself is the tail of its qualified name.
+fn import_module_path(conn: &Connection, name: &str) -> Option<String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT qualified_name FROM nodes
+             WHERE kind = 'import' AND name = ?1
+             ORDER BY id
+             LIMIT 1",
+        )
+        .expect("Failed to prepare the import query");
+    stmt.query_map([name], |row| row.get::<_, String>(0))
+        .expect("Failed to query the imports")
+        .find_map(Result::ok)
+        .map(|qualified| {
+            qualified
+                .rsplit("::")
+                .next()
+                .unwrap_or_default()
+                .to_string()
+        })
+}
+
 /// The qualifier recorded with an unresolved reference.
 fn unresolved_qualifier(conn: &Connection, name: &str) -> Option<String> {
     let mut stmt = conn
@@ -229,6 +254,213 @@ fn test_extract_matlab_class() {
 
     // `classdef Circle < Shape` — the class extends its supertype.
     assert_edge(&conn, "extends", "Circle", "Shape");
+}
+
+#[test]
+fn test_extract_scala_module() {
+    let (_temp, conn) = index_fixture("scala-module");
+
+    // `class Circle(val radius: Double) extends Shape`.
+    assert_node(&conn, "class", "Circle");
+    // `trait Shape`.
+    assert_node(&conn, "interface", "Shape");
+    // `object Geometry` — a singleton, like Kotlin's `object`.
+    assert_node(&conn, "class", "Geometry");
+    // `def area(): Double = …`.
+    assert_node(&conn, "function", "area");
+    assert_node(&conn, "function", "total");
+    // `val MAX = 10`.
+    assert_node(&conn, "constant", "MAX");
+    // `import scala.collection.mutable` — the whole dotted path is the
+    // module the import names.
+    assert_node(&conn, "import", "mutable");
+    assert_eq!(
+        import_module_path(&conn, "mutable").as_deref(),
+        Some("scala.collection.mutable"),
+        "a Scala import should name the whole dotted path"
+    );
+
+    // `class Circle … extends Shape` — the class extends its supertype.
+    assert_edge(&conn, "extends", "Circle", "Shape");
+}
+
+#[test]
+fn test_extract_zig_module() {
+    let (_temp, conn) = index_fixture("zig-module");
+
+    // `pub const Circle = struct { … }` — the struct is named by the
+    // constant it is bound to.
+    assert_node(&conn, "struct", "Circle");
+    // `pub fn area(self: Circle) f64 { … }`.
+    assert_node(&conn, "function", "area");
+    assert_node(&conn, "function", "total");
+    // `radius: f64` — a field of the struct.
+    assert_node(&conn, "field", "radius");
+    // `const std = @import("std");` — a binding.
+    assert_node(&conn, "variable", "std");
+
+    // `Circle.area(shape)` — a call edge.
+    assert_edge(&conn, "calls", "total", "area");
+}
+
+#[test]
+fn test_extract_dart_module() {
+    let (_temp, conn) = index_fixture("dart-module");
+
+    // `class Circle extends Shape`.
+    assert_node(&conn, "class", "Circle");
+    assert_node(&conn, "class", "Shape");
+    // `double area() => …` — the name is in the signature.
+    assert_node(&conn, "function", "area");
+    // A top-level function.
+    assert_node(&conn, "function", "total");
+    // `final double radius;` — a field.
+    assert_node(&conn, "field", "radius");
+    // `import 'dart:math';`.
+    assert_node(&conn, "import", "dart:math");
+
+    // `class Circle extends Shape` — the class extends its supertype.
+    assert_edge(&conn, "extends", "Circle", "Shape");
+}
+
+#[test]
+fn test_extract_groovy_class() {
+    let (_temp, conn) = index_fixture("groovy-module");
+
+    // `class Circle extends Shape`.
+    assert_node(&conn, "class", "Circle");
+    // `interface Shape`.
+    assert_node(&conn, "interface", "Shape");
+    // `double area() { … }` — a method of the class.
+    assert_node(&conn, "function", "area");
+    assert_node(&conn, "function", "describe");
+    // `double radius` — a field of the class.
+    assert_node(&conn, "field", "radius");
+    // `import java.util.List` — the last segment names the import.
+    assert_node(&conn, "import", "List");
+    // `package geometry`.
+    assert_node(&conn, "module", "geometry");
+
+    // `class Circle extends Shape` — the class extends its supertype.
+    assert_edge(&conn, "extends", "Circle", "Shape");
+    // `area()` — a method call.
+    assert_edge(&conn, "calls", "describe", "area");
+}
+
+#[test]
+fn test_extract_powershell_functions() {
+    let (_temp, conn) = index_fixture("powershell-module");
+
+    // `function Get-Area { … }` — the name is the `function_name` child.
+    assert_node(&conn, "function", "Get-Area");
+    assert_node(&conn, "function", "Get-Total");
+
+    // `Get-Area -Radius $shape.Radius` — a command is a call.
+    assert_edge(&conn, "calls", "Get-Total", "Get-Area");
+}
+
+#[test]
+fn test_extract_nix_bindings() {
+    let (_temp, conn) = index_fixture("nix-module");
+
+    // `radius = 2.0;` — a binding to a value.
+    assert_node(&conn, "variable", "radius");
+    // `area = r: 3.14159 * r * r;` — a binding to a function.
+    assert_node(&conn, "function", "area");
+    // `inherit radius;`.
+    assert_node(&conn, "variable", "radius");
+
+    // `value = area radius;` — an application is a call edge. The call
+    // is not inside a function, so the file is its source.
+    assert_edge(&conn, "calls", "geometry.nix", "area");
+}
+
+#[test]
+fn test_extract_erlang_module() {
+    let (_temp, conn) = index_fixture("erlang-module");
+
+    // `-module(geometry).` — the module is a module attribute.
+    assert_node(&conn, "module", "geometry");
+    // `-record(circle, {radius = 0.0}).`
+    assert_node(&conn, "struct", "circle");
+    // `area(#circle{radius = Radius}) -> …`.
+    assert_node(&conn, "function", "area");
+    assert_node(&conn, "function", "total");
+}
+
+#[test]
+fn test_extract_elm_module() {
+    let (_temp, conn) = index_fixture("elm-module");
+
+    // `module Geometry exposing (area, total)`.
+    assert_node(&conn, "module", "Geometry");
+    // `area radius = …`.
+    assert_node(&conn, "function", "area");
+    assert_node(&conn, "function", "total");
+    // `import Html exposing (text)`.
+    assert_node(&conn, "import", "Html");
+}
+
+#[test]
+fn test_extract_bash_functions() {
+    let (_temp, conn) = index_fixture("bash-module");
+
+    // `area() { … }`.
+    assert_node(&conn, "function", "area");
+    assert_node(&conn, "function", "total");
+    // `RADIUS=2.0`.
+    assert_node(&conn, "variable", "RADIUS");
+    // `source ./helpers.sh` — a source command is an import.
+    assert_node(&conn, "import", "helpers");
+
+    // `area` — a command is a call.
+    assert_edge(&conn, "calls", "total", "area");
+}
+
+#[test]
+fn test_extract_elixir_module() {
+    let (_temp, conn) = index_fixture("elixir-module");
+
+    // `defmodule Geometry do` — every Elixir construct is a call whose
+    // target names it.
+    assert_node(&conn, "module", "Geometry");
+    assert_node(&conn, "module", "Circle");
+    // `def area(%Circle{radius: radius}) do`.
+    assert_node(&conn, "function", "area");
+    assert_node(&conn, "function", "total");
+    // `defstruct [:radius]`.
+    assert_node(&conn, "struct", "Circle");
+    // `alias Other.Module, as: Other`.
+    assert_node(&conn, "import", "Other.Module");
+
+    // `describe(shapes)` — a call edge.
+    assert_edge(&conn, "calls", "total", "describe");
+}
+
+#[test]
+fn test_extract_toml_tables() {
+    let (_temp, conn) = index_fixture("toml-module");
+
+    // `[server]` — a table.
+    assert_node(&conn, "struct", "server");
+    assert_node(&conn, "struct", "logging");
+    // `host = "localhost"` — a key.
+    assert_node(&conn, "field", "host");
+    assert_node(&conn, "field", "port");
+    assert_node(&conn, "field", "level");
+}
+
+#[test]
+fn test_extract_yaml_mappings() {
+    let (_temp, conn) = index_fixture("yaml-module");
+
+    // `server:` — a mapping.
+    assert_node(&conn, "struct", "server");
+    assert_node(&conn, "struct", "logging");
+    // `host: localhost` — a key.
+    assert_node(&conn, "field", "host");
+    assert_node(&conn, "field", "port");
+    assert_node(&conn, "field", "level");
 }
 
 #[test]

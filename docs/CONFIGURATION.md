@@ -33,6 +33,10 @@ include_patterns = [
   "**/*.md", "**/*.markdown", "**/*.liquid",
   "**/*.f", "**/*.for", "**/*.f90", "**/*.f95",
   "**/*.hs", "**/*.jl", "**/*.lua", "**/*.m", "**/*.r", "**/*.R",
+  "**/*.scala", "**/*.sc", "**/*.zig", "**/*.dart",
+  "**/*.groovy", "**/*.gradle", "**/*.ps1", "**/*.psm1", "**/*.nix",
+  "**/*.erl", "**/*.hrl", "**/*.elm", "**/*.sh", "**/*.bash",
+  "**/*.ex", "**/*.exs", "**/*.toml", "**/*.yaml", "**/*.yml",
 ]
 exclude_patterns = [
   "**/.git/**", "**/target/**", "**/node_modules/**",

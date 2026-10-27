@@ -150,6 +150,36 @@ pub fn default_include_patterns() -> Vec<String> {
         // R.
         "**/*.r",
         "**/*.R",
+        // Scala.
+        "**/*.scala",
+        "**/*.sc",
+        // Zig.
+        "**/*.zig",
+        // Dart.
+        "**/*.dart",
+        // Groovy.
+        "**/*.groovy",
+        "**/*.gradle",
+        // PowerShell.
+        "**/*.ps1",
+        "**/*.psm1",
+        // Nix.
+        "**/*.nix",
+        // Erlang.
+        "**/*.erl",
+        "**/*.hrl",
+        // Elm.
+        "**/*.elm",
+        // Bash.
+        "**/*.sh",
+        "**/*.bash",
+        // Elixir.
+        "**/*.ex",
+        "**/*.exs",
+        // TOML and YAML.
+        "**/*.toml",
+        "**/*.yaml",
+        "**/*.yml",
     ]
     .into_iter()
     .map(std::string::ToString::to_string)
@@ -288,6 +318,18 @@ pub const fn is_language_supported(language: &Language) -> bool {
             | Language::Lua
             | Language::Matlab
             | Language::R
+            | Language::Scala
+            | Language::Zig
+            | Language::Dart
+            | Language::Groovy
+            | Language::Powershell
+            | Language::Nix
+            | Language::Erlang
+            | Language::Elm
+            | Language::Bash
+            | Language::Elixir
+            | Language::Toml
+            | Language::Yaml
     )
 }
 
@@ -764,6 +806,10 @@ include_patterns = [
   "**/*.md", "**/*.markdown", "**/*.liquid",
   "**/*.f", "**/*.for", "**/*.f90", "**/*.f95",
   "**/*.hs", "**/*.jl", "**/*.lua", "**/*.m", "**/*.r", "**/*.R",
+  "**/*.scala", "**/*.sc", "**/*.zig", "**/*.dart",
+  "**/*.groovy", "**/*.gradle", "**/*.ps1", "**/*.psm1", "**/*.nix",
+  "**/*.erl", "**/*.hrl", "**/*.elm", "**/*.sh", "**/*.bash",
+  "**/*.ex", "**/*.exs", "**/*.toml", "**/*.yaml", "**/*.yml",
 ]
 exclude_patterns = [
   "**/.git/**", "**/target/**", "**/node_modules/**",
