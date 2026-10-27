@@ -80,6 +80,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   claimed `f03` and `f08` but no include pattern matched them, so those
   files were never scanned. Both directions are now covered.
 
+- **`docs/DEVELOPMENT.md` now documents how to add a language, and the
+  four places it has to be added to.** The section it replaces was
+  stale — it named a function that no longer exists and an extraction
+  branch the contract-driven extractor does not use — and it omitted
+  the contract itself, which is the step that actually decides whether
+  a language is indexed. It is the step whose absence let eighteen
+  languages sit inert.
+
 ## [0.15.2] - 2026-10-27
 
 ### Fixed
