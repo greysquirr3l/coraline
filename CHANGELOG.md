@@ -11,6 +11,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A failed crates.io publish was reported as a success.** The two
+  publish steps in `release.yml` piped cargo's output through `tee` and
+  branched on the pipeline's exit status. Without `pipefail` that status
+  is `tee`'s, which is always 0, so the success branch was taken
+  whatever cargo did — including a hard failure such as a bad token.
+  The step went green having published nothing, which is the same
+  failure mode AGENTS.md warns about: check the outcome, never the run
+  status. The publish logic now lives in
+  `.github/scripts/publish-crate.sh`, which sets `pipefail` and
+  distinguishes three outcomes: published, already published, and
+  failed. `publish-crate-test.sh` covers all three and fails if the
+  `pipefail` is dropped.
+
+  This had never been caught because every prior release published a
+  *new* version of each crate, so the "already exists" path was never
+  exercised. It is exercised now: `tree-sitter-blazor` is unchanged in
+  this release and is already on crates.io at 0.4.2.
 - **`.cshtml` and `.markdown` files were silently skipped.** Both
   extensions map to a language in the extension table — `.cshtml` to
   Blazor, `.markdown` to Markdown — and the book table lists both, but
