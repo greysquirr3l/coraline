@@ -172,12 +172,15 @@ parameter.
 
 ## Supported Languages
 
-36 languages are shipped with tree-sitter grammars. 19 of them are
-indexed end to end today — TypeScript, JavaScript, TSX, JSX, Python, Go,
-Rust, Java, C, C++, C#, PHP, Ruby, Swift, Kotlin, Liquid, Blazor,
-Markdown and Perl. The remaining 17 have their grammar dependency in
-place but no extraction contract yet, so they produce no graph nodes;
-see [issue #128](https://github.com/greysquirr3l/coraline/issues/128).
+36 languages are shipped with tree-sitter grammars. 19 are indexed
+end to end today — TypeScript, JavaScript, TSX, JSX, Python, Go, Rust,
+Java, C, C++, C#, PHP, Ruby, Swift, Kotlin, Liquid, Blazor, Markdown
+and Perl. (Liquid is the odd one out: it has no tree-sitter grammar and
+is parsed by hand, so it is the 37th language Coraline knows about but
+not one of the 36 that ship a grammar.) The remaining 17 have their
+grammar dependency in place but no extraction contract yet, so they
+produce no graph nodes; see
+[issue #128](https://github.com/greysquirr3l/coraline/issues/128).
 
 [See full language support →](https://greysquirr3l.github.io/coraline/languages.html)
 

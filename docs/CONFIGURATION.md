@@ -29,7 +29,8 @@ include_patterns = [
   "**/*.rs", "**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx",
   "**/*.py", "**/*.go", "**/*.java", "**/*.cs", "**/*.cpp",
   "**/*.c", "**/*.h", "**/*.rb", "**/*.php", "**/*.swift",
-  "**/*.kt", "**/*.razor",
+  "**/*.kt", "**/*.razor", "**/*.cshtml", "**/*.pl", "**/*.pm",
+  "**/*.md", "**/*.markdown", "**/*.liquid",
 ]
 exclude_patterns = [
   "**/.git/**", "**/target/**", "**/node_modules/**",

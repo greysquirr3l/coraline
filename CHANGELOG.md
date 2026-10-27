@@ -7,10 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.2] - 2026-10-27
+
+### Fixed
+
+- **`.cshtml` and `.markdown` files were silently skipped.** Both
+  extensions map to a language in the extension table — `.cshtml` to
+  Blazor, `.markdown` to Markdown — and the book table lists both, but
+  neither was in the default include patterns. A legacy Blazor project
+  using `.cshtml` indexed as if it had no files, and a `.markdown` file
+  was invisible to `coraline audit-docs`. Both patterns are now in
+  `default_include_patterns`, in the config template and in
+  `docs/CONFIGURATION.md`.
+- **The language counts had no test pinning them.** A new
+  `language_counts_test` checks the known-language list, the
+  grammar-backed count, the indexed count and the pending count against
+  the code, and cross-checks the book table's 37 rows against
+  `is_language_supported` so the ✅/⏳ marks cannot drift from the
+  implementation. It also asserts that the default include patterns and
+  `is_language_supported` agree, which is what caught the `.cshtml` and
+  `.markdown` gaps above.
+
 ## [0.15.1] - 2026-10-27
 
 ### Fixed
 
+- **`.cshtml` and `.markdown` files were silently skipped.** Both
+  extensions map to a language in the extension table — `.cshtml` to
+  Blazor, `.markdown` to Markdown — and the book table lists both, but
+  neither was in the default include patterns. A legacy Blazor project
+  using `.cshtml` indexed as if it had no files, and a `.markdown` file
+  was invisible to `coraline audit-docs`. Both patterns are now in
+  `default_include_patterns`, in the config template and in
+  `docs/CONFIGURATION.md`.
+- **The language counts were off by one in two directions.** Coraline
+  knows 37 languages, not 36: 36 ship a tree-sitter grammar, and Liquid
+  is the exception — it has no grammar and is parsed by hand. The book
+  table listed 37 rows while the text above it said 36, and both it
+  and the README said 17 unindexed languages when there are 18. The
+  table was right and the prose was wrong on both counts.
+- **The language counts had no test pinning them.** A new
+  `language_counts_test` checks the known-language list, the
+  grammar-backed count, the indexed count and the pending count against
+  the code, and cross-checks the book table's 37 rows against
+  `is_language_supported` so the ✅/⏳ marks cannot drift from the
+  implementation. It also asserts that the default include patterns and
+  `is_language_supported` agree, which is what caught the `.cshtml` and
+  `.markdown` gaps above.
 - **The workspace declared `unsafe_code = "deny"` but no crate opted
   in**, so the lint applied to nothing. The `coraline` binary target in
   particular had no `deny(unsafe_code)` of its own — the library crate
@@ -53,7 +96,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   17 languages that produce a contract are exactly the 17 indexed
   languages that have declarations. Liquid and Markdown are indexed but
   have no contract, because they are markup with no declarations to
-  extract. The 17 unindexed languages have their grammar dependency and
+  extract. The 18 unindexed languages have their grammar dependency and
   nothing else.
 - **`SECURITY.md` claimed there is no unsafe code.** There are two
   narrow exceptions, both now documented: `src/vec_ext.rs` registers
@@ -135,7 +178,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **The README and the language book page overstated the number of
   languages that work.** They claimed 36 languages including Bash,
-  Haskell, Scala and Lua, but only 19 of the 36 produced graph nodes.
+  Haskell, Scala and Lua, but only 19 of them produced graph nodes.
   The remaining 17 have their grammar dependency but no extraction
   contract; that gap is tracked in
   [#128](https://github.com/greysquirr3l/coraline/issues/128), and the
@@ -959,7 +1002,7 @@ Both are additive and idempotent: `db::apply_incremental_migrations` gates on `P
 - `coraline_search`, `coraline_callers`, `coraline_callees`, `coraline_impact`, `coraline_context` MCP tools
 - Git post-commit hook integration
 
-[Unreleased]: https://github.com/greysquirr3l/coraline/compare/v0.15.1...HEAD
+[Unreleased]: https://github.com/greysquirr3l/coraline/compare/v0.15.2...HEAD
 [0.1.0]: https://github.com/greysquirr3l/coraline/releases/tag/v0.1.0
 [0.1.1]: https://github.com/greysquirr3l/coraline/compare/v0.1.0...v0.1.1
 [0.1.2]: https://github.com/greysquirr3l/coraline/compare/v0.1.1...v0.1.2
@@ -998,3 +1041,4 @@ Both are additive and idempotent: `db::apply_incremental_migrations` gates on `P
 [0.14.0]: https://github.com/greysquirr3l/coraline/compare/v0.13.1...v0.14.0
 [0.15.0]: https://github.com/greysquirr3l/coraline/compare/v0.14.0...v0.15.0
 [0.15.1]: https://github.com/greysquirr3l/coraline/compare/v0.15.0...v0.15.1
+[0.15.2]: https://github.com/greysquirr3l/coraline/compare/v0.15.1...v0.15.2
