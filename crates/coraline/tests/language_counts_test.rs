@@ -111,6 +111,73 @@ fn default_include_patterns_agree_with_is_language_supported() {
         );
     }
 }
+
+/// Every default include pattern must name an extension the detector
+/// recognises.
+///
+/// A pattern that names an extension the detector does not know is the
+/// quietest failure there is: the file *is* scanned, found to be an
+/// unknown language, and dropped. It contributes a `file` node and
+/// nothing else, and nothing reports an error.
+///
+/// This is not hypothetical — `**/*.psm1` was in the default patterns
+/// while the detector only knew `ps1`, so every PowerShell module file
+/// was silently skipped.
+///
+/// The check runs in both directions: a pattern naming an unknown
+/// extension, and a known extension with no pattern to match it.
+#[test]
+fn include_patterns_agree_with_the_extension_table() {
+    let patterns = coraline::config::default_include_patterns();
+
+    for pattern in &patterns {
+        let Some(extension) = pattern.strip_prefix("**/*.") else {
+            continue;
+        };
+        assert!(
+            coraline::config::EXTENSION_LANGUAGES
+                .iter()
+                .any(|(ext, _)| ext.eq_ignore_ascii_case(extension)),
+            "{pattern}: the default include patterns name an extension the detector does not recognise"
+        );
+    }
+
+    for (extension, language) in coraline::config::EXTENSION_LANGUAGES {
+        if !is_language_supported(language) {
+            continue;
+        }
+        assert!(
+            patterns.iter().any(|p| p
+                .strip_prefix("**/*.")
+                .is_some_and(|ext| ext.eq_ignore_ascii_case(extension))),
+            "{extension}: the extension table maps it to {language:?}, which is indexed, but no default include pattern matches it"
+        );
+    }
+}
+/// A language with a contract must be indexed.
+///
+/// This is the other direction of
+/// `every_indexed_language_has_a_contract_or_is_markup`, and it is the
+/// one that was missing when this issue was found. The two lists — the
+/// contracts and `is_language_supported` — were checked in one
+/// direction only, so they could drift apart, and did: a language
+/// gained a contract but was never added to `is_language_supported`, so
+/// its files were never scanned and the contract was dead code.
+///
+/// A contract for a language that is not indexed is not harmless. It
+/// says the language *should* produce a graph, and the graph builder
+/// is the only thing that knows it.
+#[test]
+fn every_contracted_language_is_indexed() {
+    for contract in coraline::grammar::CONTRACTS {
+        assert!(
+            is_language_supported(&contract.language),
+            "{:?}: it has an extraction contract but is not in is_language_supported, so its files are never scanned",
+            contract.language
+        );
+    }
+}
+
 #[test]
 fn grammar_backed_languages_are_counted() {
     let with_grammar = KNOWN
@@ -324,14 +391,14 @@ const fn known_extensions(language: Language) -> &'static [&'static str] {
         Language::Elixir => &["ex", "exs"],
         Language::Elm => &["elm"],
         Language::Erlang => &["erl", "hrl"],
-        Language::Fortran => &["f", "for", "f90", "f95"],
+        Language::Fortran => &["f", "for", "f90", "f95", "f03", "f08"],
         Language::Groovy => &["groovy", "gradle"],
         Language::Haskell => &["hs"],
         Language::Julia => &["jl"],
         Language::Lua => &["lua"],
         Language::Matlab => &["m"],
         Language::Nix => &["nix"],
-        Language::Powershell => &["ps1"],
+        Language::Powershell => &["ps1", "psm1"],
         Language::R => &["r", "R"],
         Language::Scala => &["scala", "sc"],
         Language::Toml => &["toml"],

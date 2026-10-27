@@ -9,61 +9,76 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Bash, Dart, Elixir, Elm, Erlang, Groovy, Nix, PowerShell, Scala,
-  TOML, YAML and Zig are indexed end to end.** These twelve were the
-  last of the 37 languages Coraline knows about to lack an extraction
-  contract: their grammars were wired up and their files were parsed,
-  but a file in those languages produced nothing but a `file` node — no
-  declarations, no call edges, no imports. Each now has a contract in
-  `crates/coraline/src/grammar.rs` that maps its grammar's node kinds
-  onto graph nodes, so all 37 known languages now produce a graph.
+- **The last 18 languages are indexed end to end.** Bash, Dart, Elixir,
+  Elm, Erlang, Fortran, Groovy, Haskell, Julia, Lua, MATLAB, Nix,
+  PowerShell, R, Scala, TOML, YAML and Zig all had their tree-sitter
+  grammar wired up but no extraction contract, so a file in those
+  languages parsed perfectly and still produced nothing but a `file`
+  node — no declarations, no call edges, no imports, and no symptom
+  beyond `coraline callers` returning nothing.
 
-  Each grammar names things differently, and the contracts are where
-  that difference is recorded: Scala spreads an import's path over one
-  `path` field per segment and names a value in its `pattern` field;
-  Zig names a type by the constant it is bound to rather than by the
-  type node itself; Dart keeps a method's name in a signature several
-  levels below the declaration; Groovy names a field through its
-  declarator; Elixir and Erlang reuse a single node kind for every
-  construct — a call whose target names it, and a module attribute
-  whose name decides whether it is a module, a record or an import —
-  so their contracts discriminate on the name rather than the kind;
-  Bash's `source` is an import while every other command is a call;
-  and TOML and YAML are configuration formats, so a table or a mapping
-  becomes a container node and a key becomes a field.
-
-  `crates/coraline/tests/language_contracts_test.rs` indexes a fixture
-  per language and asserts the graph each contract promises, and
-  `grammar_contract_test.rs` checks every declared node kind and callee
-  field against the grammar it claims to describe.
-
-- **Fortran, Haskell, Julia, Lua, MATLAB and R are indexed end to end.**
-  All six had their tree-sitter grammar wired up but no extraction
-  contract, so a file in those languages parsed perfectly and still
-  produced nothing but a `file` node — no declarations, no call edges, no
-  imports, and no symptom beyond `coraline callers` returning nothing.
   Each now has a contract in `crates/coraline/src/grammar.rs` that maps
-  its grammar's node kinds onto graph nodes, so the six languages join
-  the 19 that were already indexed: 25 of the 37 languages Coraline
-  knows about now produce a graph, and the remaining 12 are the ones
-  still waiting on a contract.
+  its grammar's node kinds onto graph nodes. All 37 languages Coraline
+  knows about now produce a graph.
 
   The contracts are the interesting part, because each grammar names
-  things differently: Fortran wraps a declaration and its body in a
-  `module` / `function` / `subroutine` node and names it in the nested
-  statement; Haskell's applications nest (`f a b` is
-  `apply(apply(f, a), b)`), so the callee is the leftmost function in
-  the chain rather than the text of the `function` field; Julia keeps a
-  declaration's name in a `signature` or `type_head` child rather than a
-  field, and a supertype after the `<:` operator; Lua's `function M.f()`
-  names the function by its last segment; MATLAB's enumeration members
-  are one `enum` node each; and R's function is named by the assignment
-  it is bound to.
+  things differently:
+
+  - **Elixir and Erlang** reuse a single node kind for every construct
+    — a call whose target names it, and a module attribute whose name
+    decides whether it is a module, a record or an import — so their
+    contracts discriminate on the name rather than the kind.
+  - **Scala** spreads an import's path over one `path` field per
+    segment, and names a value in its `pattern` field.
+  - **Zig** names a type by the constant it is bound to rather than by
+    the type node itself.
+  - **Dart** keeps a method's name in a signature several levels below
+    the declaration.
+  - **Groovy** names a field through its declarator.
+  - **Haskell**'s applications nest — `f a b` is `apply(apply(f, a), b)`
+    — so the callee is the leftmost function in the chain rather than
+    the text of the `function` field.
+  - **Julia** keeps a declaration's name in a `signature` or `type_head`
+    child rather than in a field, and a supertype after the `<:`
+    operator.
+  - **Fortran** wraps a declaration and its body in a `module` /
+    `function` / `subroutine` node and names it in the nested statement.
+  - **Lua** names `function M.f()` by its last segment.
+  - **MATLAB**'s enumeration members are one `enum` node each.
+  - **R** names a function by the assignment it is bound to.
+  - **Bash**'s `source` is an import; every other command is a call.
+  - **TOML and YAML** are configuration formats, so a table or a mapping
+    becomes a container node and a key becomes a field.
 
   `crates/coraline/tests/language_contracts_test.rs` indexes a fixture
   per language and asserts the graph each contract promises, and
   `grammar_contract_test.rs` checks every declared node kind and callee
   field against the grammar it claims to describe.
+
+### Fixed
+
+- **A zero-arity Elixir function was invisible.** The grammar puts a
+  bare identifier in the argument position of `def version do` rather
+  than a call, so the name recovery — which handled `def version()` and
+  `defmodule Geometry` — returned nothing. A module of zero-arity
+  functions produced a module node and no functions at all. The fixture
+  and its test now cover one.
+
+- **A PowerShell module file was silently skipped.** `**/*.psm1` was in
+  the default include patterns while the extension detector only knew
+  `ps1`, so a `.psm1` file was scanned, found to be an unknown language,
+  and dropped. It contributed a `file` node and nothing else, with no
+  error anywhere — the quietest failure there is.
+
+  The extension → language mapping is now a single table,
+  `config::EXTENSION_LANGUAGES`, that the detector consults and the
+  include patterns are checked against, so a pattern cannot name an
+  extension the detector does not recognise. A new test asserts the two
+  agree in both directions.
+
+  The same drift was the other way round for Fortran: the detector
+  claimed `f03` and `f08` but no include pattern matched them, so those
+  files were never scanned. Both directions are now covered.
 
 ## [0.15.2] - 2026-10-27
 

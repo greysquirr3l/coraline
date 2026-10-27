@@ -1914,6 +1914,12 @@ fn elixir_declaration_name(node: &TsNode, source: &str) -> Option<String> {
         }
         // `def area(x)` — the function is the target of a call.
         "call" => call_target_text(&first, source, "target"),
+        // `def area do` — a zero-arity function. The name is a bare
+        // identifier in the argument position rather than a call.
+        "identifier" => {
+            let text = first.utf8_text(source.as_bytes()).ok()?.trim().to_string();
+            if text.is_empty() { None } else { Some(text) }
+        }
         _ => None,
     }
 }
@@ -4191,51 +4197,12 @@ fn detect_language(path: &str) -> Language {
     let ext = Path::new(path)
         .extension()
         .and_then(|v| v.to_str())
-        .unwrap_or("")
-        .to_ascii_lowercase();
+        .unwrap_or("");
 
-    match ext.as_str() {
-        "ts" => Language::TypeScript,
-        "tsx" => Language::Tsx,
-        "js" => Language::JavaScript,
-        "jsx" => Language::Jsx,
-        "py" => Language::Python,
-        "go" => Language::Go,
-        "rs" => Language::Rust,
-        "java" => Language::Java,
-        "c" => Language::C,
-        "h" => Language::C,
-        "cpp" | "cc" | "cxx" | "hpp" => Language::Cpp,
-        "cs" => Language::CSharp,
-        "php" => Language::Php,
-        "rb" => Language::Ruby,
-        "swift" => Language::Swift,
-        "kt" | "kts" => Language::Kotlin,
-        "liquid" => Language::Liquid,
-        "razor" | "cshtml" => Language::Blazor,
-        // New languages
-        "sh" | "bash" => Language::Bash,
-        "dart" => Language::Dart,
-        "ex" | "exs" => Language::Elixir,
-        "elm" => Language::Elm,
-        "erl" | "hrl" => Language::Erlang,
-        "f" | "f90" | "f95" | "for" | "f03" | "f08" => Language::Fortran,
-        "groovy" | "gradle" => Language::Groovy,
-        "hs" => Language::Haskell,
-        "jl" => Language::Julia,
-        "lua" => Language::Lua,
-        "md" | "markdown" => Language::Markdown,
-        "m" => Language::Matlab,
-        "nix" => Language::Nix,
-        "pl" | "pm" => Language::Perl,
-        "ps1" => Language::Powershell,
-        "r" => Language::R,
-        "scala" | "sc" => Language::Scala,
-        "toml" => Language::Toml,
-        "yml" | "yaml" => Language::Yaml,
-        "zig" => Language::Zig,
-        _ => Language::Unknown,
-    }
+    // The extension → language table lives in `config`, so that the
+    // detector and the default include patterns cannot drift apart.
+    // See `config::EXTENSION_LANGUAGES`.
+    crate::config::language_for_extension(ext)
 }
 
 fn now_millis() -> i64 {

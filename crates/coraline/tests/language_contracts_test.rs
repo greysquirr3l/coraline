@@ -428,6 +428,9 @@ fn test_extract_elixir_module() {
     // `def area(%Circle{radius: radius}) do`.
     assert_node(&conn, "function", "area");
     assert_node(&conn, "function", "total");
+    // `def version do` — a zero-arity function names itself with a bare
+    // identifier, not with a call.
+    assert_node(&conn, "function", "version");
     // `defstruct [:radius]`.
     assert_node(&conn, "struct", "Circle");
     // `alias Other.Module, as: Other`.

@@ -32,14 +32,14 @@ into the same semantic knowledge graph.
 | Elixir | `.ex`, `.exs` | ✅ |
 | Elm | `.elm` | ✅ |
 | Erlang | `.erl`, `.hrl` | ✅ |
-| Fortran | `.f`, `.for`, `.f90`, `.f95` | ✅ |
+| Fortran | `.f`, `.for`, `.f90`, `.f95`, `.f03`, `.f08` | ✅ |
 | Groovy | `.groovy`, `.gradle` | ✅ |
 | Haskell | `.hs` | ✅ |
 | Julia | `.jl` | ✅ |
 | Lua | `.lua` | ✅ |
 | MATLAB | `.m` | ✅ |
 | Nix | `.nix` | ✅ |
-| PowerShell | `.ps1` | ✅ |
+| PowerShell | `.ps1`, `.psm1` | ✅ |
 | R | `.r`, `.R` | ✅ |
 | Scala | `.scala`, `.sc` | ✅ |
 | TOML | `.toml` | ✅ |
@@ -50,9 +50,10 @@ into the same semantic knowledge graph.
 
 ## Enabling a language
 
-Not every language is indexed by default. The default include patterns
-cover the common source file extensions; a language outside that set has
-to be enabled in `.coraline/config.toml`:
+Every language Coraline knows about is indexed by default — the default
+include patterns cover all of their extensions. A language *outside*
+that set, or a project using an extension the default patterns do not
+list, has to be enabled in `.coraline/config.toml`:
 
 ```json
 {

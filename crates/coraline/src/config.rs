@@ -134,11 +134,14 @@ pub fn default_include_patterns() -> Vec<String> {
         "**/*.md",
         // `.markdown` maps to Markdown in the extension table too.
         "**/*.markdown",
-        // Fortran.
+        // Fortran. The free-form `.f90`/`.f95`/`.f03`/`.f08` extensions
+        // and the fixed-form `.f`/`.for` one.
         "**/*.f",
         "**/*.for",
         "**/*.f90",
         "**/*.f95",
+        "**/*.f03",
+        "**/*.f08",
         // Haskell.
         "**/*.hs",
         // Julia.
@@ -288,6 +291,109 @@ pub fn default_exclude_patterns() -> Vec<String> {
     .into_iter()
     .map(std::string::ToString::to_string)
     .collect()
+}
+
+/// Every file extension Coraline recognises, and the language it maps to.
+///
+/// This is the single source of truth for the extension → language
+/// mapping. The detector consults it, and the default include patterns
+/// have to agree with it.
+///
+/// The two used to be separate lists, and they drifted. A pattern can
+/// name an extension the detector does not recognise: the file is then
+/// scanned, found to be an unknown language, and dropped — it contributes
+/// a `file` node and nothing else, with no error anywhere. That is the
+/// silent failure mode issue #128 is about, in a different guise.
+///
+/// Extensions are lower case. The lookup is case-insensitive, because
+/// `script.R` and `script.r` are the same language, but the *include*
+/// patterns are globs and globs are case-sensitive — which is why the
+/// default patterns list `**/*.R` alongside `**/*.r`.
+///
+/// `.m` is MATLAB here. It is also the extension Objective-C uses, but
+/// Coraline has no Objective-C grammar, so the file is parsed as MATLAB
+/// and the parse errors are reported rather than silently ignored.
+pub static EXTENSION_LANGUAGES: &[(&str, Language)] = &[
+    ("ts", Language::TypeScript),
+    ("tsx", Language::Tsx),
+    ("js", Language::JavaScript),
+    ("jsx", Language::Jsx),
+    ("py", Language::Python),
+    ("go", Language::Go),
+    ("rs", Language::Rust),
+    ("java", Language::Java),
+    ("c", Language::C),
+    ("h", Language::C),
+    ("cpp", Language::Cpp),
+    ("cc", Language::Cpp),
+    ("cxx", Language::Cpp),
+    ("hpp", Language::Cpp),
+    ("cs", Language::CSharp),
+    ("php", Language::Php),
+    ("rb", Language::Ruby),
+    ("kt", Language::Kotlin),
+    ("kts", Language::Kotlin),
+    ("swift", Language::Swift),
+    ("liquid", Language::Liquid),
+    // Blazor. `.cshtml` is the legacy extension and still maps to
+    // Blazor, so it has to be included too — otherwise a legacy project
+    // indexes as if it had no files.
+    ("razor", Language::Blazor),
+    ("cshtml", Language::Blazor),
+    // Perl. The grammar is `ts-parser-perl`, the maintained one from
+    // the tree-sitter-perl organisation.
+    ("pl", Language::Perl),
+    ("pm", Language::Perl),
+    // Markdown is indexed so `coraline audit-docs` and the
+    // `coraline_audit_docs` MCP tool can find stale references and
+    // undocumented exports. Without it the audit reports zero findings.
+    ("md", Language::Markdown),
+    ("markdown", Language::Markdown),
+    // Fortran. The free-form `.f90`/`.f95`/`.f03`/`.f08` extensions and
+    // the fixed-form `.f`/`.for` one.
+    ("f", Language::Fortran),
+    ("for", Language::Fortran),
+    ("f90", Language::Fortran),
+    ("f95", Language::Fortran),
+    ("f03", Language::Fortran),
+    ("f08", Language::Fortran),
+    ("hs", Language::Haskell),
+    ("jl", Language::Julia),
+    ("lua", Language::Lua),
+    ("m", Language::Matlab),
+    ("r", Language::R),
+    ("scala", Language::Scala),
+    ("sc", Language::Scala),
+    ("zig", Language::Zig),
+    ("dart", Language::Dart),
+    ("groovy", Language::Groovy),
+    ("gradle", Language::Groovy),
+    // PowerShell. `.psm1` is a module file.
+    ("ps1", Language::Powershell),
+    ("psm1", Language::Powershell),
+    ("nix", Language::Nix),
+    ("erl", Language::Erlang),
+    ("hrl", Language::Erlang),
+    ("elm", Language::Elm),
+    ("sh", Language::Bash),
+    ("bash", Language::Bash),
+    ("ex", Language::Elixir),
+    ("exs", Language::Elixir),
+    ("toml", Language::Toml),
+    ("yaml", Language::Yaml),
+    ("yml", Language::Yaml),
+];
+
+/// The language a file extension maps to, or `Unknown` if it is not a
+/// language Coraline knows.
+///
+/// The lookup is case-insensitive.
+pub fn language_for_extension(extension: &str) -> Language {
+    let extension = extension.to_ascii_lowercase();
+    EXTENSION_LANGUAGES
+        .iter()
+        .find(|(ext, _)| *ext == extension)
+        .map_or(Language::Unknown, |(_, language)| *language)
 }
 
 pub const fn is_language_supported(language: &Language) -> bool {
@@ -804,7 +910,7 @@ include_patterns = [
   "**/*.c", "**/*.h", "**/*.rb", "**/*.php", "**/*.swift",
   "**/*.kt", "**/*.razor", "**/*.cshtml", "**/*.pl", "**/*.pm",
   "**/*.md", "**/*.markdown", "**/*.liquid",
-  "**/*.f", "**/*.for", "**/*.f90", "**/*.f95",
+  "**/*.f", "**/*.for", "**/*.f90", "**/*.f95", "**/*.f03", "**/*.f08",
   "**/*.hs", "**/*.jl", "**/*.lua", "**/*.m", "**/*.r", "**/*.R",
   "**/*.scala", "**/*.sc", "**/*.zig", "**/*.dart",
   "**/*.groovy", "**/*.gradle", "**/*.ps1", "**/*.psm1", "**/*.nix",
