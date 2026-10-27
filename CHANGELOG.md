@@ -57,6 +57,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A language had three different names depending on who asked.** The
+  MCP tools reported `javascript`, the database stored `java_script`,
+  and there was no `Language::name` to ask in the first place — the
+  tools and the database each had their own hand-written table, and
+  the database's went through serde's `snake_case`, which splits
+  `JavaScript` into `java_script`.
+
+  The visible symptom was that `coraline_search` and `coraline_node`
+  disagreed about the same node, and a query against the index for
+  `WHERE language = 'javascript'` missed every JavaScript file in it.
+
+  There is now one canonical name per language, in
+  `Language::name`: `typescript`, `javascript`, `csharp`, and the rest
+  as the documentation has always spelled them. The tools, the
+  database and the `grammar_probe` example all use it, so they cannot
+  disagree again.
+
+  An index written by an earlier version still reads back correctly —
+  the older `type_script`, `java_script` and `c_sharp` spellings are
+  accepted on the way in, and `coraline_stats` reports the canonical
+  name whatever the database happens to hold.
+
 - **A zero-arity Elixir function was invisible.** The grammar puts a
   bare identifier in the argument position of `def version do` rather
   than a call, so the name recovery — which handled `def version()` and

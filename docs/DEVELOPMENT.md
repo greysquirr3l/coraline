@@ -178,6 +178,10 @@ cargo run --example grammar_probe -- fortran           # node kinds and fields
 cargo run --example grammar_probe -- fortran file.f90   # the parse tree
 ```
 
+The probe takes any language name Coraline knows — `Language::name` is
+the list — and uses the extractor's own grammar mapping, so it can read
+out every language the extractor can parse.
+
 **4. The tests.** Add the language to the grammar table in
 `tests/grammar_contract_test.rs` so its declared node kinds and callee
 fields are checked against the real grammar, add a call-site snippet if
