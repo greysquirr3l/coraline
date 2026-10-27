@@ -119,7 +119,11 @@ pub fn default_include_patterns() -> Vec<String> {
         "**/*.kts",
         "**/*.swift",
         "**/*.liquid",
+        // Blazor. `.cshtml` is the legacy extension and still maps to
+        // Blazor in the extension table, so it has to be included too —
+        // otherwise a legacy project indexes as if it had no files.
         "**/*.razor",
+        "**/*.cshtml",
         // Perl. The grammar is `ts-parser-perl`, the maintained one
         // from the tree-sitter-perl organisation.
         "**/*.pl",
@@ -128,6 +132,8 @@ pub fn default_include_patterns() -> Vec<String> {
         // `coraline_audit_docs` MCP tool can find stale references and
         // undocumented exports. Without it the audit reports zero findings.
         "**/*.md",
+        // `.markdown` maps to Markdown in the extension table too.
+        "**/*.markdown",
     ]
     .into_iter()
     .map(std::string::ToString::to_string)
@@ -732,7 +738,8 @@ include_patterns = [
   "**/*.rs", "**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx",
   "**/*.py", "**/*.go", "**/*.java", "**/*.cs", "**/*.cpp",
   "**/*.c", "**/*.h", "**/*.rb", "**/*.php", "**/*.swift",
-  "**/*.kt", "**/*.razor", "**/*.pl", "**/*.pm", "**/*.md",
+  "**/*.kt", "**/*.razor", "**/*.cshtml", "**/*.pl", "**/*.pm",
+  "**/*.md", "**/*.markdown", "**/*.liquid",
 ]
 exclude_patterns = [
   "**/.git/**", "**/target/**", "**/node_modules/**",

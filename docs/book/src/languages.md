@@ -1,9 +1,10 @@
 # Supported Languages
 
-Coraline ships **36 languages** with tree-sitter grammars. **19** of
-them are indexed end to end: declarations, imports, calls,
+Coraline knows **37 languages**. **36** of them ship a tree-sitter
+grammar; Liquid is the exception — it has no grammar and is parsed by
+hand. **19** are indexed end to end: declarations, imports, calls,
 instantiations, inheritance and cross-file references are all resolved
-into the same semantic knowledge graph. The other 17 have their grammar
+into the same semantic knowledge graph. The other 18 have their grammar
 dependency in place but no extraction contract yet, so a file in those
 languages produces no nodes. The table marks which is which.
 
