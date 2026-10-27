@@ -6,10 +6,10 @@
 
 ### Fast, Local Code Intelligence for AI Assistants
 
-**Semantic code indexing • Symbol-level editing • 100% Rust • MCP Server**
+**Semantic code indexing • Symbol-level queries • 100% Rust • MCP Server**
 
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE.md)
-[![Rust](https://img.shields.io/badge/Rust-1.93+-orange.svg)](https://www.rust-lang.org/)
+[![Rust](https://img.shields.io/badge/Rust-1.96+-orange.svg)](https://www.rust-lang.org/)
 [![OpenSSF Baseline](https://www.bestpractices.dev/projects/13307/baseline)](https://www.bestpractices.dev/projects/13307)
 
 </div>
@@ -22,9 +22,17 @@ Coraline is a Rust-based code intelligence system that builds semantic knowledge
 
 - ⚡ **Fast indexing** - Native Rust performance for rapid code analysis
 - 🧠 **Semantic search** - Find code by meaning using vector embeddings
-- 🔧 **Symbol-level tools** - Precise function/class/method operations
-- 🔒 **100% local** - All processing happens on your machine
+- 🔧 **Symbol-level queries** - Precise function/class/method lookup,
+  callers, callees and impact radius
+- 🔒 **100% local** - Your code never leaves the machine. The one
+  exception is the optional embedding model, which is downloaded from
+  HuggingFace on request (see [Model](#model))
 - 🌐 **MCP integration** - Works with Claude Desktop, Claude Code, and OpenCode
+
+Coraline is read-only with respect to your source: it indexes and
+queries, it does not edit. The only things it writes are its own
+`.coraline/` directory and, via `coraline_write_memory`, the Markdown
+notes in `.coraline/memories/`.
 
 ## Installation
 
@@ -49,6 +57,27 @@ coraline embed --download
 # Start MCP server for AI assistants
 coraline serve --mcp
 ```
+
+### Model
+
+Semantic search needs an embedding model, which Coraline runs locally
+via ONNX Runtime. The model is **not** bundled — it is downloaded from
+HuggingFace on request:
+
+```bash
+coraline model list        # show the available models
+coraline model download    # fetch the default model's weights + tokenizer
+coraline model status      # show what is present locally
+```
+
+`coraline init` offers to download it (globally, into
+`~/.config/coraline/models/`, or locally into the project). Pass
+`--no-embed` to skip the prompt, or `--embed` to skip it and download
+without asking.
+
+Everything else — indexing, the graph queries, the MCP tools — works
+without the model. Only `coraline embed` and `coraline_semantic_search`
+need it.
 
 ### MCP Configuration
 
@@ -97,15 +126,24 @@ coraline init [path]                      # Initialize project
 coraline index [path]                     # Build code graph
 coraline sync [path]                      # Incremental update
 coraline status [path]                    # Show project status
+coraline stats [path]                     # Graph statistics
+coraline doctor [path]                    # Diagnose the local setup
 coraline query <search>                   # Search symbols
-coraline serve --mcp [--timeout <ms>]     # Start MCP server
-coraline embed [--download]               # Generate semantic embeddings
+coraline context <task>                   # Build context for a task
+coraline callers <node>                   # Who calls this symbol
+coraline callees <node>                   # What this symbol calls
+coraline impact <node>                    # Impact radius
+coraline audit-docs [path]                # Audit documentation coverage
+coraline config <subcommand>              # Read / update configuration
 coraline hooks install                    # Auto-sync on git commits
+coraline model <subcommand>               # Manage the embedding model
+coraline embed [--download]               # Generate semantic embeddings
+coraline serve --mcp [--timeout <ms>]     # Start MCP server
 ```
 
 ## MCP Tools
 
-Coraline exposes 33 tools for code intelligence:
+Coraline exposes 38 tools for code intelligence:
 
 **Core Tools**: `coraline_search`, `coraline_callers`, `coraline_callees`, `coraline_impact`, `coraline_context`, `coraline_semantic_search`
 
@@ -113,7 +151,13 @@ Coraline exposes 33 tools for code intelligence:
 
 **Advanced Search**: `coraline_search_by_signature`, `coraline_search_by_docstring`, `coraline_search_exported_symbols`
 
-**All tools support** `output_format: "compact"` for 65% token reduction.
+**Compact output**: eight tools — `coraline_search`, `coraline_callers`,
+`coraline_callees`, `coraline_batch_get_nodes`,
+`coraline_search_by_signature`, `coraline_search_by_docstring`,
+`coraline_search_exported_symbols` and `coraline_find_by_kind_in_file` —
+accept `output_format: "compact"`, which trims null fields and shortens
+keys for roughly 30% fewer tokens. The other 30 tools do not take the
+parameter.
 
 ## Documentation
 
@@ -131,9 +175,9 @@ Coraline exposes 33 tools for code intelligence:
 36 languages are shipped with tree-sitter grammars. 19 of them are
 indexed end to end today — TypeScript, JavaScript, TSX, JSX, Python, Go,
 Rust, Java, C, C++, C#, PHP, Ruby, Swift, Kotlin, Liquid, Blazor,
-Markdown and Perl. The remaining 17 have their grammar and their
-extraction contract in place but are not yet enabled for indexing; see
-[issue #128](https://github.com/greysquirr3l/coraline/issues/128).
+Markdown and Perl. The remaining 17 have their grammar dependency in
+place but no extraction contract yet, so they produce no graph nodes;
+see [issue #128](https://github.com/greysquirr3l/coraline/issues/128).
 
 [See full language support →](https://greysquirr3l.github.io/coraline/languages.html)
 

@@ -54,7 +54,7 @@ impl Tool for SearchTool {
                 },
                 "output_format": {
                     "type": "string",
-                    "description": "Output format: 'full' (verbose) or 'compact' (65% token reduction)",
+                    "description": "Output format: 'full' (verbose) or 'compact' (roughly 30% fewer tokens)",
                     "enum": ["full", "compact"],
                     "default": "full"
                 }
@@ -180,7 +180,7 @@ impl Tool for CallersTool {
                 },
                 "output_format": {
                     "type": "string",
-                    "description": "Output format: 'full' (verbose) or 'compact' (65% token reduction)",
+                    "description": "Output format: 'full' (verbose) or 'compact' (roughly 30% fewer tokens)",
                     "enum": ["full", "compact"],
                     "default": "full"
                 }
@@ -323,7 +323,7 @@ impl Tool for CalleesTool {
                 },
                 "output_format": {
                     "type": "string",
-                    "description": "Output format: 'full' (verbose) or 'compact' (65% token reduction)",
+                    "description": "Output format: 'full' (verbose) or 'compact' (roughly 30% fewer tokens)",
                     "enum": ["full", "compact"],
                     "default": "full"
                 }
@@ -1506,7 +1506,7 @@ impl Tool for BatchGetNodesTool {
                 },
                 "output_format": {
                     "type": "string",
-                    "description": "Output format: 'full' (verbose) or 'compact' (65% token reduction)",
+                    "description": "Output format: 'full' (verbose) or 'compact' (roughly 30% fewer tokens)",
                     "enum": ["full", "compact"],
                     "default": "full"
                 }
@@ -1830,7 +1830,7 @@ impl Tool for SearchBySignatureTool {
                 },
                 "output_format": {
                     "type": "string",
-                    "description": "Output format: 'full' or 'compact' (65% token reduction)",
+                    "description": "Output format: 'full' or 'compact' (roughly 30% fewer tokens)",
                     "enum": ["full", "compact"],
                     "default": "full"
                 }
@@ -1953,7 +1953,7 @@ impl Tool for SearchByDocstringTool {
                 },
                 "output_format": {
                     "type": "string",
-                    "description": "Output format: 'full' or 'compact' (65% token reduction)",
+                    "description": "Output format: 'full' or 'compact' (roughly 30% fewer tokens)",
                     "enum": ["full", "compact"],
                     "default": "full"
                 }
@@ -2072,7 +2072,7 @@ impl Tool for SearchExportedSymbolsTool {
                 },
                 "output_format": {
                     "type": "string",
-                    "description": "Output format: 'full' or 'compact' (65% token reduction)",
+                    "description": "Output format: 'full' or 'compact' (roughly 30% fewer tokens)",
                     "enum": ["full", "compact"],
                     "default": "full"
                 }
@@ -2208,7 +2208,7 @@ impl Tool for FindByKindInFileTool {
                 },
                 "output_format": {
                     "type": "string",
-                    "description": "Output format: 'full' or 'compact' (65% token reduction)",
+                    "description": "Output format: 'full' or 'compact' (roughly 30% fewer tokens)",
                     "enum": ["full", "compact"],
                     "default": "full"
                 }

@@ -7,6 +7,88 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.1] - 2026-10-27
+
+### Fixed
+
+- **The workspace declared `unsafe_code = "deny"` but no crate opted
+  in**, so the lint applied to nothing. The `coraline` binary target in
+  particular had no `deny(unsafe_code)` of its own — the library crate
+  root had one, but a binary is a separate crate root and does not
+  inherit it. All three workspace members now set
+  `[lints] workspace = true`, so `unsafe` is a compile error in the
+  library, the binary, the grammar crate and the fuzz targets alike.
+  The two existing `unsafe` sites are unchanged: the feature-gated
+  `sqlite-vec` registration in `src/vec_ext.rs` and the standard
+  `LanguageFn::from_raw` binding in the Blazor crate, which now carries
+  an explicit `#[expect(unsafe_code)]`.
+- **The library did not build without the default features.** `use
+  crate::utils::f64_to_f32_lossy` in `src/tools/file_tools.rs` was not
+  feature-gated, but its only call site is inside a
+  `#[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]`
+  tool. With the embeddings features off — which is how the `fuzz`
+  crate depends on it — the import was unused and `-D warnings` turned
+  that into an error, so `cargo build -p coraline-fuzz` failed. The
+  import now carries the same gate as its use site.
+- **The README claimed 33 MCP tools; there are 38.** The count had
+  drifted as tools were added. It is now 38, and the tool list is
+  checked against the live `tools/list` response.
+- **The README claimed every tool accepts `output_format: "compact"`.**
+  Eight of the 38 do — `coraline_search`, `coraline_callers`,
+  `coraline_callees`, `coraline_batch_get_nodes`,
+  `coraline_search_by_signature`, `coraline_search_by_docstring`,
+  `coraline_search_exported_symbols` and `coraline_find_by_kind_in_file`.
+  The other 30 do not take the parameter.
+- **The README claimed `output_format: "compact"` saves 65% of the
+  tokens.** Measured against this repository's own index, it is 29-34%
+  depending on the query. The README now says "roughly 30%". The same
+  figure is repeated in the tool descriptions the MCP server reports to
+  the assistant.
+- **The README's Rust badge said 1.93+; CI tests 1.96.0.** The badge
+  now matches the MSRV job.
+- **The README and the language book page said the 17 unindexed
+  languages "have their extraction contract in place".** They do not.
+  `grammar.rs` declares 15 contracts, and `contract_for` maps TSX onto
+  the TypeScript contract and JSX onto the JavaScript one — so the
+  17 languages that produce a contract are exactly the 17 indexed
+  languages that have declarations. Liquid and Markdown are indexed but
+  have no contract, because they are markup with no declarations to
+  extract. The 17 unindexed languages have their grammar dependency and
+  nothing else.
+- **`SECURITY.md` claimed there is no unsafe code.** There are two
+  narrow exceptions, both now documented: `src/vec_ext.rs` registers
+  the `sqlite-vec` extension through `sqlite3_auto_extension` under a
+  feature-gated `#[allow(unsafe_code)]`, and the tree-sitter Blazor
+  bindings use the standard `LanguageFn::from_raw` pattern. The policy
+  also said `#![forbid(unsafe_code)]`; the crates use `deny`.
+- **`SECURITY.md` claimed Coraline makes no external API calls.** It
+  makes one, on request: downloading the embedding model from
+  HuggingFace. The update checker also queries the crates.io API. No
+  source code is ever uploaded.
+- **`SECURITY.md` claimed all user inputs are validated.** Three file
+  tools — `coraline_read_file`, `coraline_list_dir` and
+  `coraline_get_file_nodes` — resolve absolute paths as given and allow
+  `..` in relative paths, so they can reach outside the project root.
+  The MCP server runs with the privileges of the user who started it.
+  The policy now says so instead of implying containment.
+- **`SECURITY.md` claimed "minimal dependencies".** There are 66 direct
+  dependencies, 35 of which are tree-sitter grammars, and 338 in the
+  resolved graph. The claim is now "dependency review", which is what
+  `cargo deny` and `cargo audit` actually enforce.
+- **The README's tagline said "Symbol-level editing".** Coraline is
+  read-only with respect to source: no MCP tool writes to a source
+  file. The only things it writes are its own `.coraline/` directory
+  and, through `coraline_write_memory`, the Markdown notes in
+  `.coraline/memories/`. The tagline now says "Symbol-level queries",
+  and the README says so explicitly.
+- **`coraline audit-docs` was missing from the CLI reference.** The
+  command was restored in 0.15.0 but never documented, so the
+  `docs/CLI_REFERENCE.md` reference and the book page that includes it
+  did not mention it. It is now documented with its options, its
+  `--json` schema and worked examples.
+- **The `coraline update` output examples in the CLI reference showed
+  v0.3.0.** They now show a current version.
+
 ## [0.15.0] - 2026-10-26
 
 ### Changed
@@ -54,10 +136,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The README and the language book page overstated the number of
   languages that work.** They claimed 36 languages including Bash,
   Haskell, Scala and Lua, but only 19 of the 36 produced graph nodes.
-  The remaining 17 have a grammar but are not enabled for indexing;
-  that gap is tracked in [#128](https://github.com/greysquirr3l/coraline/issues/128),
-  and the docs now mark which languages are indexed.
-
+  The remaining 17 have their grammar dependency but no extraction
+  contract; that gap is tracked in
+  [#128](https://github.com/greysquirr3l/coraline/issues/128), and the
+  docs now mark which languages are indexed.
 - **`coraline audit-docs` reported zero findings on every project.**
   The Markdown doc-structure extractor (`extract_markdown_nodes`) was
   dropped by the config.toml consolidation (`b079ac5`), so a Markdown
@@ -877,7 +959,7 @@ Both are additive and idempotent: `db::apply_incremental_migrations` gates on `P
 - `coraline_search`, `coraline_callers`, `coraline_callees`, `coraline_impact`, `coraline_context` MCP tools
 - Git post-commit hook integration
 
-[Unreleased]: https://github.com/greysquirr3l/coraline/compare/v0.15.0...HEAD
+[Unreleased]: https://github.com/greysquirr3l/coraline/compare/v0.15.1...HEAD
 [0.1.0]: https://github.com/greysquirr3l/coraline/releases/tag/v0.1.0
 [0.1.1]: https://github.com/greysquirr3l/coraline/compare/v0.1.0...v0.1.1
 [0.1.2]: https://github.com/greysquirr3l/coraline/compare/v0.1.1...v0.1.2
@@ -915,3 +997,4 @@ Both are additive and idempotent: `db::apply_incremental_migrations` gates on `P
 [0.13.1]: https://github.com/greysquirr3l/coraline/compare/v0.13.0...v0.13.1
 [0.14.0]: https://github.com/greysquirr3l/coraline/compare/v0.13.1...v0.14.0
 [0.15.0]: https://github.com/greysquirr3l/coraline/compare/v0.14.0...v0.15.0
+[0.15.1]: https://github.com/greysquirr3l/coraline/compare/v0.15.0...v0.15.1

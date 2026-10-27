@@ -401,7 +401,7 @@ Fetch multiple nodes by ID in a single call.
 | --------------- | --------------- | -------- | -------- | --------------------------------------------- |
 | `node_ids`      | array of string | ✅       | —        | Node IDs to fetch                             |
 | `include_body`  | boolean         |          | `false`  | Include source code body for each node        |
-| `output_format` | string          |          | `"full"` | `"full"` or `"compact"` (65% token reduction) |
+| `output_format` | string          |          | `"full"` | `"full"` or `"compact"` (roughly 30% fewer tokens) |
 
 **Output:** `{ "nodes": [...], "count": N, "not_found": [...] }`
 
@@ -452,7 +452,7 @@ Find symbols by type signature pattern (case-insensitive substring match) — e.
 | `pattern`       | string | ✅       | —        | Signature substring to search for (e.g. `"Result<"`, `"async fn"`, `"<T>"`) |
 | `kind`          | string |          | —        | Filter: `function`, `method`, `class`, `struct`, `interface`, `trait`       |
 | `limit`         | number |          | `20`     | Maximum results                                                             |
-| `output_format` | string |          | `"full"` | `"full"` or `"compact"` (65% token reduction)                               |
+| `output_format` | string |          | `"full"` | `"full"` or `"compact"` (roughly 30% fewer tokens)                               |
 
 ---
 
@@ -467,7 +467,7 @@ Search symbols by documentation/comment content — find code by what it does, n
 | `query`         | string | ✅       | —        | Text to search for in docstrings/comments                             |
 | `kind`          | string |          | —        | Filter: `function`, `method`, `class`, `struct`, `interface`, `trait` |
 | `limit`         | number |          | `20`     | Maximum results                                                       |
-| `output_format` | string |          | `"full"` | `"full"` or `"compact"` (65% token reduction)                         |
+| `output_format` | string |          | `"full"` | `"full"` or `"compact"` (roughly 30% fewer tokens)                         |
 
 ---
 
@@ -482,7 +482,7 @@ Search only public/exported symbols — filters out internal implementation deta
 | `query`         | string | ✅       | —        | Symbol name pattern; use `"*"` to list all                                      |
 | `kind`          | string |          | —        | Filter: `function`, `method`, `class`, `struct`, `interface`, `trait`, `module` |
 | `limit`         | number |          | `20`     | Maximum results                                                                 |
-| `output_format` | string |          | `"full"` | `"full"` or `"compact"` (65% token reduction)                                   |
+| `output_format` | string |          | `"full"` | `"full"` or `"compact"` (roughly 30% fewer tokens)                                   |
 
 ---
 
@@ -496,7 +496,7 @@ Get all symbols of a specific kind in one file — fast file-scoped exploration.
 | --------------- | ------ | -------- | -------- | -------------------------------------------------------------------------------------------------- |
 | `file_path`     | string | ✅       | —        | Path to the file (relative to project root)                                                        |
 | `kind`          | string | ✅       | —        | `function`, `method`, `class`, `struct`, `interface`, `trait`, `module`, `constant`, or `variable` |
-| `output_format` | string |          | `"full"` | `"full"` or `"compact"` (65% token reduction)                                                      |
+| `output_format` | string |          | `"full"` | `"full"` or `"compact"` (roughly 30% fewer tokens)                                                      |
 
 ---
 

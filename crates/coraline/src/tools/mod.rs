@@ -24,7 +24,7 @@ pub enum OutputFormat {
     /// Full verbose JSON with long keys and all fields
     #[default]
     Full,
-    /// Compact JSON with short keys, enum-as-int, omit nulls (65% token reduction)
+    /// Compact JSON with short keys, enum-as-int, omit nulls (roughly 30% fewer tokens)
     Compact,
 }
 

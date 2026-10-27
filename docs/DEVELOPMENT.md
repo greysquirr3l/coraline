@@ -215,7 +215,11 @@ The `release.yml` workflow builds binaries for Linux x86_64, macOS x86_64/ARM64,
 
 ## Code Style
 
-- `#![forbid(unsafe_code)]` on all modules — no unsafe code
+- `unsafe_code = "deny"` via the workspace lint table, which every crate
+  opts into with `[lints] workspace = true` — `unsafe` is a compile
+  error, with two documented exceptions (the feature-gated `sqlite-vec`
+  registration in `src/vec_ext.rs`, and the standard tree-sitter
+  `LanguageFn::from_raw` binding in `crates/tree-sitter-blazor`)
 - `cargo lint` must pass **before** committing
 - `cargo fmt` for formatting (rustfmt defaults)
 - Keep functions focused; prefer extracting helpers over long function bodies
