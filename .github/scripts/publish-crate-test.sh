@@ -163,11 +163,49 @@ test_failure_log_is_written() {
   check "the failure log is written" "yes" "${logged}"
 }
 
-echo "1..$((tests + 4))"
+# stdout must carry the verdict and nothing else.
+#
+# The release workflow captures stdout and branches on it with a `case`
+# statement. When cargo's own output shared stdout with the verdict, the
+# `case` fell through to its catch-all branch and the release failed
+# with "unexpected publish outcome" -- even though the script had
+# correctly reported ALREADY_PUBLISHED. cargo's output goes to stderr
+# for exactly this reason.
+test_stdout_is_only_the_verdict() {
+  setup
+  stub_cargo 1 "error: crate coraline@9.9.9 already exists on crates.io index"
+
+  local stdout only
+  stdout="$("${publish_script}" coraline "${stub_dir}/out.log" 2>/dev/null)"
+  only="$(echo "${stdout}" | wc -l | tr -d ' ')"
+
+  check "stdout carries exactly one line" "1" "${only}"
+  check "stdout is the verdict" "ALREADY_PUBLISHED coraline@9.9.9" "${stdout}"
+}
+
+# cargo's output must still reach stderr, so it is not lost from the
+# CI log.
+test_cargo_output_goes_to_stderr() {
+  setup
+  stub_cargo 1 "error: crate coraline@9.9.9 already exists on crates.io index"
+
+  local stderr
+  stderr="$("${publish_script}" coraline "${stub_dir}/out.log" 2>&1 >/dev/null)"
+
+  local seen="no"
+  case "${stderr}" in
+    *"already exists on crates.io index"*) seen="yes" ;;
+  esac
+  check "cargo's output reaches stderr" "yes" "${seen}"
+}
+
+echo "1..$((tests + 6))"
 test_publish_succeeds
 test_publish_already_exists
 test_publish_real_failure
 test_failure_log_is_written
+test_stdout_is_only_the_verdict
+test_cargo_output_goes_to_stderr
 
 if [ "${failures}" -gt 0 ]; then
   echo "# ${failures} of ${tests} tests failed"
