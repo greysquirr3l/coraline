@@ -907,8 +907,9 @@ batch_size    = 100
 include_patterns = [
   "**/*.rs", "**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx",
   "**/*.py", "**/*.go", "**/*.java", "**/*.cs", "**/*.cpp",
-  "**/*.c", "**/*.h", "**/*.rb", "**/*.php", "**/*.swift",
-  "**/*.kt", "**/*.razor", "**/*.cshtml", "**/*.pl", "**/*.pm",
+  "**/*.cc", "**/*.cxx", "**/*.c", "**/*.h", "**/*.hpp",
+  "**/*.rb", "**/*.php", "**/*.swift",
+  "**/*.kt", "**/*.kts", "**/*.razor", "**/*.cshtml", "**/*.pl", "**/*.pm",
   "**/*.md", "**/*.markdown", "**/*.liquid",
   "**/*.f", "**/*.for", "**/*.f90", "**/*.f95", "**/*.f03", "**/*.f08",
   "**/*.hs", "**/*.jl", "**/*.lua", "**/*.m", "**/*.r", "**/*.R",
@@ -1001,3 +1002,48 @@ enforce_flow_policy = false
 max_read_then_write_events_per_session = 10
 max_output_chars = 50000
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The generated `config.toml` must list every default include
+    /// pattern.
+    ///
+    /// A project that is initialised from the template gets the
+    /// template's patterns, not `default_include_patterns`. If the
+    /// template falls behind, a freshly initialised project indexes
+    /// fewer files than one that was initialised before the change —
+    /// and nothing reports the difference.
+    #[test]
+    fn the_toml_template_lists_every_default_include_pattern() {
+        for pattern in default_include_patterns() {
+            assert!(
+                DEFAULT_TOML_TEMPLATE.contains(&pattern),
+                "the generated config.toml does not list {pattern}"
+            );
+        }
+    }
+
+    /// The template must not list a pattern that is not a default.
+    ///
+    /// The other direction: a pattern in the template that the default
+    /// patterns dropped would index a file the project was not
+    /// configured to index.
+    #[test]
+    fn the_toml_template_lists_no_extra_include_patterns() {
+        for line in DEFAULT_TOML_TEMPLATE.lines() {
+            let Some(rest) = line.trim().strip_prefix("\"**/*.") else {
+                continue;
+            };
+            let Some((extension, _)) = rest.split_once('"') else {
+                continue;
+            };
+            let pattern = format!("**/*.{extension}");
+            assert!(
+                default_include_patterns().contains(&pattern),
+                "the generated config.toml lists {pattern}, which is not a default include pattern"
+            );
+        }
+    }
+}

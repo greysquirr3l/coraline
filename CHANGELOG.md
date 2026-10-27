@@ -80,6 +80,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   claimed `f03` and `f08` but no include pattern matched them, so those
   files were never scanned. Both directions are now covered.
 
+- **A project initialised from the generated `config.toml` did not
+  index every file the defaults index.** The template's
+  `include_patterns` block had fallen behind
+  `default_include_patterns`: it was missing `**/*.hpp`, `**/*.cc`,
+  `**/*.cxx` and `**/*.kts`, so a C++ or Kotlin project initialised
+  from the template never had its headers, its alternative C++
+  extensions, or its Kotlin script files indexed — while a project
+  initialised before those extensions were added indexed them fine.
+  Nothing reported the difference.
+
+  Two new tests assert the generated template and the configuration
+  guide list exactly the default include patterns, in both directions,
+  so neither can drift again.
+
 - **`docs/DEVELOPMENT.md` now documents how to add a language, and the
   four places it has to be added to.** The section it replaces was
   stale — it named a function that no longer exists and an extraction

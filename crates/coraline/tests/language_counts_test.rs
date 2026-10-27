@@ -154,6 +154,26 @@ fn include_patterns_agree_with_the_extension_table() {
         );
     }
 }
+/// The configuration guide must list every default include pattern.
+///
+/// The guide shows the `include_patterns` block a project is
+/// initialised with. If it falls behind the defaults, a reader who
+/// copies it gets a different set of files indexed than the defaults
+/// give them, and the difference is invisible.
+#[test]
+fn the_configuration_guide_lists_every_default_include_pattern() {
+    let guide =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/CONFIGURATION.md");
+    let text = std::fs::read_to_string(&guide).expect("read the configuration guide");
+
+    for pattern in coraline::config::default_include_patterns() {
+        assert!(
+            text.contains(&pattern),
+            "the configuration guide does not list {pattern}"
+        );
+    }
+}
+
 /// A language with a contract must be indexed.
 ///
 /// This is the other direction of
