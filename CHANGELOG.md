@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-10-28
+
+### Added
+
+- **`coraline migrate <target>` converts a project's embedding storage
+  between the two on-disk layouts.** The v0 (sqlite-vec) layout could
+  be produced by the library but there was no command to reach it, so
+  the only way to get a project onto it was to write Rust.
+
+  ```bash
+  coraline migrate vec-ext   # v1 BLOB -> sqlite-vec v0
+  coraline migrate vec1      # sqlite-vec v0 -> v1 BLOB
+  ```
+
+  Both directions are transactional — a failure rolls the whole
+  conversion back and leaves the project on its original layout — and
+  neither ever runs as a side effect of another command, because
+  changing the layout is not something to do behind the user's back.
+
+  The command requires a binary built with the `vec-ext` feature, and
+  says so rather than failing obscurely:
+
+  ```console
+  $ coraline migrate vec-ext
+  This binary was built without the `vec-ext` feature, so it cannot
+  convert embedding storage.
+  Rebuild with `--features vec-ext` and retry.
+  ```
+
+- **`coraline::vector_layout` is a new public module.** It exposes the
+  runtime detection the fix below is built on — `VectorLayout::detect`
+  reports which of the two layouts a database is on, and
+  `VectorLayout::metadata_relation` names the table that holds the
+  metadata for it.
+
+### Changed
+
+- **`rusqlite` is now 0.41.** The bump was mechanical; the API the
+  project uses is unchanged.
+
 ### Fixed
 
 - **The vector storage layout is detected at runtime instead of at
@@ -1214,7 +1254,7 @@ Both are additive and idempotent: `db::apply_incremental_migrations` gates on `P
 - `coraline_search`, `coraline_callers`, `coraline_callees`, `coraline_impact`, `coraline_context` MCP tools
 - Git post-commit hook integration
 
-[Unreleased]: https://github.com/greysquirr3l/coraline/compare/v0.15.2...HEAD
+[Unreleased]: https://github.com/greysquirr3l/coraline/compare/v0.17.0...HEAD
 [0.1.0]: https://github.com/greysquirr3l/coraline/releases/tag/v0.1.0
 [0.1.1]: https://github.com/greysquirr3l/coraline/compare/v0.1.0...v0.1.1
 [0.1.2]: https://github.com/greysquirr3l/coraline/compare/v0.1.1...v0.1.2
@@ -1255,3 +1295,4 @@ Both are additive and idempotent: `db::apply_incremental_migrations` gates on `P
 [0.15.1]: https://github.com/greysquirr3l/coraline/compare/v0.15.0...v0.15.1
 [0.15.2]: https://github.com/greysquirr3l/coraline/compare/v0.15.1...v0.15.2
 [0.16.0]: https://github.com/greysquirr3l/coraline/compare/v0.15.2...v0.16.0
+[0.17.0]: https://github.com/greysquirr3l/coraline/compare/v0.16.0...v0.17.0

@@ -7,9 +7,9 @@ project is in active development, so upgrading promptly is recommended.
 
 | Version | Supported          |
 | ------- | ------------------ |
+| 0.17.x  | :white_check_mark: |
 | 0.16.x  | :white_check_mark: |
-| 0.15.x  | :white_check_mark: |
-| < 0.15  | :x:                |
+| < 0.16  | :x:                |
 `main` carries unreleased work and is not a supported target — use the
 latest release from [crates.io](https://crates.io/crates/coraline) or
 [GitHub Releases](https://github.com/greysquirr3l/coraline/releases).

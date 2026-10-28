@@ -27,6 +27,7 @@ When `[PATH]` is omitted, the current working directory is used as the project r
 | `update`  | Check for available updates on crates.io                        |
 | `embed`   | Generate vector embeddings for indexed nodes                    |
 | `model`   | Manage the ONNX embedding model                                 |
+| `migrate` | Convert embedding storage between layouts                       |
 | `audit-docs` | Audit documentation accuracy and coverage against the graph  |
 
 ---
@@ -540,13 +541,13 @@ coraline update
 **Output (when up to date):**
 
 ```
-✓ coraline is up to date (v0.16.0)
+✓ coraline is up to date (v0.17.0)
 ```
 
 **Output (when update available):**
 
 ```
-Update available: v0.15.2 → v0.16.0
+Update available: v0.16.0 → v0.17.0
 Run `cargo install coraline` to upgrade.
 ```
 
@@ -654,4 +655,56 @@ Show which model files are present in the model directory for the configured (or
 ```bash
 coraline model status
 coraline model status --model jina-embeddings-v2-base-code
+```
+
+---
+
+## `coraline migrate <TARGET> [PATH]`
+
+Convert the project's embedding storage between Coraline's two on-disk layouts.
+
+| Layout | Metadata table | Payload table                                |
+| ------ | -------------- | -------------------------------------------- |
+| v1     | `vectors`      | `vectors` (`.embedding` BLOB column)         |
+| v0     | `vectors_meta` | `vectors_vec` (`vec0` virtual table)         |
+
+The layout is a property of the *project*, not of the binary that opens it — Coraline detects it at runtime, so a project can be opened by any build.
+
+**Arguments:**
+
+| Target    | Description                                                     |
+| --------- | --------------------------------------------------------------- |
+| `vec-ext` | Convert the v1 BLOB `vectors` table to the sqlite-vec v0 layout |
+| `vec1`    | Convert the sqlite-vec v0 layout back to the v1 BLOB `vectors` table |
+
+**Options:** None.
+
+**Examples:**
+
+```bash
+coraline migrate vec-ext              # v1 -> sqlite-vec v0
+coraline migrate vec1                 # sqlite-vec v0 -> v1
+coraline migrate vec-ext /path/to/project
+```
+
+**Output:**
+
+```
+Migrated embedding storage to the sqlite-vec (v0) layout.
+```
+
+```
+Embedding storage is already on that layout — nothing to do.
+```
+
+The conversion runs in a single transaction: if it fails part-way through, the rollback leaves the project on its original layout with its embeddings intact.
+
+Converting is always an explicit command — it never runs as a side effect of `embed` or `sync`, because changing a project's on-disk layout is not something to do behind your back.
+
+Requires a binary built with the `vec-ext` feature. Without it, the command says so rather than failing obscurely:
+
+```console
+$ coraline migrate vec-ext
+This binary was built without the `vec-ext` feature, so it cannot convert embedding storage.
+Rebuild with `--features vec-ext` and retry.
 ```
