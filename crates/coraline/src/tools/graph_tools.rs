@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 use crate::clustering;
 use crate::db;
 use crate::graph;
-use crate::types::{EdgeKind, NodeKind, TraversalDirection, TraversalOptions};
+use crate::types::{EdgeKind, Language, NodeKind, TraversalDirection, TraversalOptions};
 use crate::utils::f64_to_f32_lossy;
 
 use super::{Tool, ToolError, ToolResult};
@@ -1380,7 +1380,11 @@ impl Tool for StatsTool {
                 })
                 .map_err(|e| ToolError::internal_error(format!("Query failed: {e}")))?;
             for row in rows.flatten() {
-                by_language.insert(row.0, Value::Number(row.1.into()));
+                // The stored spelling is normalised on the way out, so
+                // an index written before the names were unified does
+                // not report `java_script` next to `javascript`.
+                let language = Language::from_name(&row.0).name().to_string();
+                by_language.insert(language, Value::Number(row.1.into()));
             }
         }
 

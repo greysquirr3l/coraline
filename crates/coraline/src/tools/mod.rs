@@ -61,7 +61,7 @@ pub fn node_to_compact_json(node: &crate::types::Node) -> Value {
         obj.insert("el".to_string(), json!(node.end_line));
     }
 
-    obj.insert("l".to_string(), json!(language_to_string(node.language)));
+    obj.insert("l".to_string(), json!(node.language.name()));
 
     if let Some(ref sig) = node.signature {
         obj.insert("s".to_string(), json!(sig));
@@ -86,55 +86,10 @@ pub fn node_to_full_json(node: &crate::types::Node) -> Value {
         "file_path": node.file_path,
         "start_line": node.start_line,
         "end_line": node.end_line,
-        "language": language_to_string(node.language),
+        "language": node.language.name(),
         "signature": node.signature,
         "docstring": node.docstring,
     })
-}
-
-/// Convert `Language` enum to string
-const fn language_to_string(lang: crate::types::Language) -> &'static str {
-    use crate::types::Language;
-    match lang {
-        Language::Rust => "rust",
-        Language::TypeScript => "typescript",
-        Language::JavaScript => "javascript",
-        Language::Tsx => "tsx",
-        Language::Jsx => "jsx",
-        Language::Python => "python",
-        Language::Go => "go",
-        Language::Java => "java",
-        Language::CSharp => "csharp",
-        Language::Cpp => "cpp",
-        Language::C => "c",
-        Language::Php => "php",
-        Language::Ruby => "ruby",
-        Language::Swift => "swift",
-        Language::Kotlin => "kotlin",
-        Language::Scala => "scala",
-        Language::Haskell => "haskell",
-        Language::Lua => "lua",
-        Language::Julia => "julia",
-        Language::Matlab => "matlab",
-        Language::R => "r",
-        Language::Erlang => "erlang",
-        Language::Elixir => "elixir",
-        Language::Groovy => "groovy",
-        Language::Bash => "bash",
-        Language::Powershell => "powershell",
-        Language::Nix => "nix",
-        Language::Dart => "dart",
-        Language::Fortran => "fortran",
-        Language::Elm => "elm",
-        Language::Perl => "perl",
-        Language::Zig => "zig",
-        Language::Markdown => "markdown",
-        Language::Toml => "toml",
-        Language::Yaml => "yaml",
-        Language::Liquid => "liquid",
-        Language::Blazor => "blazor",
-        Language::Unknown => "unknown",
-    }
 }
 
 /// Serialize a node based on output format

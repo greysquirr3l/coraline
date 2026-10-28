@@ -28,8 +28,16 @@ batch_size    = 100       # Files processed per batch
 include_patterns = [
   "**/*.rs", "**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx",
   "**/*.py", "**/*.go", "**/*.java", "**/*.cs", "**/*.cpp",
-  "**/*.c", "**/*.h", "**/*.rb", "**/*.php", "**/*.swift",
-  "**/*.kt", "**/*.razor",
+  "**/*.cc", "**/*.cxx", "**/*.c", "**/*.h", "**/*.hpp",
+  "**/*.rb", "**/*.php", "**/*.swift",
+  "**/*.kt", "**/*.kts", "**/*.razor", "**/*.cshtml", "**/*.pl", "**/*.pm",
+  "**/*.md", "**/*.markdown", "**/*.liquid",
+  "**/*.f", "**/*.for", "**/*.f90", "**/*.f95", "**/*.f03", "**/*.f08",
+  "**/*.hs", "**/*.jl", "**/*.lua", "**/*.m", "**/*.r", "**/*.R",
+  "**/*.scala", "**/*.sc", "**/*.zig", "**/*.dart",
+  "**/*.groovy", "**/*.gradle", "**/*.ps1", "**/*.psm1", "**/*.nix",
+  "**/*.erl", "**/*.hrl", "**/*.elm", "**/*.sh", "**/*.bash",
+  "**/*.ex", "**/*.exs", "**/*.toml", "**/*.yaml", "**/*.yml",
 ]
 exclude_patterns = [
   "**/.git/**", "**/target/**", "**/node_modules/**",

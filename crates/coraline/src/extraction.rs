@@ -895,7 +895,13 @@ fn looks_like_symbol(s: &str) -> bool {
     )
 }
 
-fn language_to_parser(language: Language) -> Option<tree_sitter::Language> {
+/// The tree-sitter grammar for a language, if it has one.
+///
+/// This is the single source of truth for the language → grammar
+/// mapping. The `grammar_probe` example uses it rather than keeping
+/// its own list, so the tool can read out the node kinds of every
+/// language the extractor supports.
+pub fn language_to_parser(language: Language) -> Option<tree_sitter::Language> {
     match language {
         Language::Rust => Some(tree_sitter::Language::new(tree_sitter_rust::LANGUAGE)),
         Language::JavaScript | Language::Jsx => {
@@ -1057,7 +1063,7 @@ fn walk_tree_collect(
     enclosing_type_name: Option<&str>,
     now_ms: i64,
 ) {
-    let (kind, is_container) = map_node_kind(&node, language);
+    let (kind, is_container) = map_node_kind(&node, source, language);
 
     if let Some(NodeKind::Import) = kind {
         if let Some(parent_id) = parent_id.clone() {
@@ -1078,18 +1084,32 @@ fn walk_tree_collect(
 
     if let Some(NodeKind::Module) = kind {
         if let Some(parent_id) = parent_id.clone() {
-            add_module_node(
-                &node,
-                source,
-                project_root,
-                language,
-                file_path,
-                parent_id,
-                nodes,
-                edges,
-                now_ms,
-            );
-            return;
+            match language {
+                // Rust's `mod foo;` declares nothing of its own, so the
+                // module node is created here and the walk ends with it.
+                Language::Rust => {
+                    add_module_node(
+                        &node,
+                        source,
+                        project_root,
+                        language,
+                        file_path,
+                        parent_id,
+                        nodes,
+                        edges,
+                        now_ms,
+                    );
+                    return;
+                }
+                // Kotlin's `package` header marks the file's package
+                // rather than declaring anything, so it produces no node
+                // of its own.
+                Language::Kotlin => return,
+                // Every other language declares inside its module, so the
+                // module node is created by the normal path below and the
+                // walk continues into it.
+                _ => {}
+            }
         }
     }
 
@@ -1328,7 +1348,7 @@ fn walk_tree_calls(
     scope_stack: &mut Vec<String>,
     local_types: &mut HashMap<String, String>,
 ) {
-    let (kind, _) = map_node_kind(&node, language);
+    let (kind, _) = map_node_kind(&node, source, language);
     let name = if kind.is_some() {
         node_name(&node, source, language)
     } else {
@@ -1567,6 +1587,295 @@ fn node_name(node: &TsNode, source: &str, language: Language) -> Option<String> 
             // PHP wraps identifiers in a `name` node; its text is the name.
             return text_of(node);
         }
+        Language::Fortran => {
+            // The grammar wraps a declaration and its body: the `module`
+            // node holds the `module_statement` that names it, and the
+            // `function` and `subroutine` nodes hold the statement that
+            // names them.
+            let statement_kind = match node.kind() {
+                "module" => Some("module_statement"),
+                "program" => Some("program_statement"),
+                "function" => Some("function_statement"),
+                "subroutine" => Some("subroutine_statement"),
+                _ => None,
+            };
+            if let Some(statement_kind) = statement_kind {
+                let mut cursor = node.walk();
+                let statement = node
+                    .named_children(&mut cursor)
+                    .find(|c| c.kind() == statement_kind)?;
+                // A function or subroutine statement names itself through a
+                // `name` field; a module or program statement holds a plain
+                // `name` child instead.
+                if let Some(name) = statement.child_by_field_name("name") {
+                    return text_of(&name);
+                }
+                let mut inner = statement.walk();
+                let name = statement
+                    .named_children(&mut inner)
+                    .find(|c| c.kind() == "name")?;
+                return text_of(&name);
+            }
+            // `type, public :: circle` — the type name is the `type_name`
+            // child of the nested `derived_type_statement`, not a field of
+            // the definition itself.
+            if node.kind() == "derived_type_definition" {
+                let mut cursor = node.walk();
+                let statement = node
+                    .named_children(&mut cursor)
+                    .find(|c| c.kind() == "derived_type_statement")?;
+                let mut inner = statement.walk();
+                let type_name = statement
+                    .named_children(&mut inner)
+                    .find(|c| c.kind() == "type_name")?;
+                return text_of(&type_name);
+            }
+            // `real(real64) :: radius` — the declared name is the
+            // `declarator` field.
+            if node.kind() == "variable_declaration" {
+                return text_of(&node.child_by_field_name("declarator")?);
+            }
+        }
+        Language::Haskell => {
+            // The root node of a Haskell file holds the module header, so
+            // the module's name is the `module` field of the nested
+            // `header`.
+            if node.kind() == "haskell" {
+                let mut cursor = node.walk();
+                let header = node
+                    .named_children(&mut cursor)
+                    .find(|c| c.kind() == "header")?;
+                return text_of(&header.child_by_field_name("module")?);
+            }
+        }
+        Language::Julia => {
+            // Julia's declarations carry no `name` field: the name of a
+            // function or a macro is the identifier in its `signature`, and
+            // the name of a type is the identifier in its `type_head`. In
+            // every case it is the first identifier of the declaration.
+            if matches!(
+                node.kind(),
+                "function_definition"
+                    | "macro_definition"
+                    | "struct_definition"
+                    | "abstract_definition"
+                    | "primitive_definition"
+                    | "const_statement"
+            ) {
+                return first_identifier_text(node, source);
+            }
+            // `area(shape) = 3.14` — the short form of a function
+            // definition is an assignment whose left-hand side is a call.
+            // A plain assignment is not a declaration, so it has no name.
+            if node.kind() == "assignment" {
+                let mut cursor = node.walk();
+                let lhs = node.named_children(&mut cursor).next()?;
+                if lhs.kind() == "call_expression" {
+                    return first_identifier_text(&lhs, source);
+                }
+                return None;
+            }
+        }
+        Language::Lua => {
+            // `function M.hello(name)` — the name field holds a
+            // `dot_index_expression` or a `method_index_expression`, and the
+            // function's own name is its last segment.
+            if node.kind() == "function_declaration" {
+                let raw = text_of(&node.child_by_field_name("name")?)?;
+                let last = raw
+                    .rsplit(['.', ':'])
+                    .next()
+                    .unwrap_or(&raw)
+                    .trim()
+                    .to_string();
+                if !last.is_empty() {
+                    return Some(last);
+                }
+            }
+        }
+        Language::Matlab => {
+            // `enum RED` — the member name is the `identifier` child of the
+            // `enum` node; the grammar gives it no name field.
+            if node.kind() == "enum" {
+                let mut cursor = node.walk();
+                let identifier = node
+                    .named_children(&mut cursor)
+                    .find(|c| c.kind() == "identifier")?;
+                return text_of(&identifier);
+            }
+        }
+        Language::Toml => {
+            // `[server]` and `host = "localhost"` — the name is the bare
+            // key.
+            if matches!(node.kind(), "table" | "pair") {
+                let mut cursor = node.walk();
+                let key = node
+                    .named_children(&mut cursor)
+                    .find(|c| c.kind() == "bare_key")?;
+                return text_of(&key);
+            }
+        }
+        Language::Yaml => {
+            // `host: localhost` — the name is the key.
+            if node.kind() == "block_mapping_pair" {
+                if let Some(key) = node.child_by_field_name("key") {
+                    return text_of(&key);
+                }
+            }
+            // A mapping is named after the key whose value it holds. The
+            // value is a block node, so the key is further up.
+            if node.kind() == "block_mapping" {
+                let mut current = node.parent();
+                while let Some(ancestor) = current {
+                    if let Some(key) = ancestor.child_by_field_name("key") {
+                        return text_of(&key);
+                    }
+                    current = ancestor.parent();
+                }
+            }
+        }
+        Language::Elixir => {
+            // `defmodule Geometry do` — the name is the first argument of
+            // the construct's call.
+            if node.kind() == "call" {
+                if call_target_text(node, source, "target").as_deref() == Some("defstruct") {
+                    // `defstruct [:radius]` — the struct belongs to the
+                    // module that declares it.
+                    return enclosing_elixir_module_name(node, source);
+                }
+                return elixir_declaration_name(node, source);
+            }
+        }
+        Language::Erlang => {
+            // `area(#circle{radius = Radius}) -> …` — the name is on the
+            // clause inside the declaration.
+            if node.kind() == "fun_decl" {
+                let clause = node.child_by_field_name("clause")?;
+                return text_of(&clause.child_by_field_name("name")?);
+            }
+        }
+        Language::Elm => {
+            // `area radius = …` — the name is on the left of the `=`.
+            if node.kind() == "value_declaration" {
+                let left = node.child_by_field_name("functionDeclarationLeft")?;
+                let mut cursor = left.walk();
+                let name = left.named_children(&mut cursor).find(|c| {
+                    matches!(c.kind(), "lower_case_identifier" | "upper_case_identifier")
+                })?;
+                return text_of(&name);
+            }
+        }
+        Language::Powershell => {
+            // `function Get-Area { … }` — the name is the `function_name`
+            // child, not a field.
+            if node.kind() == "function_statement" {
+                let mut cursor = node.walk();
+                let name = node
+                    .named_children(&mut cursor)
+                    .find(|c| c.kind() == "function_name")?;
+                return text_of(&name);
+            }
+        }
+        Language::Nix => {
+            // `radius = 2.0;` — the name of a binding is the attribute
+            // path it binds.
+            if node.kind() == "binding" {
+                let mut cursor = node.walk();
+                let attrpath = node
+                    .named_children(&mut cursor)
+                    .find(|c| c.kind() == "attrpath")?;
+                return first_identifier_text(&attrpath, source);
+            }
+            // `inherit radius;` — the inherited name is the identifier.
+            if node.kind() == "inherit" {
+                return first_identifier_text(node, source);
+            }
+        }
+        Language::Groovy => {
+            // `package geometry` — the package name is the identifier.
+            if node.kind() == "package_declaration" {
+                let mut cursor = node.walk();
+                let identifier = node
+                    .named_children(&mut cursor)
+                    .find(|c| c.kind() == "identifier")?;
+                return text_of(&identifier);
+            }
+            // `double radius` — the field's name is on the declarator.
+            if node.kind() == "field_declaration" {
+                let declarator = node.child_by_field_name("declarator")?;
+                let mut cursor = declarator.walk();
+                let name = declarator
+                    .named_children(&mut cursor)
+                    .find(|c| c.kind() == "identifier")?;
+                return text_of(&name);
+            }
+        }
+        Language::Dart => {
+            // `double area() => …` — a method's name is in its signature,
+            // which is several levels down.
+            if matches!(node.kind(), "method_declaration" | "function_declaration") {
+                return first_name_field(node, source);
+            }
+            // `double area();` — an abstract method is a signature in its
+            // own right, but the signature of a declared method is not.
+            if node.kind() == "function_signature" {
+                let parent = node.parent()?;
+                if parent.kind() != "declaration" {
+                    return None;
+                }
+            }
+        }
+        Language::Zig => {
+            // `pub const Circle = struct { … }` — a type is named by the
+            // constant it is bound to, and the binding itself does not
+            // repeat the name.
+            const ZIG_TYPES: &[&str] = &[
+                "struct_declaration",
+                "enum_declaration",
+                "union_declaration",
+                "error_set_declaration",
+                "opaque_declaration",
+            ];
+            if ZIG_TYPES.contains(&node.kind()) {
+                let parent = node.parent()?;
+                if parent.kind() != "variable_declaration" {
+                    return None;
+                }
+                let mut cursor = parent.walk();
+                let identifier = parent
+                    .named_children(&mut cursor)
+                    .find(|c| c.kind() == "identifier")?;
+                return text_of(&identifier);
+            }
+            // `const std = @import("std");` — the name is the `identifier`
+            // child of the binding.
+            if node.kind() == "variable_declaration" {
+                let mut cursor = node.walk();
+                let children: Vec<TsNode> = node.named_children(&mut cursor).collect();
+                if children.iter().any(|c| ZIG_TYPES.contains(&c.kind())) {
+                    return None;
+                }
+                let identifier = children.iter().find(|c| c.kind() == "identifier")?;
+                return text_of(identifier);
+            }
+        }
+        Language::Scala => {
+            // `val MAX = 10` — the name of a value is the `pattern` field.
+            if node.kind() == "val_definition" {
+                return text_of(&node.child_by_field_name("pattern")?);
+            }
+        }
+        Language::R if node.kind() == "function_definition" => {
+            // `greet <- function(name) name` — the name of the function is
+            // the left-hand side of the assignment it is bound to. The
+            // `name` field of the `function_definition` holds the
+            // `function` keyword, so it must never be used as a fallback.
+            let parent = node.parent()?;
+            if parent.kind() == "binary_operator" {
+                return text_of(&parent.child_by_field_name("lhs")?);
+            }
+            return None;
+        }
         _ => {}
     }
 
@@ -1577,6 +1886,113 @@ fn node_name(node: &TsNode, source: &str, language: Language) -> Option<String> 
         .or_else(|| node.child_by_field_name("tag_name"));
 
     name_node.and_then(|n| text_of(&n))
+}
+
+/// The name of the construct a call invokes.
+///
+/// Elixir's grammar gives every construct the same node: a call whose
+/// `target` names the construct (`defmodule`, `def`, `area`). Bash's
+/// commands name the command they run in their `name` field.
+fn call_target_text(node: &TsNode, source: &str, field: &str) -> Option<String> {
+    let target = node.child_by_field_name(field)?;
+    let text = target.utf8_text(source.as_bytes()).ok()?.trim().to_string();
+    if text.is_empty() { None } else { Some(text) }
+}
+
+/// The name an Elixir declaration binds.
+///
+/// `defmodule Geometry` binds an alias and `def area(x)` binds the
+/// target of a call; both are the first argument of the construct's
+/// call.
+fn elixir_declaration_name(node: &TsNode, source: &str) -> Option<String> {
+    let mut cursor = node.walk();
+    let arguments = node
+        .named_children(&mut cursor)
+        .find(|c| c.kind() == "arguments")?;
+    let mut inner = arguments.walk();
+    let first = arguments.named_children(&mut inner).next()?;
+
+    match first.kind() {
+        // `defmodule Geometry` — the module is an alias.
+        "alias" => {
+            let text = first.utf8_text(source.as_bytes()).ok()?.trim().to_string();
+            if text.is_empty() { None } else { Some(text) }
+        }
+        // `def area(x)` — the function is the target of a call.
+        "call" => call_target_text(&first, source, "target"),
+        // `def area do` — a zero-arity function. The name is a bare
+        // identifier in the argument position rather than a call.
+        "identifier" => {
+            let text = first.utf8_text(source.as_bytes()).ok()?.trim().to_string();
+            if text.is_empty() { None } else { Some(text) }
+        }
+        _ => None,
+    }
+}
+
+/// The name of the Elixir module a declaration belongs to.
+fn enclosing_elixir_module_name(node: &TsNode, source: &str) -> Option<String> {
+    let mut current = node.parent();
+    while let Some(ancestor) = current {
+        if ancestor.kind() == "call"
+            && call_target_text(&ancestor, source, "target").as_deref() == Some("defmodule")
+        {
+            return elixir_declaration_name(&ancestor, source);
+        }
+        current = ancestor.parent();
+    }
+    None
+}
+
+/// The text of the first `name` field in a subtree, in document order.
+///
+/// Dart keeps a declaration's name several levels down: a method is a
+/// `method_declaration` whose `signature` is a `method_signature` whose
+/// `function_signature` holds the name, so the name has to be looked for
+/// rather than read off the node.
+fn first_name_field(node: &TsNode, source: &str) -> Option<String> {
+    let text_of = |n: &TsNode| {
+        n.utf8_text(source.as_bytes())
+            .ok()
+            .map(|s| s.trim().to_string())
+    };
+
+    if let Some(name) = node.child_by_field_name("name") {
+        if let Some(text) = text_of(&name) {
+            return Some(text);
+        }
+    }
+
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        if let Some(found) = first_name_field(&child, source) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+/// The text of the first identifier in a subtree, in document order.
+///
+/// Julia's declarations are the reason this exists: `function greet(name)`
+/// puts the name in a `signature` child and `struct Point` puts it in a
+/// `type_head` child, and neither is reachable through a field. In both
+/// cases the name is the first identifier of the declaration.
+fn first_identifier_text(node: &TsNode, source: &str) -> Option<String> {
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        if child.kind() == "identifier" {
+            return child
+                .utf8_text(source.as_bytes())
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty());
+        }
+        if let Some(found) = first_identifier_text(&child, source) {
+            return Some(found);
+        }
+    }
+    None
 }
 
 #[derive(Debug, Clone)]
@@ -2070,6 +2486,73 @@ fn import_symbols(node: &TsNode, source: &str, language: Language) -> Vec<Import
 fn import_module_path(node: &TsNode, source: &str, language: Language) -> Option<String> {
     let source_bytes = source.as_bytes();
 
+    // Scala: `import scala.collection.mutable` — the path is spread over
+    // one `path` field per segment, with the dots as separate children.
+    if language == Language::Scala {
+        let mut cursor = node.walk();
+        let segments: Vec<String> = node
+            .children_by_field_name("path", &mut cursor)
+            .filter_map(|child| child.utf8_text(source_bytes).ok())
+            .map(|text| text.trim().to_string())
+            .filter(|text| !text.is_empty() && text != ".")
+            .collect();
+        let path = segments.join(".");
+        if !path.is_empty() {
+            return Some(path);
+        }
+    }
+
+    // Elixir: `alias Other.Module, as: Other` — the path is the alias
+    // argument of the construct's call.
+    if language == Language::Elixir {
+        let mut cursor = node.walk();
+        let arguments = node
+            .named_children(&mut cursor)
+            .find(|c| c.kind() == "arguments")?;
+        let mut inner = arguments.walk();
+        let alias = arguments
+            .named_children(&mut inner)
+            .find(|c| c.kind() == "alias")?;
+        let text = alias.utf8_text(source_bytes).ok()?.trim().to_string();
+        if !text.is_empty() {
+            return Some(text);
+        }
+    }
+
+    // Groovy: `import java.util.List` — the path is the scoped identifier
+    // under the import.
+    if language == Language::Groovy {
+        let mut cursor = node.walk();
+        let scoped = node
+            .named_children(&mut cursor)
+            .find(|c| c.kind() == "scoped_identifier")?;
+        let text = scoped.utf8_text(source_bytes).ok()?.trim().to_string();
+        if !text.is_empty() {
+            return Some(text);
+        }
+    }
+
+    // Dart: `import 'dart:math';` — the URI is on the import
+    // specification, below the library import.
+    if language == Language::Dart {
+        let mut cursor = node.walk();
+        for child in node.named_children(&mut cursor) {
+            let mut inner = child.walk();
+            for grandchild in child.named_children(&mut inner) {
+                let Some(uri) = grandchild.child_by_field_name("uri") else {
+                    continue;
+                };
+                let Some(text) = uri.utf8_text(source_bytes).ok() else {
+                    continue;
+                };
+                let trimmed = text.trim().trim_matches(['\'', '"']).trim().to_string();
+                if !trimmed.is_empty() {
+                    return Some(trimmed);
+                }
+            }
+        }
+    }
+
     // Languages whose import path lives in a named field.
     let field: Option<&str> = match language {
         Language::Rust => Some("argument"),
@@ -2090,12 +2573,14 @@ fn import_module_path(node: &TsNode, source: &str, language: Language) -> Option
         Language::Scala => Some("path"),
         Language::Groovy => Some("name"),
         Language::Dart => Some("uri"),
-        Language::Julia => Some("module"),
+        // Julia and Fortran keep the imported module in a child node, not in
+        // a field; they are handled in the `None` branch below.
+        Language::Julia => None,
         Language::Nix => Some("source"),
         Language::R => Some("argument"),
         Language::Matlab => Some("argument"),
-        Language::Fortran => Some("name"),
-        Language::Elm => Some("module_name"),
+        Language::Fortran => None,
+        Language::Elm => Some("moduleName"),
         Language::Perl => Some("module"),
         Language::Powershell => Some("name"),
         Language::Zig => Some("path"),
@@ -2172,6 +2657,34 @@ fn import_module_path(node: &TsNode, source: &str, language: Language) -> Option
                         node.named_children(&mut cursor)
                             .find(|c| c.kind() == "identifier")
                     })?
+            }
+            // Julia: `using LinearAlgebra` and `import Base: show` — the
+            // module is the `identifier` (or `scoped_identifier`) child, and
+            // a selective import keeps it in the first identifier of the
+            // `selected_import`.
+            Language::Julia => {
+                let mut cursor = node.walk();
+                let child = node.named_children(&mut cursor).find(|c| {
+                    matches!(
+                        c.kind(),
+                        "scoped_identifier" | "identifier" | "selected_import"
+                    )
+                })?;
+                if child.kind() == "selected_import" {
+                    let mut inner = child.walk();
+                    child
+                        .named_children(&mut inner)
+                        .find(|c| c.kind() == "identifier")?
+                } else {
+                    child
+                }
+            }
+            // Fortran: `use iso_fortran_env, only: real64` — the module is
+            // the `module_name` child.
+            Language::Fortran => {
+                let mut cursor = node.walk();
+                node.named_children(&mut cursor)
+                    .find(|c| c.kind() == "module_name")?
             }
             _ => return None,
         }
@@ -2594,8 +3107,13 @@ fn export_symbols(node: &TsNode, source: &str, language: Language) -> Vec<Export
             Vec::new()
         }
 
-        // === Julia: implicit (all public names) ===
-        Language::Julia => Vec::new(),
+        // === Julia: `export greet, other` ===
+        Language::Julia => {
+            if node.kind() == "export_statement" {
+                return identifier_exports(node, source);
+            }
+            Vec::new()
+        }
 
         // === Nix: implicit (let-in returns) ===
         Language::Nix => Vec::new(),
@@ -2606,8 +3124,13 @@ fn export_symbols(node: &TsNode, source: &str, language: Language) -> Vec<Export
         // === MATLAB: implicit (global scope) ===
         Language::Matlab => Vec::new(),
 
-        // === Fortran: module exports ===
-        Language::Fortran => Vec::new(),
+        // === Fortran: `public :: area` ===
+        Language::Fortran => {
+            if node.kind() == "public_statement" {
+                return identifier_exports(node, source);
+            }
+            Vec::new()
+        }
 
         // === Elm: module declaration with export list ===
         Language::Elm => Vec::new(),
@@ -2660,6 +3183,24 @@ fn rust_use_path(node: &TsNode, source: &str) -> Option<String> {
     let child = node.child_by_field_name("path")?;
     let raw = child.utf8_text(source.as_bytes()).ok()?.trim().to_string();
     if raw.is_empty() { None } else { Some(raw) }
+}
+
+/// Collect the names a declaration exports, listed as plain identifiers.
+///
+/// Julia's `export greet, other` and Fortran's `public :: area` both spell
+/// the exported names as identifiers under the statement.
+fn identifier_exports(node: &TsNode, source: &str) -> Vec<ExportSymbol> {
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .filter(|c| c.kind() == "identifier")
+        .filter_map(|c| c.utf8_text(source.as_bytes()).ok())
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty())
+        .map(|name| ExportSymbol {
+            name,
+            module_path: None,
+        })
+        .collect()
 }
 
 fn rust_use_alias(node: &TsNode, source: &str) -> Option<String> {
@@ -2753,6 +3294,59 @@ fn is_call_expression(kind: &str, language: Language) -> bool {
 /// resolve without reintroducing the name-collision false positives from #43.
 fn call_name(node: &TsNode, source: &str, language: Language) -> Option<(String, Option<String>)> {
     let source_bytes = source.as_bytes();
+
+    // Elixir's grammar gives every construct the same node: a call whose
+    // target names it. The constructs are declarations, not call sites.
+    if language == Language::Elixir {
+        let target = call_target_text(node, source, "target");
+        let is_construct = target.as_deref().is_some_and(|target| {
+            matches!(
+                target,
+                "defmodule"
+                    | "def"
+                    | "defp"
+                    | "defmacro"
+                    | "defmacrop"
+                    | "defdelegate"
+                    | "defstruct"
+                    | "alias"
+                    | "import"
+                    | "require"
+                    | "use"
+            )
+        });
+        if is_construct {
+            return None;
+        }
+    }
+
+    // Haskell's applications nest: `f a b` parses as
+    // `apply(apply(f, a), b)`, so the callee of an application is the
+    // leftmost function in the chain rather than the text of the
+    // `function` field.
+    if language == Language::Haskell {
+        return haskell_call_name(node, source_bytes);
+    }
+
+    // Julia: a declaration's signature parses as a call — `function area(x)`
+    // is a `call_expression` — and the short form `area(x) = ...` is an
+    // assignment whose left-hand side is a call. Neither is a call site,
+    // and recording them would give every Julia function a self-call.
+    if language == Language::Julia {
+        if let Some(parent) = node.parent() {
+            if parent.kind() == "signature" {
+                return None;
+            }
+            if parent.kind() == "assignment" {
+                let mut cursor = parent.walk();
+                let is_left_hand_side = parent.named_children(&mut cursor).next() == Some(*node);
+                if is_left_hand_side {
+                    return None;
+                }
+            }
+        }
+    }
+
     let callee_strategy = grammar::callee_source(language, node.kind())?;
 
     let callee = match callee_strategy {
@@ -2805,6 +3399,46 @@ fn call_name(node: &TsNode, source: &str, language: Language) -> Option<(String,
         None
     } else {
         Some((name, qualifier))
+    }
+}
+
+/// Recover the callee of a Haskell application.
+///
+/// `f a b` parses as `apply(apply(f, a), b)`, so the `function` field of
+/// the outer application is another application rather than the callee. The
+/// callee is found by walking down the chain to the leftmost function, and
+/// a qualified name (`Data.List.sortBy`) keeps its module as the qualifier.
+fn haskell_call_name(node: &TsNode, source_bytes: &[u8]) -> Option<(String, Option<String>)> {
+    let mut current = node.child_by_field_name("function")?;
+    loop {
+        match current.kind() {
+            "apply" => {
+                current = current.child_by_field_name("function")?;
+            }
+            "qualified" => {
+                // `Data.List.sortBy` — the name is the `id` field and the
+                // module is the `module` field, which keeps the trailing
+                // dot of the qualified name.
+                let name = current
+                    .child_by_field_name("id")
+                    .and_then(|n| n.utf8_text(source_bytes).ok())
+                    .map(|t| t.trim().to_string())
+                    .filter(|t| !t.is_empty())?;
+                let qualifier = current
+                    .child_by_field_name("module")
+                    .and_then(|n| n.utf8_text(source_bytes).ok())
+                    .map(|t| t.trim().trim_end_matches('.').to_string())
+                    .filter(|t| !t.is_empty());
+                return Some((name, qualifier));
+            }
+            _ => {
+                let name = current.utf8_text(source_bytes).ok()?.trim().to_string();
+                if name.is_empty() {
+                    return None;
+                }
+                return Some((name, None));
+            }
+        }
     }
 }
 
@@ -2915,6 +3549,16 @@ fn heritage_names(
                 }
             }
             grammar::HeritageSource::ChildNested(child_kind, nested_kind) => {
+                if language == Language::Julia {
+                    // Julia: `struct Point <: Shape` — the supertype is the
+                    // identifier that follows the `<:` operator, so the
+                    // generic "first identifier of the child" search would
+                    // find the type's own name instead.
+                    if let Some(name) = julia_supertype(node, source) {
+                        push(name, rule.kind);
+                    }
+                    continue;
+                }
                 let mut cursor = node.walk();
                 for child in node.named_children(&mut cursor) {
                     if child.kind() != child_kind {
@@ -2933,6 +3577,42 @@ fn heritage_names(
     }
 
     found
+}
+
+/// The supertype of a Julia type declaration.
+///
+/// `struct Point <: Shape` keeps the supertype after the `<:` operator
+/// inside the `type_head`; a type without a supertype has no `<:` at all,
+/// so there is nothing to report.
+fn julia_supertype(node: &TsNode, source: &str) -> Option<String> {
+    if !matches!(
+        node.kind(),
+        "struct_definition" | "abstract_definition" | "primitive_definition"
+    ) {
+        return None;
+    }
+
+    let mut cursor = node.walk();
+    let head = node
+        .named_children(&mut cursor)
+        .find(|c| c.kind() == "type_head")?;
+
+    // The supertype is the operand that follows the `<:` operator inside
+    // the `type_head`'s expression.
+    let mut inner = head.walk();
+    let expression = head
+        .named_children(&mut inner)
+        .find(|c| c.kind() == "binary_expression")?;
+
+    let mut expression_cursor = expression.walk();
+    let children: Vec<TsNode> = expression.named_children(&mut expression_cursor).collect();
+    let operator_at = children.iter().position(|c| {
+        c.kind() == "operator"
+            && c.utf8_text(source.as_bytes())
+                .is_ok_and(|text| text.trim() == "<:")
+    })?;
+
+    simple_type_name(children.get(operator_at + 1)?, source)
 }
 
 /// Find the type named by a descendant of the given kind, searching at
@@ -3350,7 +4030,7 @@ fn collect_identifiers<'a>(node: &TsNode<'a>, found: &mut Vec<TsNode<'a>>) {
 ///   `interface` is an anonymous keyword token (there is no
 ///   `interface_declaration` node kind), and `enum` shows up as an
 ///   `enum_class_body` child.
-fn map_node_kind(node: &TsNode, language: Language) -> (Option<NodeKind>, bool) {
+fn map_node_kind(node: &TsNode, source: &str, language: Language) -> (Option<NodeKind>, bool) {
     let kind = node.kind();
     let (mapped, container) = grammar::map_kind(language, kind);
 
@@ -3383,6 +4063,67 @@ fn map_node_kind(node: &TsNode, language: Language) -> (Option<NodeKind>, bool) 
         if is_enum {
             return (Some(NodeKind::Enum), container);
         }
+    }
+
+    if language == Language::Erlang && kind == "module_attribute" {
+        // `-module(geometry).` declares a module, `-record(circle, …).` a
+        // record and `-import(lists).` an import. The attribute's name
+        // decides which one it is, so the name has to be read.
+        let mut cursor = node.walk();
+        let attribute = node
+            .children(&mut cursor)
+            .map(|c| c.kind())
+            .find(|kind| matches!(*kind, "module" | "record" | "import"));
+        return match attribute {
+            Some("module") => (Some(NodeKind::Module), container),
+            Some("record") => (Some(NodeKind::Struct), container),
+            Some("import") => (Some(NodeKind::Import), container),
+            _ => (None, container),
+        };
+    }
+
+    if language == Language::Elixir && kind == "call" {
+        // Elixir's grammar gives every construct the same node: a call
+        // whose target names the construct.
+        return match call_target_text(node, source, "target").as_deref() {
+            Some("defmodule") => (Some(NodeKind::Module), true),
+            Some("def" | "defp" | "defmacro" | "defmacrop" | "defdelegate") => {
+                (Some(NodeKind::Function), true)
+            }
+            Some("defstruct") => (Some(NodeKind::Struct), true),
+            Some("alias" | "import" | "require" | "use") => (Some(NodeKind::Import), false),
+            _ => (None, false),
+        };
+    }
+
+    if language == Language::Bash && kind == "command" {
+        // `source ./helpers.sh` — a source command is an import; every
+        // other command is a call.
+        let is_source = call_target_text(node, source, "name")
+            .as_deref()
+            .is_some_and(|target| target == "source" || target == ".");
+        return if is_source {
+            (Some(NodeKind::Import), false)
+        } else {
+            (None, false)
+        };
+    }
+
+    if language == Language::Nix && kind == "binding" {
+        // Nix binds a value in a `let` or an attribute set. A binding to
+        // a lambda is a function; any other binding is a value.
+        let mut cursor = node.walk();
+        let is_function = node
+            .named_children(&mut cursor)
+            .any(|c| c.kind() == "function_expression");
+        return (
+            Some(if is_function {
+                NodeKind::Function
+            } else {
+                NodeKind::Variable
+            }),
+            container,
+        );
     }
 
     (mapped, container)
@@ -3462,51 +4203,12 @@ fn detect_language(path: &str) -> Language {
     let ext = Path::new(path)
         .extension()
         .and_then(|v| v.to_str())
-        .unwrap_or("")
-        .to_ascii_lowercase();
+        .unwrap_or("");
 
-    match ext.as_str() {
-        "ts" => Language::TypeScript,
-        "tsx" => Language::Tsx,
-        "js" => Language::JavaScript,
-        "jsx" => Language::Jsx,
-        "py" => Language::Python,
-        "go" => Language::Go,
-        "rs" => Language::Rust,
-        "java" => Language::Java,
-        "c" => Language::C,
-        "h" => Language::C,
-        "cpp" | "cc" | "cxx" | "hpp" => Language::Cpp,
-        "cs" => Language::CSharp,
-        "php" => Language::Php,
-        "rb" => Language::Ruby,
-        "swift" => Language::Swift,
-        "kt" | "kts" => Language::Kotlin,
-        "liquid" => Language::Liquid,
-        "razor" | "cshtml" => Language::Blazor,
-        // New languages
-        "sh" | "bash" => Language::Bash,
-        "dart" => Language::Dart,
-        "ex" | "exs" => Language::Elixir,
-        "elm" => Language::Elm,
-        "erl" | "hrl" => Language::Erlang,
-        "f" | "f90" | "f95" => Language::Fortran,
-        "groovy" | "gradle" => Language::Groovy,
-        "hs" => Language::Haskell,
-        "jl" => Language::Julia,
-        "lua" => Language::Lua,
-        "md" | "markdown" => Language::Markdown,
-        "m" => Language::Matlab,
-        "nix" => Language::Nix,
-        "pl" | "pm" => Language::Perl,
-        "ps1" => Language::Powershell,
-        "r" => Language::R,
-        "scala" | "sc" => Language::Scala,
-        "toml" => Language::Toml,
-        "yml" | "yaml" => Language::Yaml,
-        "zig" => Language::Zig,
-        _ => Language::Unknown,
-    }
+    // The extension → language table lives in `config`, so that the
+    // detector and the default include patterns cannot drift apart.
+    // See `config::EXTENSION_LANGUAGES`.
+    crate::config::language_for_extension(ext)
 }
 
 fn now_millis() -> i64 {
