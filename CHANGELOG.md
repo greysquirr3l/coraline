@@ -62,6 +62,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   real three-argument signature and propagates the return code and the
   error message.
 
+- **A failed embedding-storage migration destroyed the embeddings it was
+  migrating.** `coraline migrate vec-ext` dropped the v1 `vectors`
+  table and *then* wrote the vec0 rows, with no transaction around it.
+  If a write failed — and it can: `vec0` enforces the declared width,
+  so an embedding whose width does not match the schema's `float[768]`
+  is rejected — the drop had already been committed, leaving the
+  project with no embeddings at all and needing a full re-embed to
+  recover. Both directions of the migration now run in a single
+  transaction, so a failure rolls the whole thing back and leaves the
+  source layout intact.
+
+- **A corrupt `vec0` text column could panic the process.** The
+  fallback decoder for a `float[]` column that holds text rather than
+  the usual little-endian BLOB computed a slice range from the
+  positions of `[` and `]`. A string whose `]` came before its `[`
+  produced an out-of-order range and panicked. It now parses the
+  delimiters as options and returns nothing for a malformed value,
+  rather than crashing.
+
 [issue-137]: https://github.com/greysquirr3l/coraline/issues/137
 
 ## [0.16.0] - 2026-10-27

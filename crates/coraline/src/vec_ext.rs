@@ -241,26 +241,39 @@ pub fn migrate_to_vec0_conn(conn: &Connection) -> std::io::Result<MigrationOutco
         }
     }
 
-    ensure_vec0_schema(conn)?;
+    // The conversion runs in a single transaction, so the v1 table is
+    // only dropped once every row has been written to the v0 tables.
+    //
+    // Without it, a failure part-way through the inserts would leave
+    // the project with the v1 table already dropped and only some of
+    // the embeddings written — every original embedding lost, and the
+    // project needing a full re-embed to recover. The inserts *can*
+    // fail: `vec0` enforces the declared width, and the schema
+    // declares `float[768]`.
+    let tx = conn.unchecked_transaction().map_err(super::db::io_other)?;
 
-    conn.execute_batch("DROP INDEX IF EXISTS idx_vectors_model; DROP TABLE IF EXISTS vectors;")
+    ensure_vec0_schema(&tx)?;
+
+    tx.execute_batch("DROP INDEX IF EXISTS idx_vectors_model; DROP TABLE IF EXISTS vectors;")
         .map_err(super::db::io_other)?;
 
     for (node_id, floats, model, created_at) in &rows_to_migrate {
         let json = floats_to_json(floats);
-        conn.execute(
+        tx.execute(
             "INSERT INTO vectors_vec (embedding) VALUES (vec_f32(?1))",
             params![json],
         )
         .map_err(super::db::io_other)?;
-        let rowid = conn.last_insert_rowid();
-        conn.execute(
+        let rowid = tx.last_insert_rowid();
+        tx.execute(
             "INSERT INTO vectors_meta (rowid, node_id, model, created_at)
              VALUES (?1, ?2, ?3, ?4)",
             params![rowid, node_id, model, created_at],
         )
         .map_err(super::db::io_other)?;
     }
+
+    tx.commit().map_err(super::db::io_other)?;
 
     Ok(MigrationOutcome::Migrated)
 }
@@ -380,7 +393,13 @@ pub fn migrate_to_v1_conn(conn: &Connection) -> std::io::Result<MigrationOutcome
         }
     }
 
-    conn.execute_batch(
+    // The conversion runs in a single transaction, so the v0 tables are
+    // only dropped once every row has been written to the v1 table.
+    // Without it, a failure part-way through the inserts would leave
+    // the project with both layouts half-populated.
+    let tx = conn.unchecked_transaction().map_err(super::db::io_other)?;
+
+    tx.execute_batch(
         "CREATE TABLE IF NOT EXISTS vectors (
              node_id TEXT PRIMARY KEY,
              embedding BLOB NOT NULL,
@@ -393,7 +412,7 @@ pub fn migrate_to_v1_conn(conn: &Connection) -> std::io::Result<MigrationOutcome
 
     for (node_id, floats, model, created_at) in &rows_to_migrate {
         let bytes: Vec<u8> = floats.iter().flat_map(|&f| f.to_le_bytes()).collect();
-        conn.execute(
+        tx.execute(
             "INSERT OR REPLACE INTO vectors (node_id, embedding, model, created_at)
              VALUES (?1, ?2, ?3, ?4)",
             params![node_id, bytes, model, created_at],
@@ -404,11 +423,13 @@ pub fn migrate_to_v1_conn(conn: &Connection) -> std::io::Result<MigrationOutcome
     // Drop the v0 tables. `vectors_vec` is a `vec0` virtual table, so
     // this needs the sqlite-vec module — which is registered, because
     // the read above already required it.
-    conn.execute_batch(
+    tx.execute_batch(
         "DROP TABLE IF EXISTS vectors_vec;
          DROP TABLE IF EXISTS vectors_meta;",
     )
     .map_err(super::db::io_other)?;
+
+    tx.commit().map_err(super::db::io_other)?;
 
     Ok(MigrationOutcome::Migrated)
 }
@@ -544,19 +565,37 @@ pub mod runtime {
         // `sqlite3_vec_init` only registers functions and a virtual
         // table module against the handle it is given — it does not
         // take ownership of it.
+        //
+        // `p_api` is passed as NULL, which is safe because the
+        // `sqlite-vec` crate compiles `sqlite-vec.c` with
+        // `-DSQLITE_CORE`, and the `SQLITE_EXTENSION_INIT2(pApi)` call
+        // inside `sqlite3_vec_init` is therefore compiled out. If that
+        // build flag ever changed, `sqlite3_api` would be assigned
+        // this NULL and the next `sqlite3_api->…` call would
+        // segfault.
         let rc = unsafe {
             let mut err_msg: *mut std::ffi::c_char = std::ptr::null_mut();
             let rc = sqlite3_vec_init(conn.handle(), &raw mut err_msg, std::ptr::null());
-            if rc != rusqlite::ffi::SQLITE_OK && !err_msg.is_null() {
-                // sqlite-vec allocates the message with
-                // `sqlite3_mprintf`, so it has to be freed with
-                // `sqlite3_free`.
+
+            // `sqlite3_vec_init` allocates the message with
+            // `sqlite3_mprintf`, so it has to be freed with
+            // `sqlite3_free`. It is freed whenever it is set, not only
+            // on the error path, so a future release that populated it
+            // on a success would not leak it.
+            let message = if err_msg.is_null() {
+                None
+            } else {
                 let message = std::ffi::CStr::from_ptr(err_msg)
                     .to_string_lossy()
                     .into_owned();
                 rusqlite::ffi::sqlite3_free(err_msg.cast::<std::ffi::c_void>());
-                return Err(io::Error::other(format!(
-                    "failed to load the sqlite-vec extension: {message}"
+                Some(message)
+            };
+
+            if rc != rusqlite::ffi::SQLITE_OK {
+                return Err(io::Error::other(message.map_or_else(
+                    || format!("failed to load the sqlite-vec extension (SQLite code {rc})"),
+                    |message| format!("failed to load the sqlite-vec extension: {message}"),
                 )));
             }
             rc
@@ -591,12 +630,20 @@ pub mod runtime {
     /// The return code and the error message are propagated rather
     /// than swallowed, so a failed init surfaces as a failed
     /// connection open instead of a confusing `no such module: vec0`
-    /// later on.
+    /// later on. sqlite-vec sets `*pzErrMsg` on both of its failure
+    /// paths (with `sqlite3_mprintf`, so the caller owns the string).
     extern "C" fn init_auto_extension(
         db: *mut rusqlite::ffi::sqlite3,
         pz_err_msg: *mut *mut std::ffi::c_char,
         p_api: *const rusqlite::ffi::sqlite3_api_routines,
     ) -> std::ffi::c_int {
+        // SAFETY: the three arguments are forwarded verbatim from
+        // SQLite's own auto-extension callback, which supplies a
+        // valid connection handle and a valid `sqlite3_api_routines`
+        // pointer. `sqlite3_vec_init` is declared here with that
+        // exact signature, so the call matches the function's real
+        // ABI — the `sqlite-vec` crate's own zero-argument
+        // declaration does not, and calling through it would be UB.
         unsafe { sqlite3_vec_init(db, pz_err_msg, p_api) }
     }
 

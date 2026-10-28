@@ -311,10 +311,27 @@ pub fn decode_vec0_embedding(raw: &rusqlite::types::Value) -> io::Result<Vec<f32
 ///
 /// Used for `vec0` columns that hold text rather than the usual
 /// little-endian BLOB.
+///
+/// Returns an empty vector for anything that is not a well-formed
+/// array — a corrupt or hand-edited database must not be able to
+/// panic the process. Elements that do not parse are skipped, so the
+/// result may be shorter than the array it came from; callers that
+/// care should check the length.
 fn parse_float_array(json: &str) -> Vec<f32> {
     let trimmed = json.trim();
-    let inner = &trimmed
-        [trimmed.find('[').map_or(0, |i| i + 1)..trimmed.rfind(']').unwrap_or(trimmed.len())];
+    // `find`/`rfind` rather than a computed range: a string whose
+    // `]` comes before its `[` would otherwise produce an
+    // out-of-order slice range and panic.
+    let Some(start) = trimmed.find('[') else {
+        return Vec::new();
+    };
+    let Some(end) = trimmed.rfind(']') else {
+        return Vec::new();
+    };
+    if end < start {
+        return Vec::new();
+    }
+    let inner = &trimmed[start + 1..end];
     inner
         .split(',')
         .filter_map(|s| s.trim().parse::<f32>().ok())

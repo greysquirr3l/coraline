@@ -237,6 +237,49 @@ fn migrate_to_vec0_then_back_to_vec1_preserves_the_embedding() {
 }
 
 #[test]
+fn a_failed_migration_leaves_the_source_table_intact() {
+    // The migration drops the v1 `vectors` table and then writes the
+    // vec0 rows. If the writes fail, the drop must not have been
+    // committed — otherwise the project is left with no embeddings at
+    // all and needs a full re-embed to recover.
+    //
+    // The way to make the writes fail is to give the v1 table an
+    // embedding whose width does not match the `vec0` schema's
+    // `float[768]`: `vec0` rejects a dimension mismatch.
+    let conn = v1_db();
+    seed_node(&conn, "node_a");
+
+    let wrong_width = vec![0.25_f32; 512];
+    let bytes: Vec<u8> = wrong_width.iter().flat_map(|f| f.to_le_bytes()).collect();
+    conn.execute(
+        "INSERT INTO vectors (node_id, embedding, model, created_at)
+         VALUES ('node_a', ?1, 'm', 0)",
+        rusqlite::params![bytes],
+    )
+    .expect("insert vector");
+
+    let outcome = coraline::vec_ext::migrate_to_vec0_conn(&conn);
+    assert!(
+        outcome.is_err(),
+        "a dimension mismatch must fail the migration, not corrupt the project"
+    );
+
+    // The v1 table must still be there, with its row intact.
+    assert_eq!(
+        VectorLayout::detect(&conn).expect("detect"),
+        VectorLayout::V1Blob,
+        "a failed migration must leave the project on the v1 layout"
+    );
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM vectors", [], |r| r.get(0))
+        .expect("count vectors");
+    assert_eq!(
+        count, 1,
+        "the original embedding must survive a failed migration"
+    );
+}
+
+#[test]
 fn migrate_to_vec1_reads_a_vec0_payload_as_bytes() {
     // `vec0` returns a `float[]` column as a raw little-endian BLOB,
     // not as the JSON text that was fed to `vec_f32()`. Reading it as
@@ -275,6 +318,22 @@ fn decode_vec0_embedding_rejects_an_unsupported_type() {
         coraline::vector_layout::decode_vec0_embedding(&value).is_err(),
         "an integer is not a valid embedding"
     );
+}
+
+#[test]
+fn decode_vec0_embedding_survives_malformed_text() {
+    // A corrupt or hand-edited database must not be able to panic the
+    // process. A `]` before the `[` used to produce an out-of-order
+    // slice range.
+    for text in ["]abc[", "no brackets at all", "[1,2", "", "[]", "[1,2,abc]"] {
+        let value = rusqlite::types::Value::Text(text.to_string());
+        let decoded = coraline::vector_layout::decode_vec0_embedding(&value)
+            .expect("malformed text must not panic");
+        assert!(
+            decoded.len() <= 3,
+            "a malformed array must not produce more elements than it had: {decoded:?}"
+        );
+    }
 }
 
 // ── clear_database on a real v0 database ───────────────────────────────────
