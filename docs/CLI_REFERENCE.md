@@ -543,9 +543,9 @@ coraline update
 **Output (when up to date):**
 
 ```
-Coraline v0.17.0 — checking for updates...
+Coraline v0.17.1 — checking for updates...
 
-✓ Coraline v0.17.0 is up to date.
+✓ Coraline v0.17.1 is up to date.
 ```
 
 **Output (when update available):**
@@ -553,7 +553,7 @@ Coraline v0.17.0 — checking for updates...
 ```
 Coraline v0.16.0 — checking for updates...
 
-⬆ Update available: v0.16.0 → v0.17.0
+⬆ Update available: v0.17.0 → v0.17.1
 
   To update, run:
     cargo install coraline --force
