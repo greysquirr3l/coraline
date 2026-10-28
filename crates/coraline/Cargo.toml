@@ -27,7 +27,7 @@ clap = { version = "4", features = ["derive"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 tracing-appender = "0.2"
-rusqlite = { version = "0.40", features = ["bundled"] }
+rusqlite = { version = "0.41", features = ["bundled"] }
 sha2 = "0.11"
 hex = "0.4"
 regex = "1"
@@ -95,7 +95,7 @@ insta = "1.47"
 regex = "1"
 proptest = "1"
 criterion = { version = "0.8", features = ["html_reports"] }
-rusqlite = { version = "0.40", features = ["bundled"] }
+rusqlite = { version = "0.41", features = ["bundled"] }
 
 [[bench]]
 name = "indexing"
