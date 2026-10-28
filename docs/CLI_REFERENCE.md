@@ -530,6 +530,8 @@ Undocumented exports (1 total)
 
 Check whether a newer version of Coraline is published on crates.io. Compares the running binary version against the latest release and prints upgrade instructions when an update is available.
 
+This command does not need a project — it compares the running binary against crates.io, so it works from anywhere.
+
 **Options:** None.
 
 **Examples:**
@@ -541,14 +543,22 @@ coraline update
 **Output (when up to date):**
 
 ```
-✓ coraline is up to date (v0.17.0)
+Coraline v0.17.0 — checking for updates...
+
+✓ Coraline v0.17.0 is up to date.
 ```
 
 **Output (when update available):**
 
 ```
-Update available: v0.16.0 → v0.17.0
-Run `cargo install coraline` to upgrade.
+Coraline v0.16.0 — checking for updates...
+
+⬆ Update available: v0.16.0 → v0.17.0
+
+  To update, run:
+    cargo install coraline --force
+
+  Or visit: https://crates.io/crates/coraline
 ```
 
 ---

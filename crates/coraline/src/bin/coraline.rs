@@ -58,6 +58,8 @@ enum Command {
     Model(ModelArgs),
     /// Migrate the project's embedding storage between layouts.
     Migrate(StorageMigrationArgs),
+    /// Check for available updates on crates.io.
+    Update,
 }
 
 #[derive(Debug, Args)]
@@ -395,7 +397,7 @@ fn main() {
         #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
         Command::Model(a) => a.path.clone(),
         Command::Migrate(a) => a.path.clone(),
-        Command::Install => None,
+        Command::Install | Command::Update => None,
     };
     let project_root = resolve_project_root(project_root_hint);
     // Suppress logging entirely during a fresh `init` so stdout progress
@@ -447,6 +449,27 @@ fn main() {
         #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
         Command::Model(args) => run_model(args),
         Command::Migrate(args) => run_storage_migration(args),
+        Command::Update => run_update(),
+    }
+}
+
+/// `coraline update` — check crates.io for a newer published release.
+///
+/// This does not need a project: it compares the running binary's
+/// version against the latest one on crates.io, so it works from
+/// anywhere.
+fn run_update() {
+    let version = env!("CARGO_PKG_VERSION");
+    println!("Coraline v{version} — checking for updates...\n");
+
+    match coraline::update::check_for_update() {
+        Ok(status) => coraline::update::print_update_status(&status),
+        Err(err) => {
+            eprintln!("Failed to check for updates: {err}");
+            eprintln!();
+            eprintln!("You can manually check: https://crates.io/crates/coraline");
+            std::process::exit(1);
+        }
     }
 }
 
@@ -2151,6 +2174,58 @@ mod tests {
     use super::*;
 
     type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+    /// Every command the CLI reference documents must actually parse.
+    ///
+    /// `coraline update` was documented in `docs/CLI_REFERENCE.md` for
+    /// months while its `Command` variant had been removed by an
+    /// unrelated refactor — the docs and the binary drifted apart and
+    /// nothing caught it. This test pins the documented surface to the
+    /// real one.
+    #[test]
+    fn documented_commands_all_parse() -> TestResult {
+        for (command, args) in [
+            ("init", vec!["--no-embed"]),
+            ("index", vec![]),
+            ("sync", vec![]),
+            ("status", vec![]),
+            ("stats", vec![]),
+            ("doctor", vec![]),
+            ("query", vec!["Foo"]),
+            ("context", vec!["a task"]),
+            ("callers", vec!["node-id"]),
+            ("callees", vec!["node-id"]),
+            ("impact", vec!["node-id"]),
+            ("config", vec![]),
+            ("hooks", vec!["install"]),
+            ("serve", vec![]),
+            ("audit-docs", vec![]),
+            ("embed", vec![]),
+            ("model", vec!["list"]),
+            ("migrate", vec!["vec-ext"]),
+            ("update", vec![]),
+        ] {
+            let mut argv = vec!["coraline", command];
+            argv.extend(args.iter().copied());
+            Cli::try_parse_from(&argv)
+                .map_err(|err| format!("`coraline {command}` does not parse: {err}"))?;
+        }
+        Ok(())
+    }
+
+    /// `coraline update` was dropped from the `Command` enum by the
+    /// config-consolidation refactor while `docs/CLI_REFERENCE.md`
+    /// kept documenting it and `src/update.rs` was left behind as dead
+    /// code. This pins the variant back in place.
+    #[test]
+    fn update_command_is_wired_up() -> TestResult {
+        let cli = Cli::try_parse_from(["coraline", "update"])?;
+        assert!(
+            matches!(cli.command, Some(Command::Update)),
+            "`coraline update` must reach the Update variant"
+        );
+        Ok(())
+    }
 
     /// A bare `.coraline/` directory (e.g. left behind by logging, or any
     /// other incidental creator) must not count as "initialized" — only a

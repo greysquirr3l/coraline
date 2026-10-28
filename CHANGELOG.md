@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`coraline update` was documented but did not exist.** The
+  `Update` variant was removed from the CLI's `Command` enum by the
+  config-consolidation refactor in June 2026 — collateral damage in a
+  commit whose subject was `feat(config): consolidate to config.toml`.
+  `docs/CLI_REFERENCE.md` kept documenting the command, and
+  `crates/coraline/src/update.rs` was left behind with
+  `check_for_update()` never called by anything.
+
+  The command is restored, and its documentation now matches what it
+  actually prints: the previous examples showed an output format the
+  code had never produced.
+
+  The root cause was the docs and the binary drifting apart with
+  nothing to notice, so there is now a test that parses every command
+  the CLI reference documents — `coraline update` included — which
+  fails if a documented command stops existing.
+
 ## [0.17.0] - 2026-10-28
 
 ### Added
