@@ -80,36 +80,33 @@ fn seed_node(conn: &Connection, id: &str) {
 /// Store a real embedding in whichever layout the database uses.
 fn seed_embedding(conn: &Connection, node_id: &str, model: &str) {
     let embedding = vec![0.25_f32; 768];
-    match VectorLayout::detect(conn)
+    let relation = VectorLayout::detect(conn)
         .expect("detect")
-        .metadata_relation()
-    {
-        "vectors_meta" => {
-            // The v0 layout keeps the payload in the `vec0` table and
-            // the metadata in its companion.
-            let json = serde_json::to_string(&embedding).expect("serialize embedding");
-            conn.execute(
-                "INSERT INTO vectors_vec (embedding) VALUES (vec_f32(?1))",
-                rusqlite::params![json],
-            )
-            .expect("insert vec0 payload");
-            let rowid = conn.last_insert_rowid();
-            conn.execute(
-                "INSERT INTO vectors_meta (rowid, node_id, model, created_at)
-                 VALUES (?1, ?2, ?3, 0)",
-                rusqlite::params![rowid, node_id, model],
-            )
-            .expect("insert vectors_meta row");
-        }
-        _ => {
-            let bytes: Vec<u8> = embedding.iter().flat_map(|f| f.to_le_bytes()).collect();
-            conn.execute(
-                "INSERT INTO vectors (node_id, embedding, model, created_at)
-                 VALUES (?1, ?2, ?3, 0)",
-                rusqlite::params![node_id, bytes, model],
-            )
-            .expect("insert vector");
-        }
+        .metadata_relation();
+    if relation == "vectors_meta" {
+        // The v0 layout keeps the payload in the `vec0` table and
+        // the metadata in its companion.
+        let json = serde_json::to_string(&embedding).expect("serialize embedding");
+        conn.execute(
+            "INSERT INTO vectors_vec (embedding) VALUES (vec_f32(?1))",
+            rusqlite::params![json],
+        )
+        .expect("insert vec0 payload");
+        let rowid = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO vectors_meta (rowid, node_id, model, created_at)
+             VALUES (?1, ?2, ?3, 0)",
+            rusqlite::params![rowid, node_id, model],
+        )
+        .expect("insert vectors_meta row");
+    } else {
+        let bytes: Vec<u8> = embedding.iter().flat_map(|f| f.to_le_bytes()).collect();
+        conn.execute(
+            "INSERT INTO vectors (node_id, embedding, model, created_at)
+             VALUES (?1, ?2, ?3, 0)",
+            rusqlite::params![node_id, bytes, model],
+        )
+        .expect("insert vector");
     }
 }
 
@@ -171,13 +168,17 @@ fn stats_tool_works_on_a_v0_database() {
     let root = tempdir("stats-v0");
     copy_db(&conn, &root);
 
-    let tool = StatsTool::new(root.clone());
+    let tool = StatsTool::new(root);
     let result = tool
         .execute(json!({}))
         .expect("stats must not fail on a v0 database");
 
+    let vectors = result
+        .get("totals")
+        .and_then(|totals| totals.get("vectors"))
+        .and_then(serde_json::Value::as_u64);
     assert_eq!(
-        result["totals"]["vectors"].as_u64(),
+        vectors,
         Some(1),
         "the v0 layout holds one embedding: {result}"
     );
@@ -256,7 +257,8 @@ fn migrate_to_vec1_reads_a_vec0_payload_as_bytes() {
 
     let decoded = coraline::vector_layout::decode_vec0_embedding(&raw).expect("decode");
     assert_eq!(decoded.len(), 768);
-    assert!((decoded[0] - 0.25).abs() < 1e-6);
+    let first = decoded.first().copied().unwrap_or_default();
+    assert!((first - 0.25).abs() < 1e-6);
 }
 
 #[test]

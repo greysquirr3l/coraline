@@ -286,7 +286,12 @@ pub fn ensure_vec0_schema(conn: &Connection) -> io::Result<()> {
     // registered on *this* connection. A connection opened before the
     // auto-extension was registered does not have it, so load it
     // explicitly rather than failing with `no such module: vec0`.
-    crate::vec_ext::runtime::enable_extension(conn)?;
+    //
+    // `load_module` rather than `enable_extension`: this function's
+    // job is to ensure the *tables* exist in this database. Registering
+    // the process-wide auto-extension would be a side effect that
+    // changes every other connection in the process.
+    crate::vec_ext::runtime::load_module(conn)?;
 
     conn.execute_batch(
         "CREATE VIRTUAL TABLE IF NOT EXISTS vectors_vec USING vec0(
@@ -492,6 +497,20 @@ pub mod runtime {
         unsafe {
             rusqlite::auto_extension::register_auto_extension(raw).map_err(io::Error::other)?;
         }
+        load_module(conn)
+    }
+
+    /// Load the sqlite-vec module into a single connection, without
+    /// registering the process-wide auto-extension.
+    ///
+    /// This is the narrow half of [`enable_extension`]: it affects
+    /// only the connection it is given, and leaves every other
+    /// connection in the process alone. That distinction matters for
+    /// a build that must observe what a *different* build's project
+    /// looks like — a default build has no sqlite-vec module at all,
+    /// and a test that wanted to reproduce that state could not get
+    /// it back once the auto-extension had been registered.
+    pub fn load_module(conn: &Connection) -> io::Result<()> {
         load_into_connection(conn)
     }
 

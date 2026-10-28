@@ -111,3 +111,7 @@ required-features = ["vec-ext"]
 name = "vec_ext_module_load_test"
 required-features = ["vec-ext"]
 
+[[test]]
+name = "vec_ext_no_module_test"
+required-features = ["vec-ext"]
+
