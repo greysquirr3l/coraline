@@ -5,6 +5,65 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **The vector storage layout is detected at runtime instead of at
+  compile time.** Coraline has two on-disk layouts for embeddings: the
+  v1 BLOB layout (`vectors`, one little-endian `f32` blob per node) and
+  the sqlite-vec v0 layout (`vectors_vec`, a `vec0` virtual table, plus
+  a `vectors_meta` companion). The SQL that reached those tables was
+  selected with `#[cfg(feature = "vec-ext")]` — a compile-time switch
+  standing in for what is actually a property of the *database file*.
+
+  That broke half of the (build × layout) matrix, because a project
+  indexed by one build can be opened by the other:
+
+  | Build   | Database | What broke                                        |
+  | ------- | -------- | ------------------------------------------------- |
+  | default | v1       | —                                                 |
+  | default | v0       | `coraline_stats`: `no such table: vectors`        |
+  | vec-ext | v1       | `coraline_stats`: `no such table: vectors`        |
+  | vec-ext | v0       | —                                                 |
+
+  `coraline_stats` was the visible symptom ([#137][issue-137]): it
+  counted embeddings with a hard-coded `SELECT COUNT(*) FROM vectors`,
+  so a project on the v0 layout returned no statistics at all — not a
+  partial answer, an error. The same switch picked the wrong SQL for
+  `clear_database`, the unembedded-node coverage query, and the
+  staleness queries, and a `vec-ext` build clearing a half-migrated
+  database failed with `no such table: vectors_vec`.
+
+  `crates/coraline/src/vector_layout.rs` now detects the layout from
+  the open connection, and every vector-related statement resolves the
+  table it needs from that. The two layouts expose identical metadata
+  columns in different tables, so every *metadata* query is written
+  once and only *payload* queries need the `vec0` module.
+
+  Whether the `vec0` module is loaded is also a runtime property:
+  `sqlite3_auto_extension` only fires when a connection is *opened*, so
+  registering it does nothing for a connection that already exists.
+  `enable_extension` now loads the module onto the connection it was
+  handed, and `PRAGMA module_list` is used to check for it.
+
+- **`coraline migrate vec-ext` (the v0 → v1 direction) failed on every
+  project.** sqlite-vec returns a `float[]` column as a raw
+  little-endian BLOB, not as the JSON text that was handed to
+  `vec_f32()` on the way in. The migration read the column as text, so
+  it died with `InvalidColumnType` before it could migrate anything.
+  It now decodes both shapes.
+
+- **`sqlite3_vec_init` was called with the wrong signature.** The
+  bridge Coraline registers as a SQLite auto-extension called
+  `sqlite3_vec_init()` with no arguments, discarding the connection
+  handle the function uses to register the `vec0` module, and hardcoded
+  `SQLITE_OK` so a failed init was invisible. It now uses sqlite-vec's
+  real three-argument signature and propagates the return code and the
+  error message.
+
+[issue-137]: https://github.com/greysquirr3l/coraline/issues/137
+
 ## [0.16.0] - 2026-10-27
 
 ### Added

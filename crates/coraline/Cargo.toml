@@ -101,3 +101,13 @@ rusqlite = { version = "0.40", features = ["bundled"] }
 name = "indexing"
 harness = false
 
+# These test binaries need the sqlite-vec `vec0` virtual-table module,
+# which only exists in a `vec-ext` build.
+[[test]]
+name = "vec_ext_layout_test"
+required-features = ["vec-ext"]
+
+[[test]]
+name = "vec_ext_module_load_test"
+required-features = ["vec-ext"]
+

@@ -10,6 +10,9 @@ use crate::types::{
     UnresolvedReference, Visibility,
 };
 use crate::utils::f64_to_f32_lossy;
+use crate::vector_layout::VectorLayout;
+use crate::vector_layout::vec0_module_loaded;
+use crate::vector_layout::vec0_payload_table_exists;
 
 pub const DATABASE_FILENAME: &str = "coraline.db";
 pub const SCHEMA_SQL: &str = include_str!("db/schema.sql");
@@ -171,36 +174,85 @@ pub fn open_database(project_root: &Path) -> std::io::Result<Connection> {
     Ok(conn)
 }
 
+/// Clear every indexed row from the database.
+///
+/// The vector storage layout is detected at runtime (see
+/// [`crate::vector_layout`]) rather than assumed from the `vec-ext`
+/// Cargo feature, because the layout is a property of the *database
+/// file* — a project created by one build can be opened by another.
+///
+/// Only tables that exist in the detected layout are touched:
+/// SQLite raises `no such table` at *prepare* time for a `DELETE`
+/// against a missing table, so a blanket `DELETE FROM vectors` on a
+/// v0 database (or `DELETE FROM vectors_vec` on a v1 database) is a
+/// hard error, not a no-op. And `vectors_vec` is a `vec0` virtual
+/// table — it can only be read or written by a build that has the
+/// sqlite-vec module loaded.
+///
+/// Wrapped in a single batch so a partial failure rolls back the
+/// whole delete and the caller sees a consistent state.
 pub fn clear_database(conn: &Connection) -> std::io::Result<()> {
-    // The vectors storage layout depends on the `vec-ext` Cargo feature
-    // (v1: `vectors` BLOB table; v0: `vectors_vec` virtual table plus a
-    // `vectors_meta` companion). The default build's schema is created
-    // by SCHEMA_SQL on every open; under vec-ext, ensure_vec0_schema
-    // (called by the embedding dispatch) migrates to v0 on first use.
-    // Either way, this function unconditionally clears the rows of both
-    // layouts — DELETE FROM a non-existent table is a no-op as long as
-    // the statement parses, and SQLite's `if_exists` flag on
-    // sqlite_master lookup would still error on a bare `DELETE FROM
-    // vectors` here if v0 was always in place.
-    //
-    // Wrapped in a single batch so a partial failure rolls back the
-    // whole delete and the caller sees a consistent state.
-    #[cfg(feature = "vec-ext")]
-    let sql = "DELETE FROM unresolved_refs;
-               DELETE FROM vectors_meta;
-               DELETE FROM vectors_vec;
-               DELETE FROM edges;
-               DELETE FROM nodes;
-               DELETE FROM files;";
+    let layout = VectorLayout::detect(conn)?;
 
-    #[cfg(not(feature = "vec-ext"))]
-    let sql = "DELETE FROM unresolved_refs;
-               DELETE FROM vectors;
-               DELETE FROM edges;
-               DELETE FROM nodes;
-               DELETE FROM files;";
+    // The `vectors_vec` payload rows only exist in the v0 layout, and
+    // only a `vec-ext` build can touch them (the `vec0` virtual-table
+    // module is not registered otherwise). The `vectors_meta` rows are
+    // an ordinary table and are readable by every build.
+    let vector_sql = match layout {
+        VectorLayout::V1Blob => "DELETE FROM vectors;",
+        VectorLayout::V0Vec => {
+            // The `vec0` payload table can only be read, written, or
+            // dropped by a connection that has the sqlite-vec module
+            // loaded *and* the table actually present. Both are
+            // runtime properties:
+            //
+            // - The module is loaded per-connection, and
+            //   `sqlite3_auto_extension` only fires on connection
+            //   *open* — so a connection opened before registration
+            //   does not have it.
+            // - The table may be missing from a half-migrated
+            //   database.
+            //
+            // Checking either one at compile time (`#[cfg(feature =
+            // "vec-ext")]`) gets it wrong in both directions: a
+            // `vec-ext` build still hits `no such table: vectors_vec`
+            // on a half-migrated database, and a default build can
+            // still hold a fully-formed v0 database.
+            if vec0_payload_table_exists(conn)? {
+                if vec0_module_loaded(conn)? {
+                    "DELETE FROM vectors_meta; DELETE FROM vectors_vec;"
+                } else {
+                    // The payload table exists but this connection
+                    // cannot touch it. Clearing only the metadata
+                    // would orphan the payloads, so skip the whole
+                    // vector wipe and leave the storage consistent.
+                    warn!(
+                        "clearing vectors skipped: project uses the sqlite-vec (v0) \
+                         layout and the sqlite-vec module is not loaded on this \
+                         connection; the `vectors_vec` table cannot be read, \
+                         written, or dropped without it"
+                    );
+                    ""
+                }
+            } else {
+                // No payload table: there is nothing that a build
+                // without the sqlite-vec module would be unable to
+                // remove, so the metadata rows can still be cleared.
+                "DELETE FROM vectors_meta;"
+            }
+        }
+        VectorLayout::Absent => "",
+    };
 
-    conn.execute_batch(sql).map_err(io_other)?;
+    let sql = format!(
+        "DELETE FROM unresolved_refs;
+         {vector_sql}
+         DELETE FROM edges;
+         DELETE FROM nodes;
+         DELETE FROM files;"
+    );
+
+    conn.execute_batch(&sql).map_err(io_other)?;
 
     Ok(())
 }
@@ -1221,25 +1273,35 @@ pub fn get_all_nodes(conn: &Connection) -> std::io::Result<Vec<Node>> {
     Ok(results)
 }
 
-/// Return nodes that have no row in the `vectors` table for `model`.
+/// Return nodes that have no embedding row for `model`.
 ///
 /// A node with an embedding from a *different* (previously configured)
 /// model still counts as unembedded here, so coverage reporting stays
 /// honest across model switches.
+///
+/// The metadata relation (`vectors` or `vectors_meta`) is resolved
+/// from the database's actual storage layout at runtime — see
+/// [`crate::vector_layout`].
 pub fn get_unembedded_nodes(conn: &Connection, model: &str) -> std::io::Result<Vec<Node>> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT n.id, n.kind, n.name, n.qualified_name, n.file_path, n.language,
-                    n.start_line, n.end_line, n.start_column, n.end_column,
-                    n.docstring, n.signature, n.visibility,
-                    n.is_exported, n.is_async, n.is_static, n.is_abstract,
-                    n.decorators, n.type_parameters, n.updated_at
-             FROM nodes n
-             LEFT JOIN vectors v ON n.id = v.node_id AND v.model = ?1
-             WHERE v.node_id IS NULL
-             ORDER BY n.file_path ASC, n.start_line ASC",
-        )
-        .map_err(io_other)?;
+    let layout = VectorLayout::detect(conn)?;
+    let relation = layout.metadata_relation();
+
+    // `relation` is one of a closed set of compile-time constants (a
+    // table name, or an always-empty inline relation) — never user
+    // input — so interpolating it into the statement is safe.
+    let sql = format!(
+        "SELECT n.id, n.kind, n.name, n.qualified_name, n.file_path, n.language,
+                n.start_line, n.end_line, n.start_column, n.end_column,
+                n.docstring, n.signature, n.visibility,
+                n.is_exported, n.is_async, n.is_static, n.is_abstract,
+                n.decorators, n.type_parameters, n.updated_at
+         FROM nodes n
+         LEFT JOIN {relation} v ON n.id = v.node_id AND v.model = ?1
+         WHERE v.node_id IS NULL
+         ORDER BY n.file_path ASC, n.start_line ASC"
+    );
+
+    let mut stmt = conn.prepare(&sql).map_err(io_other)?;
 
     let rows = stmt
         .query_map(params![model], row_to_node)
@@ -1579,12 +1641,37 @@ mod tests {
     }
 
     fn seed_vector(conn: &Connection, node_id: &str, model: &str) {
-        conn.execute(
-            "INSERT INTO vectors (node_id, embedding, model, created_at)
-             VALUES (?1, x'00', ?2, 0)",
-            [node_id, model],
-        )
-        .expect("insert vector");
+        // The metadata relation depends on the database's on-disk
+        // layout, not on how the binary was built — see
+        // `crate::vector_layout`.
+        match crate::vector_layout::VectorLayout::detect(conn)
+            .expect("detect layout")
+            .metadata_relation()
+        {
+            "vectors_meta" => {
+                let next_rowid: i64 = conn
+                    .query_row(
+                        "SELECT COALESCE(MAX(rowid), 0) + 1 FROM vectors_meta",
+                        [],
+                        |row| row.get(0),
+                    )
+                    .expect("next rowid");
+                conn.execute(
+                    "INSERT INTO vectors_meta (rowid, node_id, model, created_at)
+                     VALUES (?1, ?2, ?3, 0)",
+                    rusqlite::params![next_rowid, node_id, model],
+                )
+                .expect("insert vectors_meta row");
+            }
+            _ => {
+                conn.execute(
+                    "INSERT INTO vectors (node_id, embedding, model, created_at)
+                     VALUES (?1, x'00', ?2, 0)",
+                    [node_id, model],
+                )
+                .expect("insert vector");
+            }
+        }
     }
 
     #[test]
