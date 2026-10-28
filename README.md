@@ -138,7 +138,32 @@ coraline config <subcommand>              # Read / update configuration
 coraline hooks install                    # Auto-sync on git commits
 coraline model <subcommand>               # Manage the embedding model
 coraline embed [--download]               # Generate semantic embeddings
+coraline migrate <target> [path]          # Convert embedding storage layout
 coraline serve --mcp [--timeout <ms>]     # Start MCP server
+```
+
+### Embedding storage layouts
+
+Coraline stores embeddings in one of two on-disk layouts, and the
+layout is a property of the *project*, not of the binary that opens it:
+
+| Layout | Metadata | Payload |
+| ------ | -------- | ------- |
+| **v1 (BLOB)** | `vectors` | `vectors.embedding` — a little-endian `f32` blob |
+| **v0 (sqlite-vec)** | `vectors_meta` | `vectors_vec` — a `vec0` virtual table |
+
+A project indexed by one build can be opened by the other, so Coraline
+detects the layout at runtime and resolves every vector query against
+whichever one the project actually uses.
+
+Converting between them is explicit, because it changes the project's
+on-disk layout, and it needs a binary built with the `vec-ext` feature:
+
+```bash
+cargo build --features vec-ext --bin coraline
+
+coraline migrate vec-ext   # v1 BLOB  -> sqlite-vec (v0)
+coraline migrate vec1      # sqlite-vec (v0) -> v1 BLOB
 ```
 
 ## MCP Tools
