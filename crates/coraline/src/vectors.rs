@@ -56,12 +56,12 @@ use ort::{
     value::TensorRef,
 };
 use rusqlite::Connection;
-#[cfg(not(feature = "vec-ext"))]
 use rusqlite::params;
 use tokenizers::Tokenizer;
 
 use crate::config::VectorsConfig;
 use crate::types::SearchResult;
+use crate::vector_layout::VectorLayout;
 
 /// Identifier for the default shipped embedding model.
 pub const DEFAULT_MODEL: &str = "nomic-embed-text-v1.5";
@@ -752,6 +752,11 @@ pub fn node_embed_text(
 
 /// Store an embedding vector for a node in the database.
 ///
+/// The storage layout is resolved from the database at runtime, not
+/// from the `vec-ext` Cargo feature — the layout belongs to the
+/// database file, so a project created by one build can be opened by
+/// another. See [`crate::vector_layout`].
+///
 /// # Arguments
 ///
 /// * `conn` - Database connection
@@ -764,34 +769,73 @@ pub fn store_embedding(
     embedding: &[f32],
     model_name: &str,
 ) -> io::Result<()> {
-    // Vec-ext fast path: sqlite-vec KNN storage. Compiled in only
-    // when the `vec-ext` Cargo feature is enabled.
-    #[cfg(feature = "vec-ext")]
-    {
-        crate::vec_ext::runtime::enable_extension(conn)?;
-        crate::vec_ext::runtime::store_embedding_vec0(conn, node_id, embedding, model_name)
+    match VectorLayout::detect(conn)? {
+        VectorLayout::V0Vec => store_embedding_vec0(conn, node_id, embedding, model_name),
+        // A project with no vector storage yet is on the v1 layout as
+        // soon as it stores anything — `SCHEMA_SQL` creates the
+        // `vectors` table, and `initialize_database` runs it.
+        VectorLayout::V1Blob | VectorLayout::Absent => {
+            store_embedding_blob(conn, node_id, embedding, model_name)
+        }
     }
+}
 
-    // Default path: BLOB-cosine storage (no vec-ext feature).
-    #[cfg(not(feature = "vec-ext"))]
-    {
-        // Convert f32 slice to bytes
-        let embedding_bytes: Vec<u8> = embedding.iter().flat_map(|&f| f.to_le_bytes()).collect();
+/// Store an embedding in the v1 BLOB `vectors` table.
+///
+/// The payload is a little-endian `f32` blob; reads and similarity
+/// searches are done in Rust.
+fn store_embedding_blob(
+    conn: &Connection,
+    node_id: &str,
+    embedding: &[f32],
+    model_name: &str,
+) -> io::Result<()> {
+    // Convert f32 slice to bytes
+    let embedding_bytes: Vec<u8> = embedding.iter().flat_map(|&f| f.to_le_bytes()).collect();
 
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_err(|e| io::Error::other(format!("Failed to get system time: {}", e)))?
-            .as_millis() as i64;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| io::Error::other(format!("Failed to get system time: {}", e)))?
+        .as_millis() as i64;
 
-        conn.execute(
-            "INSERT OR REPLACE INTO vectors (node_id, embedding, model, created_at)
-             VALUES (?1, ?2, ?3, ?4)",
-            params![node_id, embedding_bytes, model_name, now],
-        )
-        .map_err(|e| io::Error::other(format!("Failed to store embedding: {}", e)))?;
+    conn.execute(
+        "INSERT OR REPLACE INTO vectors (node_id, embedding, model, created_at)
+         VALUES (?1, ?2, ?3, ?4)",
+        params![node_id, embedding_bytes, model_name, now],
+    )
+    .map_err(|e| io::Error::other(format!("Failed to store embedding: {}", e)))?;
 
-        Ok(())
-    }
+    Ok(())
+}
+
+/// Store an embedding in the sqlite-vec `vec0` layout.
+///
+/// Requires the `vec-ext` Cargo feature: the `vec0` virtual-table
+/// module is not registered otherwise, and SQLite answers
+/// `no such module: vec0`. Without this error the caller would
+/// silently skip every node.
+#[cfg(feature = "vec-ext")]
+fn store_embedding_vec0(
+    conn: &Connection,
+    node_id: &str,
+    embedding: &[f32],
+    model_name: &str,
+) -> io::Result<()> {
+    crate::vec_ext::runtime::enable_extension(conn)?;
+    crate::vec_ext::runtime::store_embedding_vec0(conn, node_id, embedding, model_name)
+}
+
+/// The `vec-ext`-less counterpart of [`store_embedding_vec0`].
+#[cfg(not(feature = "vec-ext"))]
+fn store_embedding_vec0(
+    _conn: &Connection,
+    _node_id: &str,
+    _embedding: &[f32],
+    _model_name: &str,
+) -> io::Result<()> {
+    Err(crate::vector_layout::vec0_unavailable_error(
+        "store an embedding",
+    ))
 }
 
 /// Load an embedding vector from the database.
@@ -805,40 +849,55 @@ pub fn store_embedding(
 ///
 /// The embedding vector or None if not found.
 pub fn load_embedding(conn: &Connection, node_id: &str) -> io::Result<Option<Vec<f32>>> {
-    // Vec-ext fast path.
-    #[cfg(feature = "vec-ext")]
-    {
-        crate::vec_ext::runtime::enable_extension(conn)?;
-        crate::vec_ext::runtime::load_embedding_vec0(conn, node_id)
+    match VectorLayout::detect(conn)? {
+        VectorLayout::V0Vec => load_embedding_vec0(conn, node_id),
+        VectorLayout::V1Blob | VectorLayout::Absent => load_embedding_blob(conn, node_id),
     }
+}
 
-    // Default BLOB path.
-    #[cfg(not(feature = "vec-ext"))]
-    {
-        let mut stmt = conn
-            .prepare("SELECT embedding FROM vectors WHERE node_id = ?1")
-            .map_err(|e| io::Error::other(format!("Failed to prepare query: {}", e)))?;
+/// Load an embedding from the v1 BLOB `vectors` table.
+fn load_embedding_blob(conn: &Connection, node_id: &str) -> io::Result<Option<Vec<f32>>> {
+    let mut stmt = conn
+        .prepare("SELECT embedding FROM vectors WHERE node_id = ?1")
+        .map_err(|e| io::Error::other(format!("Failed to prepare query: {}", e)))?;
 
-        let mut rows = stmt
-            .query(params![node_id])
-            .map_err(|e| io::Error::other(format!("Failed to query: {}", e)))?;
+    let mut rows = stmt
+        .query(params![node_id])
+        .map_err(|e| io::Error::other(format!("Failed to query: {}", e)))?;
 
-        match rows.next().map_err(io::Error::other)? {
-            Some(row) => {
-                let bytes: Vec<u8> = row.get(0).map_err(io::Error::other)?;
+    match rows.next().map_err(io::Error::other)? {
+        Some(row) => {
+            let bytes: Vec<u8> = row.get(0).map_err(io::Error::other)?;
 
-                // Convert bytes back to f32 slice
-                let embedding: Vec<f32> = bytes
-                    .as_chunks::<4>()
-                    .0
-                    .iter()
-                    .map(|chunk| f32::from_le_bytes(*chunk))
-                    .collect();
-                Ok(Some(embedding))
-            }
-            None => Ok(None),
+            // Convert bytes back to f32 slice
+            let embedding: Vec<f32> = bytes
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|chunk| f32::from_le_bytes(*chunk))
+                .collect();
+            Ok(Some(embedding))
         }
+        None => Ok(None),
     }
+}
+
+/// Load an embedding from the sqlite-vec `vec0` layout.
+///
+/// Requires the `vec-ext` Cargo feature — the `vec0` module is not
+/// registered otherwise.
+#[cfg(feature = "vec-ext")]
+fn load_embedding_vec0(conn: &Connection, node_id: &str) -> io::Result<Option<Vec<f32>>> {
+    crate::vec_ext::runtime::enable_extension(conn)?;
+    crate::vec_ext::runtime::load_embedding_vec0(conn, node_id)
+}
+
+/// The `vec-ext`-less counterpart of [`load_embedding_vec0`].
+#[cfg(not(feature = "vec-ext"))]
+fn load_embedding_vec0(_conn: &Connection, _node_id: &str) -> io::Result<Option<Vec<f32>>> {
+    Err(crate::vector_layout::vec0_unavailable_error(
+        "load an embedding",
+    ))
 }
 
 /// Calculate cosine similarity between two vectors.
@@ -901,21 +960,25 @@ pub fn search_similar(
     limit: usize,
     min_similarity: f32,
 ) -> io::Result<Vec<SearchResult>> {
-    // Vec-ext fast path: sqlite-vec KNN operator.
-    #[cfg(feature = "vec-ext")]
-    {
-        crate::vec_ext::runtime::enable_extension(conn)?;
-        crate::vec_ext::runtime::search_similar_vec0(
-            conn,
-            query_embedding,
-            model,
-            limit,
-            min_similarity,
-        )
+    match VectorLayout::detect(conn)? {
+        VectorLayout::V0Vec => {
+            search_similar_vec0(conn, query_embedding, model, limit, min_similarity)
+        }
+        VectorLayout::V1Blob | VectorLayout::Absent => {
+            search_similar_blob(conn, query_embedding, model, limit, min_similarity)
+        }
     }
+}
 
-    // Default BLOB-cosine path.
-    #[cfg(not(feature = "vec-ext"))]
+/// Search using the v1 BLOB layout: load every embedding for `model`
+/// and score it in Rust with [`cosine_similarity`].
+fn search_similar_blob(
+    conn: &Connection,
+    query_embedding: &[f32],
+    model: &str,
+    limit: usize,
+    min_similarity: f32,
+) -> io::Result<Vec<SearchResult>> {
     {
         let mut stmt = conn
             .prepare(
@@ -1006,6 +1069,43 @@ pub fn search_similar(
             })
             .collect())
     }
+}
+
+/// Search using the sqlite-vec `vec0` KNN operator.
+///
+/// Requires the `vec-ext` Cargo feature — the `vec0` module is not
+/// registered otherwise, and the KNN operator does not exist without
+/// it.
+#[cfg(feature = "vec-ext")]
+fn search_similar_vec0(
+    conn: &Connection,
+    query_embedding: &[f32],
+    model: &str,
+    limit: usize,
+    min_similarity: f32,
+) -> io::Result<Vec<SearchResult>> {
+    crate::vec_ext::runtime::enable_extension(conn)?;
+    crate::vec_ext::runtime::search_similar_vec0(
+        conn,
+        query_embedding,
+        model,
+        limit,
+        min_similarity,
+    )
+}
+
+/// The `vec-ext`-less counterpart of [`search_similar_vec0`].
+#[cfg(not(feature = "vec-ext"))]
+fn search_similar_vec0(
+    _conn: &Connection,
+    _query_embedding: &[f32],
+    _model: &str,
+    _limit: usize,
+    _min_similarity: f32,
+) -> io::Result<Vec<SearchResult>> {
+    Err(crate::vector_layout::vec0_unavailable_error(
+        "search for similar nodes",
+    ))
 }
 
 #[cfg(test)]

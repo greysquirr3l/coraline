@@ -921,15 +921,22 @@ struct FreshnessUpdate {
 
 #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
 fn stale_embedding_count(conn: &rusqlite::Connection, model: &str) -> std::io::Result<usize> {
+    // The metadata relation is resolved from the database's actual
+    // storage layout at runtime — see `crate::vector_layout`.
+    let layout = crate::vector_layout::VectorLayout::detect(conn)?;
+    let relation = layout.metadata_relation();
+
+    // `relation` is one of a closed set of compile-time constants, so
+    // interpolating it into the statement is safe.
+    let sql = format!(
+        "SELECT COUNT(*)
+           FROM nodes n
+      LEFT JOIN {relation} v ON v.node_id = n.id AND v.model = ?1
+          WHERE v.created_at IS NULL OR n.updated_at > v.created_at"
+    );
+
     let count = conn
-        .query_row(
-            "SELECT COUNT(*)
-               FROM nodes n
-          LEFT JOIN vectors v ON v.node_id = n.id AND v.model = ?1
-              WHERE v.created_at IS NULL OR n.updated_at > v.created_at",
-            rusqlite::params![model],
-            |row| row.get::<_, i64>(0),
-        )
+        .query_row(&sql, rusqlite::params![model], |row| row.get::<_, i64>(0))
         .map_err(std::io::Error::other)?;
 
     usize::try_from(count).map_err(std::io::Error::other)
@@ -947,14 +954,21 @@ fn refresh_stale_embeddings(
     // Collect stale nodes into memory first so the statement borrow is released
     // before we open a transaction, allowing all stores to commit atomically.
     let stale_nodes: Vec<StaleNodeRow> = {
-        let mut stmt = conn
-            .prepare(
-                "SELECT n.id, n.name, n.qualified_name, n.docstring, n.signature
-                   FROM nodes n
-              LEFT JOIN vectors v ON v.node_id = n.id AND v.model = ?1
-                  WHERE v.created_at IS NULL OR n.updated_at > v.created_at",
-            )
-            .map_err(std::io::Error::other)?;
+        // The metadata relation is resolved from the database's actual
+        // storage layout at runtime — see `crate::vector_layout`.
+        let layout = crate::vector_layout::VectorLayout::detect(conn)?;
+        let relation = layout.metadata_relation();
+
+        // `relation` is one of a closed set of compile-time constants, so
+        // interpolating it into the statement is safe.
+        let sql = format!(
+            "SELECT n.id, n.name, n.qualified_name, n.docstring, n.signature
+               FROM nodes n
+          LEFT JOIN {relation} v ON v.node_id = n.id AND v.model = ?1
+              WHERE v.created_at IS NULL OR n.updated_at > v.created_at"
+        );
+
+        let mut stmt = conn.prepare(&sql).map_err(std::io::Error::other)?;
 
         stmt.query_map(rusqlite::params![model], |row| {
             Ok((
@@ -1133,12 +1147,37 @@ mod tests {
     }
 
     fn seed_vector(conn: &Connection, node_id: &str, model: &str, created_at: i64) {
-        conn.execute(
-            "INSERT INTO vectors (node_id, embedding, model, created_at)
-             VALUES (?1, x'00', ?2, ?3)",
-            rusqlite::params![node_id, model, created_at],
-        )
-        .expect("insert vector");
+        // The metadata relation depends on the database's on-disk
+        // layout, not on how the binary was built — see
+        // `crate::vector_layout`.
+        match crate::vector_layout::VectorLayout::detect(conn)
+            .expect("detect layout")
+            .metadata_relation()
+        {
+            "vectors_meta" => {
+                let next_rowid: i64 = conn
+                    .query_row(
+                        "SELECT COALESCE(MAX(rowid), 0) + 1 FROM vectors_meta",
+                        [],
+                        |row| row.get(0),
+                    )
+                    .expect("next rowid");
+                conn.execute(
+                    "INSERT INTO vectors_meta (rowid, node_id, model, created_at)
+                     VALUES (?1, ?2, ?3, ?4)",
+                    rusqlite::params![next_rowid, node_id, model, created_at],
+                )
+                .expect("insert vectors_meta row");
+            }
+            _ => {
+                conn.execute(
+                    "INSERT INTO vectors (node_id, embedding, model, created_at)
+                     VALUES (?1, x'00', ?2, ?3)",
+                    rusqlite::params![node_id, model, created_at],
+                )
+                .expect("insert vector");
+            }
+        }
     }
 
     #[test]
@@ -1241,11 +1280,46 @@ mod tests {
             .get("doctor_needs_attention")
             .and_then(serde_json::Value::as_bool)
             .expect("doctor_needs_attention bool missing");
-        // The freshly-initialised project has no embeddings / no model
-        // yet — the `model file` probe should mark `needs_attention = true`.
-        assert!(
+        let exit_code = report
+            .get("exit_code")
+            .and_then(serde_json::Value::as_i64)
+            .expect("exit_code missing from doctor_report");
+        // The flag must mirror the report's exit code. Which probe
+        // fails depends on the machine (a missing model file, a
+        // missing database), so the assertion is on the relationship
+        // between the two, not on a specific probe.
+        assert_eq!(
             needs_attention,
-            "freshly-initialised project should need attention (no model file)"
+            exit_code != 0,
+            "doctor_needs_attention must mirror exit_code"
+        );
+    }
+
+    #[test]
+    fn status_with_include_doctor_flags_a_broken_project_as_needing_attention() {
+        // A project whose `config.toml` is missing fails the `config`
+        // probe deterministically — independent of whether an embedding
+        // model happens to be installed on this machine.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir_all(tmp.path().join(".coraline")).expect("create .coraline");
+        let db_path = crate::db::database_path(tmp.path());
+        let conn = rusqlite::Connection::open(&db_path).expect("open db");
+        conn.execute_batch(crate::db::SCHEMA_SQL)
+            .expect("apply schema");
+        drop(conn);
+        // Deliberately no config.toml.
+
+        let tool = StatusTool::new(tmp.path().to_path_buf());
+        let response = tool
+            .execute(serde_json::json!({ "include_doctor": true }))
+            .expect("status with doctor ok");
+
+        assert_eq!(
+            response
+                .get("doctor_needs_attention")
+                .and_then(serde_json::Value::as_bool),
+            Some(true),
+            "a project with no config.toml must be flagged as needing attention"
         );
     }
 

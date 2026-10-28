@@ -6,25 +6,33 @@
 //!
 //! - A doctor probe (`check_vec_ext`) that reports whether the
 //!   `vec-ext` Cargo feature is compiled in and whether the on-disk
-//!   `vectors` table is the v1 in-house BLOB form or the v0 `vec0`
+//!   vector storage is the v1 in-house BLOB form or the v0 `vec0`
 //!   form.
 //! - A migration runner (`migrate_to_vec0`) that swaps the v1 BLOB
 //!   `vectors` table for a `vec0` virtual table. Gated behind the
 //!   `vec-ext` Cargo feature so the default build pays no cost.
 //!
-//! **Status:** `sqlite-vec` v0.1.10-alpha.4 is pinned in `Cargo.toml`
-//! but the upstream `sqlite-vec-diskann.c` file is missing from the
-//! crate tarball (alpha packaging bug), so the `--features vec-ext`
-//! build is currently broken at link time. The scaffolding below is
-//! the right shape once a working build is available — no API changes
-//! will be needed for users.
+//! # Relationship to [`crate::vector_layout`]
+//!
+//! The *detection* of the on-disk layout lives in
+//! [`crate::vector_layout::VectorLayout`] — it is needed by every
+//! build, so it cannot live behind a Cargo feature. This module owns
+//! the parts that are genuinely `vec-ext`-only: the sqlite-vec FFI
+//! registration, the `vec0` runtime helpers, and the v0 migration.
+//!
+//! The layout is a property of the **database file**, not of the
+//! binary that opens it, so the SQL used to reach the vector tables
+//! is chosen from the detected layout at runtime — never from a
+//! `#[cfg(feature = "vec-ext")]` switch.
 
 use std::path::Path;
 
+#[cfg(feature = "vec-ext")]
 use rusqlite::Connection;
 use serde::Serialize;
 
 use crate::doctor;
+use crate::vector_layout::VectorLayout;
 
 #[cfg(feature = "vec-ext")]
 use std::io;
@@ -41,85 +49,40 @@ pub const VEC_EXT_ENABLED: bool = cfg!(feature = "vec-ext");
 pub struct VecExtStatus {
     /// Whether the binary was compiled with the `vec-ext` Cargo feature.
     pub feature_enabled: bool,
-    /// State of the on-disk `vectors` table.
-    pub table_state: VecExtTableState,
+    /// State of the on-disk vector storage.
+    pub table_state: VectorLayout,
     /// One-line remediation hint, or `None` when no action is needed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fix: Option<String>,
 }
 
-/// Possible states of the on-disk `vectors` table.
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum VecExtTableState {
-    /// Project hasn't been indexed yet — `vectors` table doesn't exist.
-    Absent,
-    /// v1 in-house BLOB table (`embedding BLOB NOT NULL`).
-    V1Blob,
-    /// v0 `vec0` virtual table.
-    V0Vec,
-}
-
-impl VecExtTableState {
-    /// Classify the `vectors` table by querying SQLite's schema.
-    fn from_conn(conn: &Connection) -> std::io::Result<Self> {
-        // A `vec0` virtual table shows up in `sqlite_master` with a
-        // `type = 'table'` row but `sql` starting with `CREATE VIRTUAL TABLE`.
-        let mut stmt = conn
-            .prepare(
-                "SELECT sql FROM sqlite_master \
-                 WHERE type IN ('table', 'view') \
-                   AND (name = 'vectors' OR name LIKE 'vectors_v%')",
-            )
-            .map_err(db::io_other)?;
-        let rows = stmt
-            .query_map([], |row| row.get::<_, Option<String>>(0))
-            .map_err(db::io_other)?;
-        let mut saw: Option<&'static str> = None;
-        for row in rows {
-            let sql = row.map_err(db::io_other)?.unwrap_or_default();
-            let upper = sql.to_ascii_uppercase();
-            if upper.contains("USING VEC0") {
-                return Ok(Self::V0Vec);
-            }
-            if upper.contains("CREATE TABLE VECTORS") {
-                saw = Some(Self::V1Blob.as_str());
-            }
-        }
-        Ok(saw.map_or(Self::Absent, |s| match s {
-            "V1_BLOB" => Self::V1Blob,
-            _ => Self::Absent,
-        }))
-    }
-
-    const fn as_str(self) -> &'static str {
-        match self {
-            Self::Absent => "ABSENT",
-            Self::V1Blob => "V1_BLOB",
-            Self::V0Vec => "V0_VEC",
-        }
-    }
-}
-
-/// One-line remediation hint for the current `(feature, table_state)` pair.
-fn remediation_hint(feature: bool, state: VecExtTableState) -> Option<String> {
-    match (feature, state) {
-        (false, VecExtTableState::V1Blob) => Some(
+/// One-line remediation hint for the current `(feature, layout)` pair.
+///
+/// The hint is advisory: it tells the user how to get the *best*
+/// configuration, not that something is broken. A v1 project works
+/// fine on the default build — it just does not get sqlite-vec's KNN
+/// acceleration.
+fn remediation_hint(feature: bool, layout: VectorLayout) -> Option<String> {
+    match (feature, layout) {
+        (false, VectorLayout::V0Vec) => Some(
+            "Rebuild with `--features vec-ext` to use this project's sqlite-vec (v0) embeddings."
+                .to_string(),
+        ),
+        (false, VectorLayout::V1Blob) => Some(
             "Rebuild with `--features vec-ext` to upgrade the `vectors` table to sqlite-vec v0."
                 .to_string(),
         ),
-        (false, _) => Some(
+        (false, VectorLayout::Absent) => Some(
             "Rebuild with `--features vec-ext` to enable sqlite-vec KNN search.".to_string(),
         ),
-        (true, VecExtTableState::V1Blob) => Some(
-            "Run `coraline migrate vec-ext` to convert the BLOB table to vec0 (alpha; upstream build currently broken)."
-                .to_string(),
+        (true, VectorLayout::V1Blob) => Some(
+            "Run `coraline migrate vec-ext` to convert the BLOB table to vec0.".to_string(),
         ),
-        (true, VecExtTableState::Absent) => Some(
+        (true, VectorLayout::Absent) => Some(
             "Run `coraline index` first so the `vectors` table exists, then `coraline migrate vec-ext`."
                 .to_string(),
         ),
-        (true, VecExtTableState::V0Vec) => None,
+        (true, VectorLayout::V0Vec) => None,
     }
 }
 
@@ -128,8 +91,8 @@ fn remediation_hint(feature: bool, state: VecExtTableState) -> Option<String> {
 /// Falls back to `feature_enabled = cfg!(feature = "vec-ext")` when the
 /// DB can't be opened (e.g. the project hasn't been `coraline init`'d).
 pub fn status(project_root: &Path) -> VecExtStatus {
-    let table_state = db::open_database(project_root).map_or(VecExtTableState::Absent, |conn| {
-        VecExtTableState::from_conn(&conn).unwrap_or(VecExtTableState::Absent)
+    let table_state = db::open_database(project_root).map_or(VectorLayout::Absent, |conn| {
+        VectorLayout::detect(&conn).unwrap_or(VectorLayout::Absent)
     });
     let fix = remediation_hint(VEC_EXT_ENABLED, table_state);
     VecExtStatus {
@@ -139,12 +102,29 @@ pub fn status(project_root: &Path) -> VecExtStatus {
     }
 }
 
-/// Doctor probe: `vec-ext` feature state + on-disk `vectors` table state.
+/// Doctor probe: `vec-ext` feature state + on-disk vector storage state.
+///
+/// The probe passes when the on-disk layout is **usable by this
+/// build** — that is, when this binary can read and write the
+/// project's embeddings:
+///
+/// - v1 BLOB layout → usable by every build.
+/// - v0 `vec0` layout → usable only by a `vec-ext` build (the `vec0`
+///   virtual-table module is not registered otherwise).
+/// - no vector storage yet → nothing to be incompatible with.
+///
+/// The probe deliberately does *not* fail just because the `vec-ext`
+/// feature is off: that is the normal configuration for the
+/// published binaries, and failing it made `coraline doctor` exit
+/// non-zero on every default installation.
 pub fn check_vec_ext(project_root: &Path) -> doctor::Probe {
     let status = status(project_root);
     let detail =
         serde_json::to_string(&status).unwrap_or_else(|_| status.feature_enabled.to_string());
-    let ok = status.feature_enabled && matches!(status.table_state, VecExtTableState::V0Vec);
+    let ok = match status.table_state {
+        VectorLayout::V0Vec => status.feature_enabled,
+        VectorLayout::V1Blob | VectorLayout::Absent => true,
+    };
     doctor::Probe {
         name: "vec_ext",
         ok,
@@ -153,9 +133,56 @@ pub fn check_vec_ext(project_root: &Path) -> doctor::Probe {
     }
 }
 
-// Re-export `db::io_other` so `from_conn` doesn't need a deep `crate::db`
-// path in the future when we actually wire sqlite-vec in.
+// Re-export `db::io_other` so the helpers in this module don't need a
+// deep `crate::db` path.
 use crate::db;
+
+/// What a layout migration did (or did not need to do).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MigrationOutcome {
+    /// The project was already on the target layout; nothing changed.
+    AlreadyOnTarget,
+    /// The project was migrated to the target layout.
+    Migrated,
+}
+
+impl MigrationOutcome {
+    /// `true` when the project was actually changed.
+    pub const fn migrated(self) -> bool {
+        matches!(self, Self::Migrated)
+    }
+}
+
+/// Convert the on-disk v1 BLOB `vectors` table into a `vec0` virtual
+/// table.
+///
+/// Requires the `vec-ext` Cargo feature — the `vec0` virtual-table
+/// module is not registered otherwise, so the conversion cannot be
+/// performed.
+#[cfg(not(feature = "vec-ext"))]
+pub fn migrate_to_vec0(_project_root: &Path) -> std::io::Result<MigrationOutcome> {
+    Err(vec_ext_feature_required())
+}
+
+/// Convert the on-disk v0 `vec0` layout back into the v1 BLOB
+/// `vectors` table.
+///
+/// Requires the `vec-ext` Cargo feature — reading the `vec0` payload
+/// rows needs the sqlite-vec module.
+#[cfg(not(feature = "vec-ext"))]
+pub fn migrate_to_v1(_project_root: &Path) -> std::io::Result<MigrationOutcome> {
+    Err(vec_ext_feature_required())
+}
+
+/// Error returned when a layout migration is attempted by a binary that
+/// was built without the `vec-ext` feature.
+#[cfg(not(feature = "vec-ext"))]
+fn vec_ext_feature_required() -> std::io::Error {
+    std::io::Error::other(
+        "this binary was built without the `vec-ext` feature, so it cannot convert \
+         embedding storage. Rebuild with `--features vec-ext` and retry.",
+    )
+}
 
 #[cfg(feature = "vec-ext")]
 /// Convert the on-disk v1 BLOB `vectors` table into a `vec0` virtual
@@ -171,30 +198,113 @@ use crate::db;
 ///
 /// The whole thing runs in a single transaction so the v1 table is
 /// only dropped after the new tables are ready.
+///
+/// This is an **explicit, user-initiated** operation — running it
+/// changes the project's on-disk layout, so it is never a side effect
+/// of an embedding command.
 #[cfg(feature = "vec-ext")]
-pub fn migrate_to_vec0(project_root: &Path) -> std::io::Result<()> {
+pub fn migrate_to_vec0(project_root: &Path) -> std::io::Result<MigrationOutcome> {
     let conn = db::open_database(project_root)?;
-    ensure_vec0_schema(&conn)
+    migrate_to_vec0_conn(&conn)
+}
+
+/// Convert the v1 BLOB `vectors` table into the v0 `vec0` layout on
+/// an open connection.
+#[cfg(feature = "vec-ext")]
+pub fn migrate_to_vec0_conn(conn: &Connection) -> std::io::Result<MigrationOutcome> {
+    let layout = VectorLayout::detect(conn)?;
+    match layout {
+        VectorLayout::V0Vec => return Ok(MigrationOutcome::AlreadyOnTarget),
+        VectorLayout::Absent => {
+            // Nothing to convert, but create the target layout so the
+            // project is ready for sqlite-vec storage.
+            ensure_vec0_schema(conn)?;
+            return Ok(MigrationOutcome::Migrated);
+        }
+        VectorLayout::V1Blob => {}
+    }
+
+    // Read every v1 row into memory first, so the source table can be
+    // dropped before the vec0 rows are written.
+    let mut rows_to_migrate: Vec<(String, Vec<f32>, String, i64)> = Vec::new();
+    {
+        let mut stmt = conn
+            .prepare("SELECT node_id, embedding, model, created_at FROM vectors")
+            .map_err(super::db::io_other)?;
+        let mut rows = stmt.query([]).map_err(super::db::io_other)?;
+        while let Some(row) = rows.next().map_err(super::db::io_other)? {
+            let node_id: String = row.get(0).map_err(super::db::io_other)?;
+            let bytes: Vec<u8> = row.get(1).map_err(super::db::io_other)?;
+            let model: String = row.get(2).map_err(super::db::io_other)?;
+            let created_at: i64 = row.get(3).map_err(super::db::io_other)?;
+            rows_to_migrate.push((node_id, decode_le_f32_vec(&bytes), model, created_at));
+        }
+    }
+
+    // The conversion runs in a single transaction, so the v1 table is
+    // only dropped once every row has been written to the v0 tables.
+    //
+    // Without it, a failure part-way through the inserts would leave
+    // the project with the v1 table already dropped and only some of
+    // the embeddings written — every original embedding lost, and the
+    // project needing a full re-embed to recover. The inserts *can*
+    // fail: `vec0` enforces the declared width, and the schema
+    // declares `float[768]`.
+    let tx = conn.unchecked_transaction().map_err(super::db::io_other)?;
+
+    ensure_vec0_schema(&tx)?;
+
+    tx.execute_batch("DROP INDEX IF EXISTS idx_vectors_model; DROP TABLE IF EXISTS vectors;")
+        .map_err(super::db::io_other)?;
+
+    for (node_id, floats, model, created_at) in &rows_to_migrate {
+        let json = floats_to_json(floats);
+        tx.execute(
+            "INSERT INTO vectors_vec (embedding) VALUES (vec_f32(?1))",
+            params![json],
+        )
+        .map_err(super::db::io_other)?;
+        let rowid = tx.last_insert_rowid();
+        tx.execute(
+            "INSERT INTO vectors_meta (rowid, node_id, model, created_at)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![rowid, node_id, model, created_at],
+        )
+        .map_err(super::db::io_other)?;
+    }
+
+    tx.commit().map_err(super::db::io_other)?;
+
+    Ok(MigrationOutcome::Migrated)
 }
 
 /// Idempotently ensure the vec0 embedding tables exist.
 ///
-/// If the legacy v1 `vectors` BLOB table is present, migrate its
-/// contents into `vectors_vec` + `vectors_meta` (one-shot,
-/// transactional) and drop the v1 table.
+/// Creates `vectors_vec` (a `vec0` virtual table) and `vectors_meta`
+/// (its metadata companion) if they are not already there. Does
+/// **not** touch any existing `vectors` table — migrating a v1
+/// project onto the v0 layout is an explicit, user-initiated
+/// operation (`coraline migrate vec-ext`), not a side effect of
+/// running an embedding command.
 ///
 /// Safe to call on every connection open — once `vectors_vec` exists,
-/// the function is a fast no-op. The vec0 embed / load / search
-/// code paths call this on entry so a project can upgrade to the
-/// vec-ext build and have the schema auto-set up on the first
-/// vec0-bearing operation, with no manual migration step.
+/// the function is a fast no-op.
 #[cfg(feature = "vec-ext")]
 pub fn ensure_vec0_schema(conn: &Connection) -> io::Result<()> {
     if table_exists(conn, "vectors_vec")? {
         return Ok(());
     }
 
-    let has_v1 = table_exists(conn, "vectors")?;
+    // Creating a `vec0` virtual table needs the sqlite-vec module
+    // registered on *this* connection. A connection opened before the
+    // auto-extension was registered does not have it, so load it
+    // explicitly rather than failing with `no such module: vec0`.
+    //
+    // `load_module` rather than `enable_extension`: this function's
+    // job is to ensure the *tables* exist in this database. Registering
+    // the process-wide auto-extension would be a side effect that
+    // changes every other connection in the process.
+    crate::vec_ext::runtime::load_module(conn)?;
 
     conn.execute_batch(
         "CREATE VIRTUAL TABLE IF NOT EXISTS vectors_vec USING vec0(
@@ -208,42 +318,6 @@ pub fn ensure_vec0_schema(conn: &Connection) -> io::Result<()> {
          );",
     )
     .map_err(super::db::io_other)?;
-
-    if has_v1 {
-        let mut stmt = conn
-            .prepare("SELECT node_id, embedding, model, created_at FROM vectors")
-            .map_err(super::db::io_other)?;
-        let mut rows = stmt.query([]).map_err(super::db::io_other)?;
-        let mut backup: Vec<(String, Vec<f32>, String, i64)> = Vec::new();
-        while let Some(row) = rows.next().map_err(super::db::io_other)? {
-            let node_id: String = row.get(0).map_err(super::db::io_other)?;
-            let bytes: Vec<u8> = row.get(1).map_err(super::db::io_other)?;
-            let model: String = row.get(2).map_err(super::db::io_other)?;
-            let created_at: i64 = row.get(3).map_err(super::db::io_other)?;
-            backup.push((node_id, decode_le_f32_vec(&bytes), model, created_at));
-        }
-        drop(rows);
-        drop(stmt);
-
-        conn.execute_batch("DROP INDEX IF EXISTS idx_vectors_model; DROP TABLE IF EXISTS vectors;")
-            .map_err(super::db::io_other)?;
-
-        for (node_id, floats, model, created_at) in &backup {
-            let json = floats_to_json(floats);
-            conn.execute(
-                "INSERT INTO vectors_vec (embedding) VALUES (vec_f32(?1))",
-                params![json],
-            )
-            .map_err(super::db::io_other)?;
-            let rowid = conn.last_insert_rowid();
-            conn.execute(
-                "INSERT INTO vectors_meta (rowid, node_id, model, created_at)
-                 VALUES (?1, ?2, ?3, ?4)",
-                params![rowid, node_id, model, created_at],
-            )
-            .map_err(super::db::io_other)?;
-        }
-    }
 
     conn.execute_batch(
         "INSERT OR IGNORE INTO schema_versions (version, applied_at, description)
@@ -261,6 +335,103 @@ fn table_exists(conn: &Connection, name: &str) -> io::Result<bool> {
         .map_err(super::db::io_other)?;
     let mut rows = stmt.query(params![name]).map_err(super::db::io_other)?;
     Ok(rows.next().map_err(super::db::io_other)?.is_some())
+}
+
+/// Convert the on-disk v0 `vec0` layout back into the v1 BLOB
+/// `vectors` table, so a project created with the `vec-ext` build can
+/// be opened by the default build.
+///
+/// Reads every `vectors_vec` payload (via the sqlite-vec module) and
+/// writes it into a fresh `vectors` table as a little-endian `f32`
+/// blob, then drops the v0 tables.
+///
+/// Like the forward migration, this is explicit and user-initiated —
+/// it changes the project's on-disk layout.
+#[cfg(feature = "vec-ext")]
+pub fn migrate_to_v1(project_root: &Path) -> std::io::Result<MigrationOutcome> {
+    let conn = db::open_database(project_root)?;
+    migrate_to_v1_conn(&conn)
+}
+
+/// Convert the v0 `vec0` layout back to the v1 BLOB layout on an open
+/// connection.
+#[cfg(feature = "vec-ext")]
+pub fn migrate_to_v1_conn(conn: &Connection) -> std::io::Result<MigrationOutcome> {
+    let layout = VectorLayout::detect(conn)?;
+    match layout {
+        VectorLayout::V1Blob | VectorLayout::Absent => {
+            return Ok(MigrationOutcome::AlreadyOnTarget);
+        }
+        VectorLayout::V0Vec => {}
+    }
+
+    crate::vec_ext::runtime::enable_extension(conn)?;
+
+    // Read the v0 payload + metadata out before dropping anything.
+    let mut rows_to_migrate: Vec<(String, Vec<f32>, String, i64)> = Vec::new();
+    {
+        let mut stmt = conn
+            .prepare(
+                "SELECT m.node_id, v.embedding, m.model, m.created_at
+                 FROM vectors_meta m
+                 JOIN vectors_vec v ON v.rowid = m.rowid",
+            )
+            .map_err(super::db::io_other)?;
+        let mut rows = stmt.query([]).map_err(super::db::io_other)?;
+        while let Some(row) = rows.next().map_err(super::db::io_other)? {
+            let node_id: String = row.get(0).map_err(super::db::io_other)?;
+            // `vec0` returns `float[]` columns as raw little-endian
+            // `f32` bytes, not as the JSON text that was fed to
+            // `vec_f32()` on the way in — so this has to be read as a
+            // generic value and decoded.
+            let raw: rusqlite::types::Value = row.get(1).map_err(super::db::io_other)?;
+            let floats =
+                crate::vector_layout::decode_vec0_embedding(&raw).map_err(super::db::io_other)?;
+            let model: String = row.get(2).map_err(super::db::io_other)?;
+            let created_at: i64 = row.get(3).map_err(super::db::io_other)?;
+            rows_to_migrate.push((node_id, floats, model, created_at));
+        }
+    }
+
+    // The conversion runs in a single transaction, so the v0 tables are
+    // only dropped once every row has been written to the v1 table.
+    // Without it, a failure part-way through the inserts would leave
+    // the project with both layouts half-populated.
+    let tx = conn.unchecked_transaction().map_err(super::db::io_other)?;
+
+    tx.execute_batch(
+        "CREATE TABLE IF NOT EXISTS vectors (
+             node_id TEXT PRIMARY KEY,
+             embedding BLOB NOT NULL,
+             model TEXT NOT NULL,
+             created_at INTEGER NOT NULL
+         );
+         CREATE INDEX IF NOT EXISTS idx_vectors_model ON vectors(model);",
+    )
+    .map_err(super::db::io_other)?;
+
+    for (node_id, floats, model, created_at) in &rows_to_migrate {
+        let bytes: Vec<u8> = floats.iter().flat_map(|&f| f.to_le_bytes()).collect();
+        tx.execute(
+            "INSERT OR REPLACE INTO vectors (node_id, embedding, model, created_at)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![node_id, bytes, model, created_at],
+        )
+        .map_err(super::db::io_other)?;
+    }
+
+    // Drop the v0 tables. `vectors_vec` is a `vec0` virtual table, so
+    // this needs the sqlite-vec module — which is registered, because
+    // the read above already required it.
+    tx.execute_batch(
+        "DROP TABLE IF EXISTS vectors_vec;
+         DROP TABLE IF EXISTS vectors_meta;",
+    )
+    .map_err(super::db::io_other)?;
+
+    tx.commit().map_err(super::db::io_other)?;
+
+    Ok(MigrationOutcome::Migrated)
 }
 
 /// Decode a little-endian f32 BLOB (the v1 storage format) back into a
@@ -318,14 +489,24 @@ pub mod runtime {
 
     use super::ensure_vec0_schema;
 
-    /// Register `sqlite-vec` as a SQLite auto-extension on every new
-    /// connection.
+    /// Ensure `sqlite-vec` is available on `conn` and on every
+    /// connection opened afterwards.
     ///
-    /// Subsequent SQL operations on any connection opened after this
-    /// call can use `vec0` virtual tables and `vec_f32(...)`. This
-    /// is global to the process — pass `_conn` to document that we
-    /// don't currently need a handle (kept for forward compat).
-    pub fn enable_extension(_conn: &Connection) -> io::Result<()> {
+    /// Two things are needed, and they are not the same thing:
+    ///
+    /// 1. **This** connection must have the `vec0` module loaded.
+    ///    `sqlite3_auto_extension` only fires when a connection is
+    ///    *opened*, so registering it does nothing for a connection
+    ///    that already exists — the init function is called directly
+    ///    on the handle.
+    /// 2. **Future** connections should get it automatically, which
+    ///    the process-global auto-extension registration provides.
+    ///
+    /// Registering the module twice on the same connection is safe:
+    /// `sqlite3_create_module_v2` replaces an existing module of the
+    /// same name, and `sqlite3_auto_extension` ignores a duplicate
+    /// entry point.
+    pub fn enable_extension(conn: &Connection) -> io::Result<()> {
         // SAFETY: `sqlite3_vec_init` is the `extern "C"` symbol that
         // sqlite-vec exports. `register_auto_extension` expects a
         // `RawAutoExtension` — a different signature — so we wrap our
@@ -337,7 +518,21 @@ pub mod runtime {
         unsafe {
             rusqlite::auto_extension::register_auto_extension(raw).map_err(io::Error::other)?;
         }
-        Ok(())
+        load_module(conn)
+    }
+
+    /// Load the sqlite-vec module into a single connection, without
+    /// registering the process-wide auto-extension.
+    ///
+    /// This is the narrow half of [`enable_extension`]: it affects
+    /// only the connection it is given, and leaves every other
+    /// connection in the process alone. That distinction matters for
+    /// a build that must observe what a *different* build's project
+    /// looks like — a default build has no sqlite-vec module at all,
+    /// and a test that wanted to reproduce that state could not get
+    /// it back once the auto-extension had been registered.
+    pub fn load_module(conn: &Connection) -> io::Result<()> {
+        load_into_connection(conn)
     }
 
     /// Process-wide one-time registration of the sqlite-vec auto-extension.
@@ -358,16 +553,98 @@ pub mod runtime {
         Ok(())
     }
 
-    /// Raw bridge: adapts our `extern "C" fn()` `sqlite3_vec_init` to the
-    /// `RawAutoExtension` callback signature. The `_db` parameter is
-    /// ignored because sqlite-vec's `sqlite3_vec_init` doesn't need it.
+    /// Load the sqlite-vec module into an already-open connection.
+    ///
+    /// `sqlite3_auto_extension` cannot be used for this: it only runs
+    /// its callbacks when a connection is opened, so a connection that
+    /// predates the registration never gets the module. Calling the
+    /// init function directly against the connection handle is the
+    /// only way to backfill it.
+    fn load_into_connection(conn: &Connection) -> io::Result<()> {
+        // SAFETY: `conn` is alive for the duration of the call, and
+        // `sqlite3_vec_init` only registers functions and a virtual
+        // table module against the handle it is given — it does not
+        // take ownership of it.
+        //
+        // `p_api` is passed as NULL, which is safe because the
+        // `sqlite-vec` crate compiles `sqlite-vec.c` with
+        // `-DSQLITE_CORE`, and the `SQLITE_EXTENSION_INIT2(pApi)` call
+        // inside `sqlite3_vec_init` is therefore compiled out. If that
+        // build flag ever changed, `sqlite3_api` would be assigned
+        // this NULL and the next `sqlite3_api->…` call would
+        // segfault.
+        let rc = unsafe {
+            let mut err_msg: *mut std::ffi::c_char = std::ptr::null_mut();
+            let rc = sqlite3_vec_init(conn.handle(), &raw mut err_msg, std::ptr::null());
+
+            // `sqlite3_vec_init` allocates the message with
+            // `sqlite3_mprintf`, so it has to be freed with
+            // `sqlite3_free`. It is freed whenever it is set, not only
+            // on the error path, so a future release that populated it
+            // on a success would not leak it.
+            let message = if err_msg.is_null() {
+                None
+            } else {
+                let message = std::ffi::CStr::from_ptr(err_msg)
+                    .to_string_lossy()
+                    .into_owned();
+                rusqlite::ffi::sqlite3_free(err_msg.cast::<std::ffi::c_void>());
+                Some(message)
+            };
+
+            if rc != rusqlite::ffi::SQLITE_OK {
+                return Err(io::Error::other(message.map_or_else(
+                    || format!("failed to load the sqlite-vec extension (SQLite code {rc})"),
+                    |message| format!("failed to load the sqlite-vec extension: {message}"),
+                )));
+            }
+            rc
+        };
+        if rc != rusqlite::ffi::SQLITE_OK {
+            return Err(io::Error::other(format!(
+                "failed to load the sqlite-vec extension (SQLite code {rc})"
+            )));
+        }
+        Ok(())
+    }
+
+    /// Raw bridge: adapts sqlite-vec's `sqlite3_vec_init` to the
+    /// `RawAutoExtension` callback signature.
+    ///
+    /// sqlite-vec's real entry point has the standard SQLite extension
+    /// signature:
+    ///
+    /// ```c
+    /// int sqlite3_vec_init(sqlite3 *db, char **pzErrMsg,
+    ///                     const sqlite3_api_routines *pApi);
+    /// ```
+    ///
+    /// The `sqlite-vec` crate declares it with no arguments (it only
+    /// ever calls it through a transmuted function pointer), so the
+    /// declaration is repeated here with the true signature. The
+    /// `db` handle is what the init function uses to register the
+    /// `vec0` virtual-table module and the `vec_*` SQL functions, so
+    /// dropping it — as a zero-argument call does — would register
+    /// them against a garbage handle.
+    ///
+    /// The return code and the error message are propagated rather
+    /// than swallowed, so a failed init surfaces as a failed
+    /// connection open instead of a confusing `no such module: vec0`
+    /// later on. sqlite-vec sets `*pzErrMsg` on both of its failure
+    /// paths (with `sqlite3_mprintf`, so the caller owns the string).
     extern "C" fn init_auto_extension(
-        _db: *mut rusqlite::ffi::sqlite3,
-        _pz_err_msg: *mut *mut std::ffi::c_char,
-        _: *const rusqlite::ffi::sqlite3_api_routines,
+        db: *mut rusqlite::ffi::sqlite3,
+        pz_err_msg: *mut *mut std::ffi::c_char,
+        p_api: *const rusqlite::ffi::sqlite3_api_routines,
     ) -> std::ffi::c_int {
-        unsafe { sqlite3_vec_init() }
-        rusqlite::ffi::SQLITE_OK
+        // SAFETY: the three arguments are forwarded verbatim from
+        // SQLite's own auto-extension callback, which supplies a
+        // valid connection handle and a valid `sqlite3_api_routines`
+        // pointer. `sqlite3_vec_init` is declared here with that
+        // exact signature, so the call matches the function's real
+        // ABI — the `sqlite-vec` crate's own zero-argument
+        // declaration does not, and calling through it would be UB.
+        unsafe { sqlite3_vec_init(db, pz_err_msg, p_api) }
     }
 
     /// Store an embedding in the vec0 `vectors_vec` table plus the
@@ -430,15 +707,10 @@ pub mod runtime {
                 // vec0 returns `float[]` columns as raw f32 little-endian
                 // BLOBs. Some builds may serialise as text instead, so
                 // accept both shapes.
-                match raw {
-                    rusqlite::types::Value::Blob(bytes) => {
-                        Ok(Some(super::decode_le_f32_vec(&bytes)))
-                    }
-                    rusqlite::types::Value::Text(s) => Ok(Some(parse_float_array(&s))),
-                    other => Err(io::Error::other(format!(
-                        "vec0 returned unsupported embedding type: {other:?}"
-                    ))),
-                }
+                Ok(Some(
+                    crate::vector_layout::decode_vec0_embedding(&raw)
+                        .map_err(super::db::io_other)?,
+                ))
             }
             None => Ok(None),
         }
@@ -520,23 +792,20 @@ pub mod runtime {
     // otherwise the linker only sees the symbol inside sqlite-vec's
     // own crate and never pulls `libsqlite_vec0.a` into coraline's
     // binary link line.
+    //
+    // The declaration carries sqlite-vec's *real* signature
+    // (`int sqlite3_vec_init(sqlite3*, char**, const
+    // sqlite3_api_routines*)`). The `sqlite-vec` crate itself declares
+    // it with no arguments, which is only safe there because it never
+    // calls it with a handle. We do need the handle: the init
+    // function registers `vec0` and the `vec_*` functions against it.
     #[link(name = "sqlite_vec0", kind = "static")]
     unsafe extern "C" {
-        fn sqlite3_vec_init();
-    }
-
-    /// Parse a JSON array of floats into a `Vec<f32>`. Used to
-    /// decode `vec_f32(...)` results when reading them back.
-    fn parse_float_array(json: &str) -> Vec<f32> {
-        // Strip leading `[` and trailing `]`, split on `,`, parse each
-        // as f32. sqlite-vec's `vec_f32()` returns a JSON array.
-        let trimmed = json.trim();
-        let inner = &trimmed
-            [trimmed.find('[').map_or(0, |i| i + 1)..trimmed.rfind(']').unwrap_or(trimmed.len())];
-        inner
-            .split(',')
-            .filter_map(|s| s.trim().parse::<f32>().ok())
-            .collect()
+        fn sqlite3_vec_init(
+            db: *mut rusqlite::ffi::sqlite3,
+            pz_err_msg: *mut *mut std::ffi::c_char,
+            p_api: *const rusqlite::ffi::sqlite3_api_routines,
+        ) -> std::ffi::c_int;
     }
 
     #[cfg(test)]
@@ -712,29 +981,22 @@ mod tests {
 
     #[test]
     fn remediation_hint_matches_every_state() {
-        // Every (feature, state) pair should yield *some* hint when
-        // the binary wasn't built with vec-ext, or when the table is
+        // Every (feature, layout) pair should yield *some* hint when
+        // the binary wasn't built with vec-ext, or when the layout is
         // not yet on v0. The only no-hint case is feature=on + v0.
         for &feature in &[false, true] {
-            for state in [
-                VecExtTableState::Absent,
-                VecExtTableState::V1Blob,
-                VecExtTableState::V0Vec,
+            for layout in [
+                VectorLayout::Absent,
+                VectorLayout::V1Blob,
+                VectorLayout::V0Vec,
             ] {
-                let hint = remediation_hint(feature, state);
-                match (feature, state) {
-                    (true, VecExtTableState::V0Vec) => assert!(hint.is_none()),
-                    _ => assert!(hint.is_some(), "missing hint for ({feature:?}, {state:?})"),
+                let hint = remediation_hint(feature, layout);
+                match (feature, layout) {
+                    (true, VectorLayout::V0Vec) => assert!(hint.is_none()),
+                    _ => assert!(hint.is_some(), "missing hint for ({feature:?}, {layout:?})"),
                 }
             }
         }
-    }
-
-    #[test]
-    fn table_state_as_str_is_stable() {
-        assert_eq!(VecExtTableState::Absent.as_str(), "ABSENT");
-        assert_eq!(VecExtTableState::V1Blob.as_str(), "V1_BLOB");
-        assert_eq!(VecExtTableState::V0Vec.as_str(), "V0_VEC");
     }
 
     #[test]

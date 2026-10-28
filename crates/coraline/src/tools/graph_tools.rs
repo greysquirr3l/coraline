@@ -1364,9 +1364,20 @@ impl Tool for StatsTool {
         let unresolved_count: i64 = conn
             .query_row("SELECT COUNT(*) FROM unresolved_refs", [], |r| r.get(0))
             .map_err(|e| ToolError::internal_error(format!("Query failed: {e}")))?;
-        let vector_count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM vectors", [], |r| r.get(0))
-            .map_err(|e| ToolError::internal_error(format!("Query failed: {e}")))?;
+        // The vector metadata relation is resolved from the database's
+        // actual storage layout at runtime — a project may be on the
+        // v1 BLOB layout (`vectors`) or the sqlite-vec v0 layout
+        // (`vectors_meta`), independently of how this binary was
+        // built. See `crate::vector_layout`.
+        let vector_count: i64 = {
+            let layout = crate::vector_layout::VectorLayout::detect(&conn)
+                .map_err(|e| ToolError::internal_error(format!("Query failed: {e}")))?;
+            let relation = layout.metadata_relation();
+            conn.query_row(&format!("SELECT COUNT(*) FROM {relation}"), [], |r| {
+                r.get(0)
+            })
+            .map_err(|e| ToolError::internal_error(format!("Query failed: {e}")))?
+        };
 
         // Files by language
         let mut by_language = serde_json::Map::new();

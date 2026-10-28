@@ -25,6 +25,7 @@ pub mod types;
 pub mod update;
 pub mod utils;
 pub mod vec_ext;
+pub mod vector_layout;
 #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
 pub mod vectors;
 

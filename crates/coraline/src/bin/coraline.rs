@@ -21,7 +21,7 @@ use coraline::types::{BuildContextOptions, ContextFormat, EdgeKind};
 use coraline::vectors;
 use tracing::{debug, info};
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use indicatif::{ProgressBar, ProgressStyle};
 
 #[derive(Debug, Parser)]
@@ -56,6 +56,8 @@ enum Command {
     Embed(EmbedArgs),
     #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
     Model(ModelArgs),
+    /// Migrate the project's embedding storage between layouts.
+    Migrate(StorageMigrationArgs),
 }
 
 #[derive(Debug, Args)]
@@ -323,6 +325,29 @@ enum ModelAction {
     List,
 }
 
+/// Arguments for `coraline migrate <target>`.
+#[derive(Debug, Args)]
+struct StorageMigrationArgs {
+    /// Which migration to run.
+    #[arg(value_name = "TARGET")]
+    target: StorageMigrationTarget,
+    /// Project root (defaults to current directory).
+    path: Option<PathBuf>,
+}
+
+/// The available embedding-storage migrations.
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum StorageMigrationTarget {
+    /// Convert the v1 BLOB `vectors` table to the sqlite-vec v0 layout.
+    ///
+    /// Requires a binary built with `--features vec-ext`.
+    VecExt,
+    /// Convert the sqlite-vec v0 layout back to the v1 BLOB `vectors` table.
+    ///
+    /// Requires a binary built with `--features vec-ext`.
+    Vec1,
+}
+
 fn main() {
     // Register sqlite-vec as a process-wide auto-extension before any
     // `Connection::open` runs. The auto-extension fires for every new
@@ -369,6 +394,7 @@ fn main() {
         Command::Embed(a) => a.path.clone(),
         #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
         Command::Model(a) => a.path.clone(),
+        Command::Migrate(a) => a.path.clone(),
         Command::Install => None,
     };
     let project_root = resolve_project_root(project_root_hint);
@@ -420,6 +446,53 @@ fn main() {
         Command::Embed(args) => run_embed(args),
         #[cfg(any(feature = "embeddings", feature = "embeddings-dynamic"))]
         Command::Model(args) => run_model(args),
+        Command::Migrate(args) => run_storage_migration(args),
+    }
+}
+
+/// `coraline migrate <target>` — convert the project's embedding
+/// storage between the v1 BLOB layout and the sqlite-vec v0 layout.
+///
+/// This changes the project's on-disk layout, so it is always an
+/// explicit command — never a side effect of an embedding run.
+fn run_storage_migration(args: StorageMigrationArgs) {
+    use coraline::vec_ext;
+
+    let project_root = resolve_project_root(args.path);
+
+    if !is_initialized(&project_root) {
+        eprintln!("Coraline not initialized in {}", project_root.display());
+        std::process::exit(1);
+    }
+
+    if !coraline::vec_ext::VEC_EXT_ENABLED {
+        eprintln!(
+            "This binary was built without the `vec-ext` feature, so it cannot \
+             convert embedding storage.\nRebuild with `--features vec-ext` and retry."
+        );
+        std::process::exit(1);
+    }
+
+    let outcome = match args.target {
+        StorageMigrationTarget::VecExt => vec_ext::migrate_to_vec0(&project_root),
+        StorageMigrationTarget::Vec1 => vec_ext::migrate_to_v1(&project_root),
+    }
+    .unwrap_or_else(|err| {
+        eprintln!("Migration failed: {err}");
+        std::process::exit(1);
+    });
+
+    match outcome {
+        vec_ext::MigrationOutcome::Migrated => {
+            let target = match args.target {
+                StorageMigrationTarget::VecExt => "sqlite-vec (v0)",
+                StorageMigrationTarget::Vec1 => "v1 BLOB",
+            };
+            println!("Migrated embedding storage to the {target} layout.");
+        }
+        vec_ext::MigrationOutcome::AlreadyOnTarget => {
+            println!("Embedding storage is already on that layout — nothing to do.");
+        }
     }
 }
 
@@ -893,26 +966,18 @@ fn run_init(args: InitArgs) {
         std::process::exit(1);
     }
 
-    // Phase 5.3: when the binary was built with `--features vec-ext`,
-    // convert the freshly-created v1 BLOB `vectors` table into the
-    // vec0 + vectors_meta pair so subsequent `coraline embed` and
-    // `coraline semantic-search` calls land in vec0 storage.
+    // Phase 5.3: a freshly-created project starts on the v1 BLOB
+    // layout, which every build can read and write. Converting it to
+    // the sqlite-vec v0 layout is an explicit, user-initiated
+    // operation (`coraline migrate vec-ext`) — doing it here would
+    // silently change the project's on-disk layout, and would leave
+    // the project unreadable by a default build.
     #[cfg(feature = "vec-ext")]
-    {
-        use coraline::vec_ext;
-        if vec_ext::VEC_EXT_ENABLED {
-            #[cfg(feature = "vec-ext")]
-            match vec_ext::migrate_to_vec0(&project_root) {
-                Ok(()) => {
-                    println!("vec-ext: converted vectors table to vec0.");
-                }
-                Err(err) => {
-                    eprintln!(
-                        "vec-ext: migration to vec0 failed ({err}). The BLOB table is still in place; rerun `coraline init` with `--force` or implement a manual migration."
-                    );
-                }
-            }
-        }
+    if coraline::vec_ext::VEC_EXT_ENABLED {
+        println!(
+            "vec-ext: this build supports the sqlite-vec (v0) layout. \
+             Run `coraline migrate vec-ext` to convert this project's embeddings."
+        );
     }
 
     // Create initial memory templates
