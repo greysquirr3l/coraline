@@ -324,6 +324,23 @@ fn test_extract_dart_module() {
 }
 
 #[test]
+fn test_extract_dart_annotated_method() {
+    let (_temp, conn) = index_fixture("dart-module");
+
+    // `@override double area() => 1.0;` — the annotation carries a `name`
+    // field of its own, but the method must still be named after its
+    // signature, not after the annotation.
+    assert_node(&conn, "function", "area");
+    assert_node(&conn, "class", "NamedShape");
+
+    // The annotation is not a declaration in its own right.
+    assert!(
+        !nodes_of_kind(&conn, "function").contains(&"override".to_string()),
+        "an annotation must not be extracted as a function"
+    );
+}
+
+#[test]
 fn test_extract_groovy_class() {
     let (_temp, conn) = index_fixture("groovy-module");
 
