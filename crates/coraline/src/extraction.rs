@@ -1965,6 +1965,14 @@ fn first_name_field(node: &TsNode, source: &str) -> Option<String> {
 
     let mut cursor = node.walk();
     for child in node.named_children(&mut cursor) {
+        // An annotation carries the name of the thing it annotates
+        // (`@override`), never the name of the declaration it hangs off.
+        // Dart puts annotations before the signature, so without this the
+        // first `name` field found belongs to the annotation and the
+        // method ends up named `override`.
+        if child.kind() == "annotation" {
+            continue;
+        }
         if let Some(found) = first_name_field(&child, source) {
             return Some(found);
         }
