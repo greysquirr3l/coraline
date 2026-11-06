@@ -923,7 +923,11 @@ pub static CONTRACTS: &[LanguageContract] = &[
             //
             // tree-sitter-dart 0.3.0 renamed this node from
             // `initialized_variable_definition`.
-            ("initialized_variable_declaration", NodeKind::Variable, false),
+            (
+                "initialized_variable_declaration",
+                NodeKind::Variable,
+                false,
+            ),
             // `import 'dart:math';`.
             ("import_or_export", NodeKind::Import, false),
         ],
