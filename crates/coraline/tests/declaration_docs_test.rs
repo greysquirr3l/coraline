@@ -236,3 +236,64 @@ fn xml_documentation_comments_keep_their_tags_but_not_their_marker() {
         Some("<summary>A shape with an area.</summary>")
     );
 }
+
+#[test]
+fn a_sync_reindexes_files_the_extractor_now_produces_more_for() {
+    let (temp, _conn) = indexed_fixture("rust-crate");
+    let root = temp.path().to_path_buf();
+
+    // Put the index in the state an older version of Coraline would have
+    // left it in: the fields empty, and the file's stored hash the
+    // unsalted one, so nothing but the extraction version distinguishes
+    // it from a fresh index.
+    {
+        let conn = db::open_database(&root).expect("open database");
+        conn.execute("UPDATE nodes SET docstring = NULL, signature = NULL", [])
+            .expect("clear the fields");
+        for (path, hash) in unsalted_hashes(&root) {
+            conn.execute(
+                "UPDATE files SET content_hash = ?1 WHERE path = ?2",
+                rusqlite::params![hash, path],
+            )
+            .expect("store the unsalted hash");
+        }
+        drop(conn);
+    }
+
+    let cfg = config::create_default_config(&root);
+    let result = extraction::sync(&root, &cfg, None).expect("sync");
+    assert!(
+        result.files_modified > 0,
+        "the sync should have re-indexed the fixture"
+    );
+
+    let conn = db::open_database(&root).expect("open database");
+    let (doc, sig) = doc_and_signature(&conn, "add");
+    assert_eq!(doc.as_deref(), Some("Add two numbers"));
+    assert_eq!(sig.as_deref(), Some("pub fn add(a: i32, b: i32) -> i32"));
+}
+
+/// The unsalted hash of every indexed file, and its path.
+///
+/// This is the hash an older version of Coraline would have stored — the
+/// content's own hash, with no extraction version mixed in.
+fn unsalted_hashes(root: &Path) -> Vec<(String, String)> {
+    let conn = db::open_database(root).expect("open database");
+    let mut stmt = conn
+        .prepare("SELECT path, content_hash FROM files")
+        .expect("prepare query");
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .expect("query files");
+
+    rows.map(|row| {
+        let (path, salted) = row.expect("file row");
+        let content = std::fs::read_to_string(root.join(&path)).expect("read the file");
+        let unsalted = coraline::utils::hash_sha256(&content);
+        assert_ne!(unsalted, salted, "the stored hash should be the salted one");
+        (path, unsalted)
+    })
+    .collect()
+}

@@ -35,7 +35,7 @@ use crate::types::{
     CodeGraphConfig, Edge, EdgeKind, ExtractionError, ExtractionErrorSeverity, FileRecord,
     Language, Node, NodeKind, UnresolvedReference, Visibility,
 };
-use crate::utils::{hash_sha256, node_id_for_symbol};
+use crate::utils::{content_hash, node_id_for_symbol};
 use tracing::{debug, info, warn};
 
 #[derive(Debug, Clone, Copy)]
@@ -108,7 +108,7 @@ fn parse_file_only(
         return None;
     }
 
-    let content_hash = hash_sha256(&content);
+    let content_hash = content_hash(&content);
     if existing_hashes
         .get(relative_path)
         .is_some_and(|h| *h == content_hash)
@@ -388,7 +388,7 @@ pub fn sync(
 
         let full_path = project_root.join(file);
         let content = fs::read_to_string(&full_path)?;
-        let content_hash = hash_sha256(&content);
+        let content_hash = content_hash(&content);
         let tracked = tracked_files.iter().find(|f| f.path == *file);
 
         if let Some(tracked) = tracked {
@@ -482,7 +482,7 @@ fn index_file(
         return Ok(None);
     }
 
-    let content_hash = hash_sha256(&content);
+    let content_hash = content_hash(&content);
     if let Some(existing) = db::get_file_record(conn, relative_path)? {
         if existing.content_hash == content_hash {
             return Ok(None);
@@ -571,6 +571,20 @@ fn index_file(
 
     Ok(Some((nodes.len(), extracted_edges.len())))
 }
+
+/// The hash of a file's content, salted with the extraction version.
+///
+/// The salt is what makes an upgrade that changes *what* is extracted
+/// visible to the incremental sync. Without it, a file whose content has
+/// not changed keeps its stored hash, the sync skips it, and the new
+/// fields never reach the index — the upgrade would look like it had
+/// done nothing until the user forced a full reindex.
+///
+/// Bump [`EXTRACTION_VERSION`] whenever the extractor starts producing
+/// different output for the same source: a new field on a node, a
+/// changed signature format, a different node kind for the same
+/// construct.
+pub const EXTRACTION_VERSION: &str = "2";
 
 /// Everything one file contributes to the graph.
 struct ExtractedFile {

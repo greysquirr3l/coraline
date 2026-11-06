@@ -13,6 +13,23 @@ pub fn hash_sha256(input: &str) -> String {
     hex::encode(result)
 }
 
+/// The hash a file's content is stored under in the index.
+///
+/// The salt is the extraction version, so a change to *what* the
+/// extractor produces invalidates the stored hashes of every file and
+/// the incremental sync re-indexes them. Without the salt, a file whose
+/// content has not changed is skipped and the change never reaches the
+/// index.
+///
+/// The version lives with the extractor rather than here, because it is
+/// the extractor's output that the salt describes.
+pub fn content_hash(content: &str) -> String {
+    hash_sha256(&format!(
+        "{}\u{0}{content}",
+        crate::extraction::EXTRACTION_VERSION
+    ))
+}
+
 /// Lossy `f64` → `f32` conversion using IEEE 754 bit manipulation.
 ///
 /// Avoids both `as f32` (`clippy::cast_possible_truncation`) and the

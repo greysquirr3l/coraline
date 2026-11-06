@@ -32,6 +32,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so a grammar rename fails a test instead of silently emptying the
   index again.
 
+  The content hash a file is stored under is now salted with the
+  extraction version. Without the salt, an upgrade that changes *what*
+  the extractor produces would leave the stored hashes untouched, the
+  incremental sync would skip every unchanged file, and the new fields
+  would never reach an existing project's index — the upgrade would look
+  like it had done nothing until the user forced a full reindex.
+
   ```rust
   // Before: every node had `docstring: None, signature: None`.
   // After:
