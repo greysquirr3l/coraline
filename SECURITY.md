@@ -10,6 +10,7 @@ project is in active development, so upgrading promptly is recommended.
 | 0.17.x  | :white_check_mark: |
 | 0.16.x  | :white_check_mark: |
 | < 0.16  | :x:                |
+
 `main` carries unreleased work and is not a supported target — use the
 latest release from [crates.io](https://crates.io/crates/coraline) or
 [GitHub Releases](https://github.com/greysquirr3l/coraline/releases).
@@ -70,7 +71,8 @@ Coraline is built with security in mind:
   - `crates/tree-sitter-blazor/bindings/rust/lib.rs` calls
     `LanguageFn::from_raw`, the standard tree-sitter binding pattern.
 - ✅ **Dependency scanning** - Automated security audits via GitHub Actions and `cargo-deny`
-- ✅ **Fuzz testing** - `cargo-fuzz` libFuzzer targets for the MCP JSON-RPC surface and the SQLite/FTS5 query layer, exercised nightly and on every PR via ClusterFuzzLite
+- ✅ **Fuzz testing** - `cargo-fuzz` libFuzzer targets for the MCP JSON-RPC surface and the SQLite/FTS5 
+  query layer, exercised nightly and on every PR via ClusterFuzzLite
 - ✅ **Code scanning** - CodeQL analysis (weekly) and `cargo-audit` dependency checks (daily)
 - ✅ **Local processing** - Your source code is never uploaded. The one
   outbound request Coraline makes is downloading the embedding model
