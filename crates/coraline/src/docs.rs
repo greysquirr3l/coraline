@@ -7,7 +7,8 @@
 //! * `Node::signature` — the declaration's header, i.e. the source text
 //!   from the start of the declaration up to the start of its body.
 //!
-//! Both are driven entirely by the per-language [`LanguageContract`] in
+//! Both are driven entirely by the per-language
+//! [`LanguageContract`](crate::grammar::LanguageContract) in
 //! [`crate::grammar`], so the grammar-specific knowledge (which node kinds
 //! carry a comment, which field holds the body, which markers a comment
 //! uses) stays declarative and is guarded by
