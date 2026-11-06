@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-11-06
+
+### Added
+
+- **`coraline::docs` is a new public module.** It exposes the
+  declaration-documentation and declaration-signature recovery that the
+  extractor now runs: `docstring_for`, `signature_for` and
+  `scope_docstring_for` return a declaration's documentation and its
+  header, given the node and the source it came from.
+
+  ```rust
+  let node = /* a Node from the graph */;
+  let doc = coraline::docs::docstring_for(&node, source, Language::Rust);
+  let sig = coraline::docs::signature_for(&node, source, Language::Rust);
+  ```
+
 ### Fixed
 
 - **`coraline_search_by_docstring` and `coraline_search_by_signature`
@@ -1314,7 +1330,7 @@ Both are additive and idempotent: `db::apply_incremental_migrations` gates on `P
 - `coraline_search`, `coraline_callers`, `coraline_callees`, `coraline_impact`, `coraline_context` MCP tools
 - Git post-commit hook integration
 
-[Unreleased]: https://github.com/greysquirr3l/coraline/compare/v0.17.1...HEAD
+[Unreleased]: https://github.com/greysquirr3l/coraline/compare/v0.18.0...HEAD
 [0.1.0]: https://github.com/greysquirr3l/coraline/releases/tag/v0.1.0
 [0.1.1]: https://github.com/greysquirr3l/coraline/compare/v0.1.0...v0.1.1
 [0.1.2]: https://github.com/greysquirr3l/coraline/compare/v0.1.1...v0.1.2
@@ -1357,3 +1373,4 @@ Both are additive and idempotent: `db::apply_incremental_migrations` gates on `P
 [0.16.0]: https://github.com/greysquirr3l/coraline/compare/v0.15.2...v0.16.0
 [0.17.0]: https://github.com/greysquirr3l/coraline/compare/v0.16.0...v0.17.0
 [0.17.1]: https://github.com/greysquirr3l/coraline/compare/v0.17.0...v0.17.1
+[0.18.0]: https://github.com/greysquirr3l/coraline/compare/v0.17.1...v0.18.0

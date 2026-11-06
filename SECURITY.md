@@ -7,6 +7,7 @@ project is in active development, so upgrading promptly is recommended.
 
 | Version | Supported          |
 | ------- | ------------------ |
+| 0.18.x  | :white_check_mark: |
 | 0.17.x  | :white_check_mark: |
 | 0.16.x  | :white_check_mark: |
 | < 0.16  | :x:                |
