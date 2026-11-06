@@ -445,6 +445,8 @@ Specialized lookups over indexed nodes, faster than full-text `coraline_search` 
 
 Find symbols by type signature pattern (case-insensitive substring match) — e.g. functions by return type or parameters.
 
+The signature of a node is its header without its body, whitespace-normalised: `pub fn divide(a: i32, b: i32) -> Result<i32, String>`. It is recovered from the source at extraction time, per language — see [Language Contract](architecture.html#language-contract) in the architecture guide.
+
 **Input:**
 
 | Parameter       | Type   | Required | Default  | Description                                                                 |
@@ -459,6 +461,8 @@ Find symbols by type signature pattern (case-insensitive substring match) — e.
 ### `coraline_search_by_docstring`
 
 Search symbols by documentation/comment content — find code by what it does, not just its name.
+
+The docstring of a node is the documentation attached to its declaration: a `///` or `//!` comment in Rust, a `/** … */` or `//` comment in TypeScript, a docstring in Python, and the equivalent in the other supported languages. It is recovered from the source at extraction time, per language — see [Language Contract](architecture.html#language-contract) in the architecture guide.
 
 **Input:**
 

@@ -16,7 +16,7 @@
 //!
 //! See issue #109.
 
-use coraline::grammar::{self, CalleeSource};
+use coraline::grammar::{self, CalleeSource, CommentSpec, DocSpec};
 use coraline::types::Language;
 use tree_sitter::Language as TsLanguage;
 
@@ -619,4 +619,115 @@ fn go_imports_live_in_import_spec() {
     assert!(has_node_kind(&ts, "import_declaration"));
     assert!(has_node_kind(&ts, "import_spec"));
     assert!(has_field(&ts, "path"));
+}
+
+/// Assert that every string the documentation contract names exists in the
+/// grammar it claims to describe.
+///
+/// The documentation extractor reads comment node kinds, comment fields and
+/// wrapper node kinds straight out of the contract. A grammar rename would
+/// otherwise silence the documentation — `coraline_search_by_docstring`
+/// would return nothing and nobody would know why.
+#[test]
+fn every_declared_documentation_kind_exists_in_its_grammar() {
+    for contract in grammar::CONTRACTS {
+        let ts = grammar_for(contract.language)
+            .expect("every contracted language has a grammar wired up in this test's match arm");
+
+        if let DocSpec::PrecedingComment { comment, wrappers } = contract.doc {
+            assert_comment_spec_exists(&ts, contract.language, "doc", &comment, wrappers);
+        }
+
+        if let Some(scope) = &contract.scope_doc {
+            assert_comment_spec_exists(&ts, contract.language, "scope_doc", scope, &[]);
+        }
+    }
+}
+
+/// Assert that every string a documentation-comment spec names exists in
+/// the grammar.
+fn assert_comment_spec_exists(
+    ts: &TsLanguage,
+    language: Language,
+    label: &str,
+    spec: &CommentSpec,
+    wrappers: &[&str],
+) {
+    for kind in spec.kinds {
+        assert!(
+            has_node_kind(ts, kind),
+            "{language:?}: {label} comment kind {kind:?} does not exist in the grammar"
+        );
+    }
+
+    if let Some(field) = spec.text_field {
+        assert!(
+            has_field(ts, field),
+            "{language:?}: {label} text field {field:?} does not exist in the grammar"
+        );
+    }
+
+    if let Some(field) = spec.marker_field {
+        assert!(
+            has_field(ts, field),
+            "{language:?}: {label} marker field {field:?} does not exist in the grammar"
+        );
+    }
+
+    for kind in wrappers {
+        assert!(
+            has_node_kind(ts, kind),
+            "{language:?}: {label} wrapper kind {kind:?} does not exist in the grammar"
+        );
+    }
+}
+
+/// Assert that every string the signature contract names exists in the
+/// grammar it claims to describe.
+#[test]
+fn every_declared_signature_kind_exists_in_its_grammar() {
+    for contract in grammar::CONTRACTS {
+        let ts = grammar_for(contract.language)
+            .expect("every contracted language has a grammar wired up in this test's match arm");
+
+        let signature = &contract.signature;
+
+        if let Some(path) = signature.body_path {
+            for segment in path.split('.') {
+                assert!(
+                    has_field(&ts, segment),
+                    "{:?}: signature body path segment {:?} does not exist in the grammar",
+                    contract.language,
+                    segment
+                );
+            }
+        }
+
+        for kind in signature.body_kinds {
+            assert!(
+                has_node_kind(&ts, kind),
+                "{:?}: signature body kind {:?} does not exist in the grammar",
+                contract.language,
+                kind
+            );
+        }
+
+        for kind in signature.header_kinds {
+            assert!(
+                has_node_kind(&ts, kind),
+                "{:?}: signature header kind {:?} does not exist in the grammar",
+                contract.language,
+                kind
+            );
+        }
+
+        if let DocSpec::BodyFirstString { body_field } = contract.doc {
+            assert!(
+                has_field(&ts, body_field),
+                "{:?}: docstring body field {:?} does not exist in the grammar",
+                contract.language,
+                body_field
+            );
+        }
+    }
 }

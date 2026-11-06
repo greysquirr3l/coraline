@@ -28,6 +28,7 @@ use tree_sitter::{Node as TsNode, Parser};
 
 use crate::config::is_language_supported;
 use crate::db;
+use crate::docs;
 use crate::grammar;
 use crate::resolution::ReferenceResolver;
 use crate::types::{
@@ -150,7 +151,7 @@ fn parse_file_only(
     };
     nodes.push(file_node);
 
-    let (mut extracted_nodes, edges, unresolved_refs) = extract_nodes(
+    let extracted = extract_nodes(
         project_root,
         relative_path,
         &content,
@@ -158,7 +159,14 @@ fn parse_file_only(
         now_ms,
         &file_node_id,
     );
-    nodes.append(&mut extracted_nodes);
+    let edges = extracted.edges;
+    let unresolved_refs = extracted.unresolved_refs;
+    // The file node is the first one pushed; it carries the file's own
+    // scope documentation.
+    if let Some(file) = nodes.first_mut() {
+        file.docstring = extracted.docstring;
+    }
+    nodes.extend(extracted.nodes);
 
     let metadata = fs::metadata(&full_path).ok()?;
     let file_record = FileRecord {
@@ -517,7 +525,7 @@ fn index_file(
     };
     nodes.push(file_node);
 
-    let (mut extracted_nodes, extracted_edges, unresolved_refs) = extract_nodes(
+    let extracted = extract_nodes(
         project_root,
         relative_path,
         &content,
@@ -525,7 +533,14 @@ fn index_file(
         now_ms,
         &file_node_id,
     );
-    nodes.append(&mut extracted_nodes);
+    let extracted_edges = extracted.edges;
+    let unresolved_refs = extracted.unresolved_refs;
+    // The file node is the first one pushed; it carries the file's own
+    // scope documentation.
+    if let Some(file) = nodes.first_mut() {
+        file.docstring = extracted.docstring;
+    }
+    nodes.extend(extracted.nodes);
 
     if !nodes.is_empty() {
         db::insert_nodes(conn, &nodes)?;
@@ -557,6 +572,29 @@ fn index_file(
     Ok(Some((nodes.len(), extracted_edges.len())))
 }
 
+/// Everything one file contributes to the graph.
+struct ExtractedFile {
+    /// The nodes declared in the file.
+    nodes: Vec<Node>,
+    /// The edges between them.
+    edges: Vec<Edge>,
+    /// References the resolution pass still has to resolve.
+    unresolved_refs: Vec<UnresolvedReference>,
+    /// The file's own documentation — Rust's `//!` module docs.
+    docstring: Option<String>,
+}
+
+impl ExtractedFile {
+    fn empty() -> Self {
+        Self {
+            nodes: Vec::new(),
+            edges: Vec::new(),
+            unresolved_refs: Vec::new(),
+            docstring: None,
+        }
+    }
+}
+
 fn extract_nodes(
     project_root: &Path,
     file_path: &str,
@@ -564,26 +602,33 @@ fn extract_nodes(
     language: Language,
     now_ms: i64,
     root_id: &str,
-) -> (Vec<Node>, Vec<Edge>, Vec<UnresolvedReference>) {
+) -> ExtractedFile {
     let mut parser = Parser::new();
     let ts_lang = match language_to_parser(language) {
         Some(ts_lang) => ts_lang,
-        None => return (Vec::new(), Vec::new(), Vec::new()),
+        None => return ExtractedFile::empty(),
     };
 
     if parser.set_language(&ts_lang).is_err() {
-        return (Vec::new(), Vec::new(), Vec::new());
+        return ExtractedFile::empty();
     }
 
     let tree = match parser.parse(source, None) {
         Some(tree) => tree,
-        None => return (Vec::new(), Vec::new(), Vec::new()),
+        None => return ExtractedFile::empty(),
     };
 
     // Markdown files use a specialised doc-structure extractor rather than
     // the generic code-symbol walker.
     if language == Language::Markdown {
-        return extract_markdown_nodes(file_path, source, tree.root_node(), root_id, now_ms);
+        let (nodes, edges, unresolved_refs) =
+            extract_markdown_nodes(file_path, source, tree.root_node(), root_id, now_ms);
+        return ExtractedFile {
+            nodes,
+            edges,
+            unresolved_refs,
+            docstring: None,
+        };
     }
 
     let mut nodes = Vec::new();
@@ -618,7 +663,17 @@ fn extract_nodes(
         &mut Vec::new(),
         &mut HashMap::new(),
     );
-    (nodes, edges, unresolved_refs)
+
+    // Rust's `//!` comments document the module the file declares, so they
+    // belong to the file node rather than to any declaration inside it.
+    let docstring = docs::scope_docstring_for(&tree.root_node(), source, language);
+
+    ExtractedFile {
+        nodes,
+        edges,
+        unresolved_refs,
+        docstring,
+    }
 }
 
 // ─── Markdown doc-structure extraction ──────────────────────────────────────
@@ -1169,8 +1224,8 @@ fn walk_tree_collect(
             end_line: end.row as i64 + 1,
             start_column: start.column as i64,
             end_column: end.column as i64,
-            docstring: None,
-            signature: None,
+            docstring: docs::docstring_for(&node, source, language),
+            signature: docs::signature_for(&node, source, language),
             visibility,
             is_exported,
             is_async: false,
@@ -2058,7 +2113,7 @@ fn add_import_nodes(
             end_line: end.row as i64 + 1,
             start_column: start.column as i64,
             end_column: end.column as i64,
-            docstring: None,
+            docstring: docs::docstring_for(node, source, language),
             signature: Some(signature),
             visibility: None,
             is_exported: false,
@@ -2826,7 +2881,7 @@ fn add_module_node(
         end_line: end.row as i64 + 1,
         start_column: start.column as i64,
         end_column: end.column as i64,
-        docstring: None,
+        docstring: docs::docstring_for(node, source, language),
         signature,
         visibility,
         is_exported,
@@ -2916,7 +2971,7 @@ fn add_export_nodes(
             end_line: end.row as i64 + 1,
             start_column: start.column as i64,
             end_column: end.column as i64,
-            docstring: None,
+            docstring: docs::docstring_for(node, source, language),
             signature: export.module_path,
             visibility: None,
             is_exported: true,
