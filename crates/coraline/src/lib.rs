@@ -9,6 +9,7 @@ pub mod clustering;
 pub mod config;
 pub mod context;
 pub mod db;
+pub mod docs;
 pub mod doctor;
 pub mod extraction;
 pub mod grammar;

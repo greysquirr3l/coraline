@@ -3,8 +3,10 @@ name: CI
 on:
   push:
     branches: [main]
+  # Every pull request, whatever it targets. A PR based on another PR's
+  # branch gets no signal at all when the filter names only `main`, and
+  # the branch it is based on is not going to be reviewed on its own.
   pull_request:
-    branches: [main]
 
 env:
   CARGO_TERM_COLOR: always

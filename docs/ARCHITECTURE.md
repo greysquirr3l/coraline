@@ -154,9 +154,54 @@ that every kind and field named in a contract exists in the grammar it
 claims to describe, so a grammar rename fails a test instead of silently
 disabling the language.
 
+### Documentation and Signatures
+
+Two `Node` fields are recovered from a declaration's *text* rather than
+from its shape: `docstring` (the documentation attached to the
+declaration) and `signature` (the declaration's header, without its
+body). `docs.rs` does the recovery, driven entirely by the contract, so
+the grammar-specific knowledge stays declarative:
+
+- `DocSpec::PrecedingComment` — the documentation is the run of comment
+  nodes immediately before the declaration. Rust distinguishes `///`
+  (documents what follows) from `//!` (documents the enclosing module)
+  through the grammar's `outer`/`inner` fields; the contract names the
+  field that counts. TypeScript's `export function add(…)` parses as an
+  `export_statement` around the `function_declaration`, so the contract
+  lists the wrapper kinds and the comment is looked for before the
+  wrapper.
+- `DocSpec::BodyFirstString` — the documentation is the first string
+  literal in the declaration's body (Python's docstring).
+- `scope_doc` — a scope-level comment that documents the file rather
+  than a declaration, such as Rust's `//!` module docs. These belong to
+  the `file` node.
+- `SignatureSpec` — where the declaration's body starts. Most grammars
+  expose the body through a field (`body_path`, possibly a dotted path
+  such as Erlang's `clause.body`); others expose it as a plain child
+  (`body_kinds`, e.g. Kotlin's `function_body`); and a few wrap the
+  header in a node of its own (`header_kinds`, e.g. Fortran's
+  `module_statement`), in which case the header node's text *is* the
+  signature.
+
+The signature text is whitespace-normalised, so a header that spans
+several lines stays on one line and remains searchable.
+
+Two MCP tools depend on these fields: `coraline_search_by_docstring`
+and `coraline_search_by_signature`. Both were dead before this module
+existed — the columns were written but never populated, so both
+answered "no matches" on every project.
+
 ### Incremental Sync
 
 `coraline sync` (and the git post-commit hook) uses `git diff --name-only HEAD~1` to find changed files, then re-parses only those files. Deleted files have their nodes pruned from the graph.
+
+A file is skipped when its content hash matches the one stored against
+it. That hash is salted with `extraction::EXTRACTION_VERSION`, so a
+change to *what* the extractor produces invalidates the stored hashes
+of every file and the next sync re-indexes them. Bumping the version is
+the signal that the extractor's output has changed — a new field on a
+node, a different signature format, a different node kind for the same
+construct.
 
 ---
 
