@@ -186,3 +186,53 @@ fn search_by_docstring_finds_declarations_by_their_documentation() {
         "expected `add` in {names:?}"
     );
 }
+
+#[test]
+fn a_doc_comment_on_a_nested_declaration_still_reaches_it() {
+    let (_temp, conn) = indexed_fixture("zig-module");
+
+    // `pub const Circle = struct { … }` — the struct is nested in the
+    // constant that names it, so the comment precedes the constant.
+    let (doc, sig) = doc_and_signature(&conn, "Circle");
+    assert_eq!(doc.as_deref(), Some("A circle with a radius."));
+    assert_eq!(sig.as_deref(), Some("struct {"));
+
+    let (doc, sig) = doc_and_signature(&conn, "area");
+    assert_eq!(doc.as_deref(), Some("The area of the circle."));
+    assert_eq!(sig.as_deref(), Some("pub fn area(self: Circle) f64"));
+}
+
+#[test]
+fn a_triple_slash_marker_is_stripped_whole() {
+    let (_temp, conn) = indexed_fixture("swift-multipackage");
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT docstring FROM nodes \
+             WHERE name = 'Circle' AND file_path LIKE '%Helper.swift'",
+        )
+        .expect("prepare query");
+    let mut rows = stmt.query([]).expect("query nodes");
+    let row = rows.next().expect("query rows").expect("circle row");
+    let doc: Option<String> = row.get(0).expect("read docstring");
+    assert_eq!(doc.as_deref(), Some("A circle with a radius."));
+}
+
+#[test]
+fn xml_documentation_comments_keep_their_tags_but_not_their_marker() {
+    let (_temp, conn) = indexed_fixture("csharp-multipackage");
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT docstring FROM nodes \
+             WHERE name = 'IShape' AND file_path LIKE '%Shape.cs'",
+        )
+        .expect("prepare query");
+    let mut rows = stmt.query([]).expect("query nodes");
+    let row = rows.next().expect("query rows").expect("ishape row");
+    let doc: Option<String> = row.get(0).expect("read docstring");
+    assert_eq!(
+        doc.as_deref(),
+        Some("<summary>A shape with an area.</summary>")
+    );
+}
