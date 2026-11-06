@@ -195,6 +195,14 @@ answered "no matches" on every project.
 
 `coraline sync` (and the git post-commit hook) uses `git diff --name-only HEAD~1` to find changed files, then re-parses only those files. Deleted files have their nodes pruned from the graph.
 
+A file is skipped when its content hash matches the one stored against
+it. That hash is salted with `extraction::EXTRACTION_VERSION`, so a
+change to *what* the extractor produces invalidates the stored hashes
+of every file and the next sync re-indexes them. Bumping the version is
+the signal that the extractor's output has changed — a new field on a
+node, a different signature format, a different node kind for the same
+construct.
+
 ---
 
 ## Reference Resolution
