@@ -920,7 +920,14 @@ pub static CONTRACTS: &[LanguageContract] = &[
             // `final double radius;` — a field.
             ("initialized_identifier", NodeKind::Field, false),
             // `var sum = 0.0;` — a local variable.
-            ("initialized_variable_definition", NodeKind::Variable, false),
+            //
+            // tree-sitter-dart 0.3.0 renamed this node from
+            // `initialized_variable_definition`.
+            (
+                "initialized_variable_declaration",
+                NodeKind::Variable,
+                false,
+            ),
             // `import 'dart:math';`.
             ("import_or_export", NodeKind::Import, false),
         ],
