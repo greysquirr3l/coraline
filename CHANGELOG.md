@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`coraline_search_by_docstring` and `coraline_search_by_signature`
+  always returned no matches.** Both tools search the `nodes.docstring`
+  and `nodes.signature` columns, but nothing ever wrote to them: the
+  extractor set `docstring: None` and `signature: None` on every node
+  it created. The columns existed, the schema was right, the tools were
+  registered — and the query they run was `WHERE docstring LIKE '%…%'`
+  against a table where every value was `NULL`.
+
+  Both fields are now recovered from the source. A declaration's
+  **docstring** is the documentation attached to it: a `///` comment in
+  Rust, a `/** … */` comment in TypeScript, a docstring in Python, and
+  the equivalent in every other supported language. A declaration's
+  **signature** is its header without its body —
+  `pub fn divide(a: i32, b: i32) -> Result<i32, String>`.
+
+  The grammar-specific knowledge lives in the language contract
+  (`crates/coraline/src/grammar.rs`), and the recovery itself in
+  `crates/coraline/src/docs.rs`. The contract test now checks the
+  comment kinds, comment fields, wrapper kinds, body paths and header
+  kinds of every language against the grammar they claim to describe,
+  so a grammar rename fails a test instead of silently emptying the
+  index again.
+
+  ```rust
+  // Before: every node had `docstring: None, signature: None`.
+  // After:
+  docstring: Some("Divide two numbers".to_string()),
+  signature: Some("pub fn divide(a: i32, b: i32) -> Result<i32, String>".to_string()),
+  ```
+
 ## [0.17.1] - 2026-10-28
 
 ### Fixed

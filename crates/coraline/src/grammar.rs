@@ -82,6 +82,111 @@ pub enum HeritageSource {
     ChildInContainer(&'static str, &'static str, &'static str),
 }
 
+/// The syntax of a language's documentation comments.
+///
+/// This is the part of a documentation comment's *shape* that the grammar
+/// decides: which node kinds carry a comment, whether the grammar splits the
+/// text from the marker, and which marker field distinguishes a real
+/// documentation comment from an ordinary one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CommentSpec {
+    /// Grammar node kinds that count as documentation comments.
+    pub kinds: &'static [&'static str],
+    /// Field holding the bare documentation text, when the grammar separates
+    /// the text from the comment marker.
+    ///
+    /// Rust's `doc` field holds `" Doc for foo."` without the `///` marker;
+    /// when it is `None` the comment's own source text is used and stripped
+    /// of its marker.
+    pub text_field: Option<&'static str>,
+    /// Field that must be present for the comment to count as documentation.
+    ///
+    /// Rust's `outer` field distinguishes `///` (outer) from `//!` (inner),
+    /// and only `outer` documents the item that follows it.
+    pub marker_field: Option<&'static str>,
+    /// Comment markers stripped from the front of the raw comment text,
+    /// longest first so `/**` is preferred over `/*`.
+    pub openers: &'static [&'static str],
+    /// Comment markers stripped from the end of the raw comment text.
+    pub closers: &'static [&'static str],
+}
+
+/// How a declaration's documentation text is recovered from its grammar node.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DocSpec {
+    /// The language has no documentation-comment concept.
+    None,
+    /// The documentation is a comment that *precedes* the declaration.
+    PrecedingComment {
+        /// The shape of the language's documentation comments.
+        comment: CommentSpec,
+        /// Grammar node kinds that *wrap* a declaration, such that the
+        /// documentation comment precedes the wrapper rather than the
+        /// declaration itself.
+        ///
+        /// TypeScript's `export function add(...)` parses as an
+        /// `export_statement` wrapping a `function_declaration`, and the
+        /// doc comment sits before the wrapper.
+        wrappers: &'static [&'static str],
+    },
+    /// The documentation is the first string literal in the declaration's
+    /// body (Python's docstring convention).
+    BodyFirstString {
+        /// Field holding the declaration's body.
+        body_field: &'static str,
+    },
+}
+
+/// How a declaration's signature text is recovered from its grammar node.
+///
+/// The signature is the source text from the start of the declaration up to
+/// the start of its body — that is, the declaration's *header*. For Rust
+/// `pub async fn plan<T>(x: u32) -> Result<T, E> { … }` the header is
+/// `pub async fn plan<T>(x: u32) -> Result<T, E>`, which is exactly what
+/// `coraline_search_by_signature` is advertised to match on (`"Result<"`,
+/// `"async fn"`, `"<T>"`, `"-> bool"`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SignatureSpec {
+    /// Field on the declaration node whose value starts the body. The
+    /// signature is the source text before that body starts.
+    ///
+    /// `None` means the declaration has no body to cut at (Rust's
+    /// `type_item`, TypeScript's `method_signature`, …) and the whole
+    /// declaration text is the signature.
+    /// Path to the declaration's body — the point where the signature ends.
+    ///
+    /// Most grammars expose the body through a field: Rust's
+    /// `function_item` has a `body` field, TypeScript's
+    /// `function_declaration` has a `body` field. The value may be a
+    /// dotted path when the body sits behind an intermediate node —
+    /// Erlang's `fun_decl` keeps its clause in a `clause` field and the
+    /// clause keeps its body in a `body` field, so the path is
+    /// `clause.body`.
+    pub body_path: Option<&'static str>,
+    /// Named child kinds that start the body when there is no `body_path`.
+    ///
+    /// The first named child of one of these kinds marks the end of the
+    /// signature. This covers grammars that expose the body as a plain
+    /// child rather than through a field — Kotlin's `function_body`,
+    /// Julia's `block`, Haskell's `match`.
+    pub body_kinds: &'static [&'static str],
+    /// A named child of one of these kinds *is* the signature.
+    ///
+    /// Fortran's `subroutine` node wraps its header in a
+    /// `subroutine_statement` child, so the header text is the signature
+    /// rather than the text in front of the body.
+    pub header_kinds: &'static [&'static str],
+}
+
+impl SignatureSpec {
+    /// A declaration whose whole text is its signature.
+    pub const WHOLE: Self = Self {
+        body_path: None,
+        body_kinds: &[],
+        header_kinds: &[],
+    };
+}
+
 /// A single language's mapping from grammar constructs to graph concepts.
 #[derive(Debug, Clone, Copy)]
 pub struct LanguageContract {
@@ -113,6 +218,16 @@ pub struct LanguageContract {
     /// organisation — in Rust, `src/runtime.rs` and `src/legacy/api.rs`
     /// share the `src` prefix and nothing else.
     pub directory_packages: bool,
+    /// How a declaration's documentation text is recovered.
+    pub doc: DocSpec,
+    /// How a *scope-level* documentation comment is recovered.
+    ///
+    /// Rust's `//!` comments document the module they appear in rather than
+    /// the item that follows them, so they belong to the file node instead
+    /// of a declaration. `None` for languages without the concept.
+    pub scope_doc: Option<CommentSpec>,
+    /// How a declaration's signature text is recovered.
+    pub signature: SignatureSpec,
 }
 
 /// One rule for recovering supertypes from a declaration.
@@ -234,6 +349,28 @@ pub static CONTRACTS: &[LanguageContract] = &[
             kind: HeritageKind::Implements,
         }]),
         directory_packages: false,
+        doc: DocSpec::PrecedingComment {
+            comment: CommentSpec {
+                kinds: &["line_comment", "block_comment"],
+                text_field: Some("doc"),
+                marker_field: Some("outer"),
+                openers: &["///", "//!"],
+                closers: &[],
+            },
+            wrappers: &[],
+        },
+        scope_doc: Some(CommentSpec {
+            kinds: &["line_comment", "block_comment"],
+            text_field: Some("doc"),
+            marker_field: Some("inner"),
+            openers: &["///", "//!"],
+            closers: &[],
+        }),
+        signature: SignatureSpec {
+            body_path: Some("body"),
+            body_kinds: &[],
+            header_kinds: &[],
+        },
     },
     LanguageContract {
         language: Language::TypeScript,
@@ -283,6 +420,22 @@ pub static CONTRACTS: &[LanguageContract] = &[
             },
         ]),
         directory_packages: false,
+        doc: DocSpec::PrecedingComment {
+            comment: CommentSpec {
+                kinds: &["comment"],
+                text_field: None,
+                marker_field: None,
+                openers: &["/**", "//"],
+                closers: &["*/"],
+            },
+            wrappers: &["export_statement"],
+        },
+        scope_doc: None,
+        signature: SignatureSpec {
+            body_path: Some("body"),
+            body_kinds: &[],
+            header_kinds: &[],
+        },
     },
     LanguageContract {
         language: Language::JavaScript,
@@ -321,6 +474,22 @@ pub static CONTRACTS: &[LanguageContract] = &[
             kind: HeritageKind::Extends,
         }]),
         directory_packages: false,
+        doc: DocSpec::PrecedingComment {
+            comment: CommentSpec {
+                kinds: &["comment"],
+                text_field: None,
+                marker_field: None,
+                openers: &["/**", "//"],
+                closers: &["*/"],
+            },
+            wrappers: &["export_statement"],
+        },
+        scope_doc: None,
+        signature: SignatureSpec {
+            body_path: Some("body"),
+            body_kinds: &[],
+            header_kinds: &[],
+        },
     },
     LanguageContract {
         language: Language::Python,
@@ -347,6 +516,13 @@ pub static CONTRACTS: &[LanguageContract] = &[
             kind: HeritageKind::Implements,
         }]),
         directory_packages: true,
+        doc: DocSpec::BodyFirstString { body_field: "body" },
+        scope_doc: None,
+        signature: SignatureSpec {
+            body_path: Some("body"),
+            body_kinds: &[],
+            header_kinds: &[],
+        },
     },
     LanguageContract {
         language: Language::Go,
@@ -370,6 +546,22 @@ pub static CONTRACTS: &[LanguageContract] = &[
         instantiation_kinds: &[],
         heritage: None,
         directory_packages: true,
+        doc: DocSpec::PrecedingComment {
+            comment: CommentSpec {
+                kinds: &["comment"],
+                text_field: None,
+                marker_field: None,
+                openers: &["//"],
+                closers: &[],
+            },
+            wrappers: &[],
+        },
+        scope_doc: None,
+        signature: SignatureSpec {
+            body_path: Some("body"),
+            body_kinds: &[],
+            header_kinds: &[],
+        },
     },
     LanguageContract {
         language: Language::Java,
@@ -412,6 +604,22 @@ pub static CONTRACTS: &[LanguageContract] = &[
             },
         ]),
         directory_packages: true,
+        doc: DocSpec::PrecedingComment {
+            comment: CommentSpec {
+                kinds: &["line_comment", "block_comment"],
+                text_field: None,
+                marker_field: None,
+                openers: &["/**", "/*", "//"],
+                closers: &["*/"],
+            },
+            wrappers: &[],
+        },
+        scope_doc: None,
+        signature: SignatureSpec {
+            body_path: Some("body"),
+            body_kinds: &[],
+            header_kinds: &[],
+        },
     },
     LanguageContract {
         language: Language::C,
@@ -436,6 +644,22 @@ pub static CONTRACTS: &[LanguageContract] = &[
         instantiation_kinds: &[],
         heritage: None,
         directory_packages: false,
+        doc: DocSpec::PrecedingComment {
+            comment: CommentSpec {
+                kinds: &["comment"],
+                text_field: None,
+                marker_field: None,
+                openers: &["/**", "/*", "//"],
+                closers: &["*/"],
+            },
+            wrappers: &[],
+        },
+        scope_doc: None,
+        signature: SignatureSpec {
+            body_path: Some("body"),
+            body_kinds: &[],
+            header_kinds: &[],
+        },
     },
     LanguageContract {
         language: Language::Cpp,
@@ -466,6 +690,22 @@ pub static CONTRACTS: &[LanguageContract] = &[
             kind: HeritageKind::Extends,
         }]),
         directory_packages: false,
+        doc: DocSpec::PrecedingComment {
+            comment: CommentSpec {
+                kinds: &["comment"],
+                text_field: None,
+                marker_field: None,
+                openers: &["/**", "/*", "//"],
+                closers: &["*/"],
+            },
+            wrappers: &[],
+        },
+        scope_doc: None,
+        signature: SignatureSpec {
+            body_path: Some("body"),
+            body_kinds: &[],
+            header_kinds: &[],
+        },
     },
     LanguageContract {
         language: Language::CSharp,
@@ -510,6 +750,22 @@ pub static CONTRACTS: &[LanguageContract] = &[
             kind: HeritageKind::Implements,
         }]),
         directory_packages: true,
+        doc: DocSpec::PrecedingComment {
+            comment: CommentSpec {
+                kinds: &["comment"],
+                text_field: None,
+                marker_field: None,
+                openers: &["/**", "/*", "//"],
+                closers: &["*/"],
+            },
+            wrappers: &[],
+        },
+        scope_doc: None,
+        signature: SignatureSpec {
+            body_path: Some("body"),
+            body_kinds: &[],
+            header_kinds: &[],
+        },
     },
     LanguageContract {
         language: Language::Php,
@@ -564,6 +820,22 @@ pub static CONTRACTS: &[LanguageContract] = &[
             kind: HeritageKind::Implements,
         }]),
         directory_packages: true,
+        doc: DocSpec::PrecedingComment {
+            comment: CommentSpec {
+                kinds: &["comment"],
+                text_field: None,
+                marker_field: None,
+                openers: &["/**", "/*", "//", "#"],
+                closers: &["*/"],
+            },
+            wrappers: &[],
+        },
+        scope_doc: None,
+        signature: SignatureSpec {
+            body_path: Some("body"),
+            body_kinds: &[],
+            header_kinds: &[],
+        },
     },
     LanguageContract {
         language: Language::Ruby,
@@ -588,6 +860,22 @@ pub static CONTRACTS: &[LanguageContract] = &[
             kind: HeritageKind::Extends,
         }]),
         directory_packages: false,
+        doc: DocSpec::PrecedingComment {
+            comment: CommentSpec {
+                kinds: &["comment"],
+                text_field: None,
+                marker_field: None,
+                openers: &["#"],
+                closers: &[],
+            },
+            wrappers: &[],
+        },
+        scope_doc: None,
+        signature: SignatureSpec {
+            body_path: Some("body"),
+            body_kinds: &[],
+            header_kinds: &[],
+        },
     },
     LanguageContract {
         language: Language::Swift,
@@ -610,6 +898,22 @@ pub static CONTRACTS: &[LanguageContract] = &[
             kind: HeritageKind::Implements,
         }]),
         directory_packages: true,
+        doc: DocSpec::PrecedingComment {
+            comment: CommentSpec {
+                kinds: &["comment", "multiline_comment"],
+                text_field: None,
+                marker_field: None,
+                openers: &["/**", "/*", "//"],
+                closers: &["*/"],
+            },
+            wrappers: &[],
+        },
+        scope_doc: None,
+        signature: SignatureSpec {
+            body_path: Some("body"),
+            body_kinds: &[],
+            header_kinds: &[],
+        },
     },
     LanguageContract {
         language: Language::Kotlin,
@@ -637,6 +941,22 @@ pub static CONTRACTS: &[LanguageContract] = &[
             kind: HeritageKind::Implements,
         }]),
         directory_packages: true,
+        doc: DocSpec::PrecedingComment {
+            comment: CommentSpec {
+                kinds: &["line_comment", "block_comment"],
+                text_field: None,
+                marker_field: None,
+                openers: &["/**", "/*", "//"],
+                closers: &["*/"],
+            },
+            wrappers: &[],
+        },
+        scope_doc: None,
+        signature: SignatureSpec {
+            body_path: None,
+            body_kinds: &["function_body", "class_body", "block"],
+            header_kinds: &[],
+        },
     },
     LanguageContract {
         language: Language::Blazor,
@@ -649,6 +969,24 @@ pub static CONTRACTS: &[LanguageContract] = &[
         instantiation_kinds: &[],
         heritage: None,
         directory_packages: false,
+        doc: DocSpec::PrecedingComment {
+            comment: CommentSpec {
+                kinds: &["comment", "razor_comment"],
+                text_field: None,
+                marker_field: None,
+                openers: &["<!--", "@*", "//"],
+                closers: &["-->", "*@"],
+            },
+            wrappers: &[],
+        },
+        scope_doc: None,
+        signature: SignatureSpec {
+            // A Blazor element has no body node: its markup is the
+            // signature.
+            body_path: None,
+            body_kinds: &[],
+            header_kinds: &[],
+        },
     },
     LanguageContract {
         language: Language::Perl,
@@ -693,6 +1031,22 @@ pub static CONTRACTS: &[LanguageContract] = &[
         // declaration, so there is no heritage node to read.
         heritage: None,
         directory_packages: false,
+        doc: DocSpec::PrecedingComment {
+            comment: CommentSpec {
+                kinds: &["comment"],
+                text_field: None,
+                marker_field: None,
+                openers: &["#"],
+                closers: &[],
+            },
+            wrappers: &[],
+        },
+        scope_doc: None,
+        signature: SignatureSpec {
+            body_path: Some("body"),
+            body_kinds: &[],
+            header_kinds: &[],
+        },
     },
     LanguageContract {
         language: Language::Toml,
@@ -707,6 +1061,13 @@ pub static CONTRACTS: &[LanguageContract] = &[
         instantiation_kinds: &[],
         heritage: None,
         directory_packages: false,
+        doc: DocSpec::None,
+        scope_doc: None,
+        signature: SignatureSpec {
+            body_path: None,
+            body_kinds: &[],
+            header_kinds: &[],
+        },
     },
     LanguageContract {
         language: Language::Yaml,
@@ -721,6 +1082,22 @@ pub static CONTRACTS: &[LanguageContract] = &[
         instantiation_kinds: &[],
         heritage: None,
         directory_packages: false,
+        doc: DocSpec::PrecedingComment {
+            comment: CommentSpec {
+                kinds: &["comment"],
+                text_field: None,
+                marker_field: None,
+                openers: &["#"],
+                closers: &[],
+            },
+            wrappers: &[],
+        },
+        scope_doc: None,
+        signature: SignatureSpec {
+            body_path: None,
+            body_kinds: &[],
+            header_kinds: &[],
+        },
     },
     LanguageContract {
         language: Language::Erlang,
@@ -755,6 +1132,24 @@ pub static CONTRACTS: &[LanguageContract] = &[
         instantiation_kinds: &[],
         heritage: None,
         directory_packages: false,
+        doc: DocSpec::PrecedingComment {
+            comment: CommentSpec {
+                kinds: &["comment"],
+                text_field: None,
+                marker_field: None,
+                openers: &["%"],
+                closers: &[],
+            },
+            wrappers: &[],
+        },
+        scope_doc: None,
+        signature: SignatureSpec {
+            // A `fun_decl` keeps its clause in a `clause` field, and the
+            // clause keeps its body in a `body` field.
+            body_path: Some("clause.body"),
+            body_kinds: &[],
+            header_kinds: &[],
+        },
     },
     LanguageContract {
         language: Language::Elm,
@@ -777,6 +1172,22 @@ pub static CONTRACTS: &[LanguageContract] = &[
         instantiation_kinds: &[],
         heritage: None,
         directory_packages: false,
+        doc: DocSpec::PrecedingComment {
+            comment: CommentSpec {
+                kinds: &["line_comment", "block_comment"],
+                text_field: None,
+                marker_field: None,
+                openers: &["{-", "--"],
+                closers: &["-}"],
+            },
+            wrappers: &[],
+        },
+        scope_doc: None,
+        signature: SignatureSpec {
+            body_path: Some("body"),
+            body_kinds: &[],
+            header_kinds: &[],
+        },
     },
     LanguageContract {
         language: Language::Bash,
@@ -798,6 +1209,22 @@ pub static CONTRACTS: &[LanguageContract] = &[
         instantiation_kinds: &[],
         heritage: None,
         directory_packages: false,
+        doc: DocSpec::PrecedingComment {
+            comment: CommentSpec {
+                kinds: &["comment"],
+                text_field: None,
+                marker_field: None,
+                openers: &["#"],
+                closers: &[],
+            },
+            wrappers: &[],
+        },
+        scope_doc: None,
+        signature: SignatureSpec {
+            body_path: Some("body"),
+            body_kinds: &[],
+            header_kinds: &[],
+        },
     },
     LanguageContract {
         language: Language::Elixir,
@@ -821,6 +1248,22 @@ pub static CONTRACTS: &[LanguageContract] = &[
         instantiation_kinds: &[],
         heritage: None,
         directory_packages: false,
+        doc: DocSpec::PrecedingComment {
+            comment: CommentSpec {
+                kinds: &["comment"],
+                text_field: None,
+                marker_field: None,
+                openers: &["#"],
+                closers: &[],
+            },
+            wrappers: &[],
+        },
+        scope_doc: None,
+        signature: SignatureSpec {
+            body_path: None,
+            body_kinds: &["do_block"],
+            header_kinds: &[],
+        },
     },
     LanguageContract {
         language: Language::Powershell,
@@ -843,6 +1286,22 @@ pub static CONTRACTS: &[LanguageContract] = &[
         instantiation_kinds: &[],
         heritage: None,
         directory_packages: false,
+        doc: DocSpec::PrecedingComment {
+            comment: CommentSpec {
+                kinds: &["comment"],
+                text_field: None,
+                marker_field: None,
+                openers: &["<#", "#"],
+                closers: &["#>"],
+            },
+            wrappers: &[],
+        },
+        scope_doc: None,
+        signature: SignatureSpec {
+            body_path: None,
+            body_kinds: &["script_block"],
+            header_kinds: &[],
+        },
     },
     LanguageContract {
         language: Language::Nix,
@@ -866,6 +1325,22 @@ pub static CONTRACTS: &[LanguageContract] = &[
         instantiation_kinds: &[],
         heritage: None,
         directory_packages: false,
+        doc: DocSpec::PrecedingComment {
+            comment: CommentSpec {
+                kinds: &["comment"],
+                text_field: None,
+                marker_field: None,
+                openers: &["#[", "#", "/*"],
+                closers: &["]#", "*/"],
+            },
+            wrappers: &[],
+        },
+        scope_doc: None,
+        signature: SignatureSpec {
+            body_path: Some("body"),
+            body_kinds: &[],
+            header_kinds: &[],
+        },
     },
     LanguageContract {
         language: Language::Groovy,
@@ -901,6 +1376,22 @@ pub static CONTRACTS: &[LanguageContract] = &[
             kind: HeritageKind::Extends,
         }]),
         directory_packages: false,
+        doc: DocSpec::PrecedingComment {
+            comment: CommentSpec {
+                kinds: &["line_comment", "block_comment"],
+                text_field: None,
+                marker_field: None,
+                openers: &["/**", "/*", "//"],
+                closers: &["*/"],
+            },
+            wrappers: &[],
+        },
+        scope_doc: None,
+        signature: SignatureSpec {
+            body_path: Some("body"),
+            body_kinds: &[],
+            header_kinds: &[],
+        },
     },
     LanguageContract {
         language: Language::Dart,
@@ -947,6 +1438,27 @@ pub static CONTRACTS: &[LanguageContract] = &[
             kind: HeritageKind::Extends,
         }]),
         directory_packages: false,
+        doc: DocSpec::PrecedingComment {
+            comment: CommentSpec {
+                kinds: &[
+                    "documentation_comment",
+                    "documentation_block_comment",
+                    "comment",
+                    "block_comment",
+                ],
+                text_field: None,
+                marker_field: None,
+                openers: &["/**", "///", "/*", "//"],
+                closers: &["*/"],
+            },
+            wrappers: &[],
+        },
+        scope_doc: None,
+        signature: SignatureSpec {
+            body_path: Some("body"),
+            body_kinds: &[],
+            header_kinds: &[],
+        },
     },
     LanguageContract {
         language: Language::Zig,
@@ -978,6 +1490,25 @@ pub static CONTRACTS: &[LanguageContract] = &[
         instantiation_kinds: &[],
         heritage: None,
         directory_packages: false,
+        doc: DocSpec::PrecedingComment {
+            comment: CommentSpec {
+                kinds: &["comment"],
+                text_field: None,
+                marker_field: None,
+                openers: &["//"],
+                closers: &[],
+            },
+            wrappers: &[],
+        },
+        scope_doc: None,
+        signature: SignatureSpec {
+            // A Zig function exposes its block through the `body` field,
+            // but a container has no body node at all: its members are
+            // direct children of the declaration.
+            body_path: Some("body"),
+            body_kinds: &["container_field", "function_declaration"],
+            header_kinds: &[],
+        },
     },
     LanguageContract {
         language: Language::Scala,
@@ -1014,6 +1545,22 @@ pub static CONTRACTS: &[LanguageContract] = &[
             kind: HeritageKind::Extends,
         }]),
         directory_packages: false,
+        doc: DocSpec::PrecedingComment {
+            comment: CommentSpec {
+                kinds: &["comment", "block_comment"],
+                text_field: None,
+                marker_field: None,
+                openers: &["/**", "/*", "//"],
+                closers: &["*/"],
+            },
+            wrappers: &[],
+        },
+        scope_doc: None,
+        signature: SignatureSpec {
+            body_path: Some("body"),
+            body_kinds: &[],
+            header_kinds: &[],
+        },
     },
     LanguageContract {
         language: Language::Fortran,
@@ -1059,6 +1606,34 @@ pub static CONTRACTS: &[LanguageContract] = &[
             kind: HeritageKind::Extends,
         }]),
         directory_packages: false,
+        doc: DocSpec::PrecedingComment {
+            comment: CommentSpec {
+                kinds: &["comment"],
+                text_field: None,
+                marker_field: None,
+                openers: &["!"],
+                closers: &[],
+            },
+            wrappers: &[],
+        },
+        scope_doc: None,
+        signature: SignatureSpec {
+            // A Fortran declaration keeps its header in a statement node of
+            // its own: `module geometry` is a `module_statement`, a
+            // derived type is a `derived_type_statement`.
+            body_path: None,
+            body_kinds: &[],
+            header_kinds: &[
+                "module_statement",
+                "submodule_statement",
+                "program_statement",
+                "interface_statement",
+                "subroutine_statement",
+                "function_statement",
+                "derived_type_statement",
+                "block_data_statement",
+            ],
+        },
     },
     LanguageContract {
         language: Language::Haskell,
@@ -1100,6 +1675,26 @@ pub static CONTRACTS: &[LanguageContract] = &[
             kind: HeritageKind::Implements,
         }]),
         directory_packages: false,
+        doc: DocSpec::PrecedingComment {
+            comment: CommentSpec {
+                kinds: &["comment", "haddock"],
+                text_field: None,
+                marker_field: None,
+                openers: &["{-", "-- |", "-- ^", "--"],
+                closers: &["-}"],
+            },
+            wrappers: &[],
+        },
+        scope_doc: None,
+        signature: SignatureSpec {
+            // A Haskell function keeps its right-hand side in a `match`
+            // child, a class its members in `declarations` and a data type
+            // its constructors in `data_constructors`. The module header
+            // sits in a `header` node of its own.
+            body_path: None,
+            body_kinds: &["match", "data_constructors", "deriving", "declarations"],
+            header_kinds: &["header"],
+        },
     },
     LanguageContract {
         language: Language::Julia,
@@ -1152,6 +1747,24 @@ pub static CONTRACTS: &[LanguageContract] = &[
             kind: HeritageKind::Extends,
         }]),
         directory_packages: false,
+        doc: DocSpec::PrecedingComment {
+            comment: CommentSpec {
+                kinds: &["line_comment", "block_comment"],
+                text_field: None,
+                marker_field: None,
+                openers: &["#=", "#"],
+                closers: &["=#"],
+            },
+            wrappers: &[],
+        },
+        scope_doc: None,
+        signature: SignatureSpec {
+            // A Julia definition keeps its parameters in a `signature`
+            // node and its fields in `typed_expression` children.
+            body_path: None,
+            body_kinds: &["typed_expression"],
+            header_kinds: &["signature"],
+        },
     },
     LanguageContract {
         language: Language::Lua,
@@ -1173,6 +1786,22 @@ pub static CONTRACTS: &[LanguageContract] = &[
         instantiation_kinds: &[],
         heritage: None,
         directory_packages: false,
+        doc: DocSpec::PrecedingComment {
+            comment: CommentSpec {
+                kinds: &["comment"],
+                text_field: None,
+                marker_field: None,
+                openers: &["--"],
+                closers: &[],
+            },
+            wrappers: &[],
+        },
+        scope_doc: None,
+        signature: SignatureSpec {
+            body_path: Some("body"),
+            body_kinds: &[],
+            header_kinds: &[],
+        },
     },
     LanguageContract {
         language: Language::Matlab,
@@ -1203,6 +1832,25 @@ pub static CONTRACTS: &[LanguageContract] = &[
             kind: HeritageKind::Extends,
         }]),
         directory_packages: false,
+        doc: DocSpec::PrecedingComment {
+            comment: CommentSpec {
+                kinds: &["comment"],
+                text_field: None,
+                marker_field: None,
+                openers: &["%{", "%"],
+                closers: &["%}"],
+            },
+            wrappers: &[],
+        },
+        scope_doc: None,
+        signature: SignatureSpec {
+            // A class keeps its sections in `properties`, `methods`,
+            // `events` and `enumeration` children; a function keeps its
+            // body in a `block` child.
+            body_path: None,
+            body_kinds: &["block", "properties", "methods", "events", "enumeration"],
+            header_kinds: &[],
+        },
     },
     LanguageContract {
         language: Language::R,
@@ -1222,5 +1870,21 @@ pub static CONTRACTS: &[LanguageContract] = &[
         instantiation_kinds: &[],
         heritage: None,
         directory_packages: false,
+        doc: DocSpec::PrecedingComment {
+            comment: CommentSpec {
+                kinds: &["comment"],
+                text_field: None,
+                marker_field: None,
+                openers: &["#"],
+                closers: &[],
+            },
+            wrappers: &[],
+        },
+        scope_doc: None,
+        signature: SignatureSpec {
+            body_path: Some("body"),
+            body_kinds: &[],
+            header_kinds: &[],
+        },
     },
 ];
