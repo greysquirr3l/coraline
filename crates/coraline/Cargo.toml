@@ -27,7 +27,7 @@ clap = { version = "4", features = ["derive"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 tracing-appender = "0.2"
-rusqlite = { version = "0.41", features = ["bundled"] }
+rusqlite = { version = "0.43", features = ["bundled"] }
 sha2 = "0.11"
 hex = "0.4"
 regex = "1"
@@ -51,7 +51,7 @@ tree-sitter-go = "0.25"
 tree-sitter-java = "0.23"
 tree-sitter-c = "0.24"
 tree-sitter-cpp = "0.23"
-tree-sitter-c-sharp = "0.23"
+tree-sitter-c-sharp = "0.24"
 tree-sitter-ruby = "0.23"
 tree-sitter-blazor = { version = "0.4.2", path = "../tree-sitter-blazor" }
 
@@ -60,7 +60,7 @@ tree-sitter-bash = "0.25.1"
 tree-sitter-dart = "0.3.0"
 tree-sitter-elixir = "0.3.5"
 tree-sitter-elm = "5.9.0"
-tree-sitter-erlang = "0.21.0"
+tree-sitter-erlang = "0.22.0"
 tree-sitter-fortran = "0.6.0"
 tree-sitter-groovy = "0.1.2"
 tree-sitter-haskell = "0.24.1"
@@ -95,7 +95,7 @@ insta = "1.47"
 regex = "1"
 proptest = "1"
 criterion = { version = "0.8", features = ["html_reports"] }
-rusqlite = { version = "0.41", features = ["bundled"] }
+rusqlite = { version = "0.43", features = ["bundled"] }
 
 [[bench]]
 name = "indexing"
